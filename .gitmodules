@@ -1,6 +1,10 @@
 [submodule "bootloader"]
 	path = bootloader
 	url = https://github.com/deltaoperatingsystem/bootloader
+	branch = main
+	update = rebase
 [submodule "kernel"]
 	path = kernel
 	url = https://github.com/deltaoperatingsystem/kernel
+	branch = main
+	update = rebase
