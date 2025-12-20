@@ -50,6 +50,7 @@ extern void *isr_stub_table[];
 
 void test(void) {
     serial_write("recieved int 32\n");
+    pic_send_eoi(0);
 }
 
 __asm__ (

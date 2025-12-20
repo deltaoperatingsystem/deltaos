@@ -4,5 +4,6 @@
 #include <types.h>
 
 void pit_setfreq(uint32 hz);
+void pit_init(uint32 hz);
 
 #endif

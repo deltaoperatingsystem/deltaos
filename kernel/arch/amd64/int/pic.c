@@ -3,9 +3,9 @@
 
 #define PIC1            0x20
 #define PIC2            0xA0
-#define PIC1_CMD    PIC1
+#define PIC1_CMD        PIC1
 #define PIC1_DATA       (PIC1 + 1)
-#define PIC2_CMD    PIC2
+#define PIC2_CMD        PIC2
 #define PIC2_DATA       (PIC2 + 1)
 
 #define PIC_EOI         0x20
@@ -42,9 +42,9 @@ void pic_remap(uint8 vector1, uint8 vector2) {
 	outb(PIC1_DATA, ICW4_8086);               // ICW4: have the PICs use 8086 mode (and not 8080 mode)
 	outb(PIC2_DATA, ICW4_8086);
 
-	// Unmask both PICs.
-	outb(PIC1_DATA, 0);
-	outb(PIC2_DATA, 0);
+	// Mask both PICs.
+	outb(PIC1_DATA, 0xFF);
+	outb(PIC2_DATA, 0xFF);
 }
 
 // use this if/when switching to apic
