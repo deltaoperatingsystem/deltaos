@@ -1,5 +1,5 @@
-#ifndef _IO_PORT_H
-#define _IO_PORT_H
+#ifndef IO_PORT_H
+#define IO_PORT_H
 
 #include <types.h>
 

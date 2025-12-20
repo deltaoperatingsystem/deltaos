@@ -1,5 +1,5 @@
 #include <types.h>
-#include <arch/amd64/io/port.h>
+#include <io/port.h>
 
 #define COM1 0x3F8
 #define COM2 0x2F8
