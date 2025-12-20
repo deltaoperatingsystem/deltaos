@@ -12,7 +12,6 @@
 
 void pic_send_eoi(uint8 irq) {
     if (irq >= 8) outb(PIC2_CMD, PIC_EOI);
-
     outb(PIC1_CMD, PIC_EOI);
 }
 
@@ -30,6 +29,12 @@ void pic_send_eoi(uint8 irq) {
 
 #define CASCADE_IRQ 2
 
+// use this if/when switching to apic
+void pic_disable(void) {
+    outb(PIC1_DATA, 0xFF);
+    outb(PIC2_DATA, 0xFF);
+}
+
 void pic_remap(uint8 vector1, uint8 vector2) {
 	outb(PIC1_CMD, ICW1_INIT | ICW1_ICW4);  // starts the initialization sequence (in cascade mode)
 	outb(PIC2_CMD, ICW1_INIT | ICW1_ICW4);
@@ -42,15 +47,8 @@ void pic_remap(uint8 vector1, uint8 vector2) {
 	outb(PIC1_DATA, ICW4_8086);               // ICW4: have the PICs use 8086 mode (and not 8080 mode)
 	outb(PIC2_DATA, ICW4_8086);
 
-	// Mask both PICs.
-	outb(PIC1_DATA, 0xFF);
-	outb(PIC2_DATA, 0xFF);
-}
-
-// use this if/when switching to apic
-void pic_disable(void) {
-    outb(PIC1_DATA, 0xFF);
-    outb(PIC2_DATA, 0xFF);
+	// Disable it for now
+    pic_disable();
 }
 
 void pic_set_mask(uint8 irqline) {

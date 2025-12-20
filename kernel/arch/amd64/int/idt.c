@@ -2,6 +2,7 @@
 #include <int/gdt.h>
 #include <int/pic.h>
 #include <drivers/serial.h>
+#include <drivers/keyboard.h>
 
 struct idt_entry {
 	uint16    isr_low;      // The lower 16 bits of the ISR's address
@@ -30,35 +31,41 @@ static void irq0_handler(void) {
     serial_write("tick\n");
 }
 
-void exception_handler(uint64 vector, uint64 error_code) {
-    //check if this is an IRQ (vectors 32-47 after PIC remap to 0x20)
-    if (vector >= 32 && vector < 48) {
+uint64 ticks = 0;
+
+void irq0_handler(void) {
+    ticks++;
+}
+
+void interrupt_handler(uint64 vector, uint64 error_code) {
+    if (vector < 32) {
+        serial_write("\nEXCEPTION\n");
+        serial_write("Vector:     ");
+        serial_write_hex(vector);
+        serial_write("\nError Code: ");
+        serial_write_hex(error_code);
+        serial_write("\n");
+        return;
+    } else {
         uint8 irq = vector - 32;
         
-        //dispatch to specific IRQ handlers
         switch (irq) {
             case 0:
                 irq0_handler();
                 break;
+            case 1:
+                keyboard_irq();
+                break;
             default:
                 serial_write("Unhandled IRQ: ");
                 serial_write_hex(irq);
-                serial_write("\n");
+                serial_write_char('\n');
                 break;
         }
-        
-        //send EOI to PIC
+
         pic_send_eoi(irq);
         return;
     }
-    
-    //when CPU exception print info
-    serial_write("\nEXCEPTION\n");
-    serial_write("Vector:     ");
-    serial_write_hex(vector);
-    serial_write("\nError Code: ");
-    serial_write_hex(error_code);
-    serial_write("\n");
 }
 
 void idt_setgate(uint8 vector, void *isr, uint8 flags) {

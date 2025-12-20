@@ -11,7 +11,7 @@ isr_stub_%+%1:
     jmp common_stub
 %endmacro
 
-extern exception_handler
+extern interrupt_handler
 
 common_stub:
     ;save all caller-saved registers
@@ -30,7 +30,7 @@ common_stub:
     ;[rsp + 80] = error code
     mov rdi, [rsp + 72] ;vector -> first arg
     mov rsi, [rsp + 80] ;error code -> second arg
-    call exception_handler
+    call interrupt_handler
 
     ;restore registers
     pop r11
