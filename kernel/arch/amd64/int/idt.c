@@ -71,13 +71,6 @@ void idt_setgate(uint8 vector, void *isr, uint8 flags) {
     gate->isr_mid = ((uint64)isr >> 16) & 0xFFFF;
     gate->isr_high = ((uint64)isr >> 32) & 0xFFFFFFFF;
     gate->reserved = 0;
-    gate->isr_low = (uint64)isr & 0xFFFF;
-    gate->kernel_cs = GDT_KERNEL_CODE;
-    gate->ist = 0;
-    gate->attributes = flags;
-    gate->isr_mid = ((uint64)isr >> 16) & 0xFFFF;
-    gate->isr_high = ((uint64)isr >> 32) & 0xFFFFFFFF;
-    gate->reserved = 0;
 }
 
 
@@ -88,7 +81,6 @@ void idt_init(void) {
 
     //install handlers for all 256 vectors
     for (int vector = 0; vector < 256; vector++) {
-        idt_setgate(vector, isr_stub_table[vector], 0x8E);
         idt_setgate(vector, isr_stub_table[vector], 0x8E);
     }
 
