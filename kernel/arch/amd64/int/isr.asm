@@ -49,6 +49,7 @@ common_stub:
     ;return from interrupt
     iretq
 
+;CPU exceptions (0-31)
 isr_no_err_stub 0
 isr_no_err_stub 1
 isr_no_err_stub 2
@@ -82,10 +83,18 @@ isr_no_err_stub 29
 isr_err_stub    30
 isr_no_err_stub 31
 
+;IRQs and software interrupts (32-255)
+;none of these push error codes
+%assign i 32
+%rep 224
+    isr_no_err_stub i
+%assign i i+1
+%endrep
+
 global isr_stub_table
 isr_stub_table:
 %assign i 0
-%rep    32
+%rep 256
     dq isr_stub_%+i
 %assign i i+1
 %endrep

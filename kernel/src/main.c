@@ -9,7 +9,7 @@ int main() {
 
     idt_init();
     serial_write("IDT initialized triggering int $3 t test\n");
-    __asm__ volatile ("int $3");
+    __asm__ volatile ("int $80");
     serial_write("returned from interrupt\n");
     
     return 0;

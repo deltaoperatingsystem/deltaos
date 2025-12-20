@@ -12,10 +12,10 @@ struct idt_entry {
 	uint32    reserved;     // Set to zero
 } __attribute__((packed));
 
-#define IDT_MAX_DESCRIPTORS 255
+#define IDT_MAX_DESCRIPTORS 256
 
 __attribute__((aligned(0x10)))
-static struct idt_entry idt[IDT_MAX_DESCRIPTORS + 1];
+static struct idt_entry idt[IDT_MAX_DESCRIPTORS];
 
 struct idtr  {
     uint16 limit;
@@ -30,6 +30,7 @@ void exception_handler(uint64 vector, uint64 error_code) {
     serial_write_hex(vector);
     serial_write("\nError Code: ");
     serial_write_hex(error_code);
+    serial_write("\n");
 }
 
 void idt_set_descriptor(uint8 vector, void *isr, uint8 flags) {
@@ -44,8 +45,6 @@ void idt_set_descriptor(uint8 vector, void *isr, uint8 flags) {
     descriptor->reserved = 0;
 }
 
-static bool vectors[IDT_MAX_DESCRIPTORS];
-
 extern void *isr_stub_table[];
 
 void idt_init(void) {
@@ -53,11 +52,11 @@ void idt_init(void) {
     idtr.base = (uintptr)&idt[0];
     idtr.limit = (uint16)sizeof(idt) - 1;
 
-    for (uint8 vector = 0; vector < 32; vector++) {
+    //install handlers for all 256 vectors
+    for (int vector = 0; vector < 256; vector++) {
         idt_set_descriptor(vector, isr_stub_table[vector], 0x8E);
-        vectors[vector] = true;
     }
 
-    __asm__ volatile ("lidt %0" : : "m"(idtr)); // load the idt
-    __asm__ volatile ("sti"); // sets the interrupt flag
+    __asm__ volatile ("lidt %0" : : "m"(idtr)); //load the idt
+    __asm__ volatile ("sti"); //sets the interrupt flag
 }
