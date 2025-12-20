@@ -37,3 +37,11 @@ void serial_write(const char* s) {
         serial_write_char(*s++);
     }
 }
+
+void serial_write_hex(uint64 n) {
+    char const* hex = "0123456789ABCDEF";
+    serial_write("0x");
+    for (int i = 60; i >= 0; i -= 4) {
+        serial_write_char(hex[(n >> i) & 0xF]);
+    }
+}

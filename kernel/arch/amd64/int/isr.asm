@@ -1,15 +1,54 @@
 %macro isr_err_stub 1
 isr_stub_%+%1:
-    call exception_handler
-    iretq
+    push qword %1       ;push vector (error code already on stack from CPU)
+    jmp common_stub
 %endmacro
+
 %macro isr_no_err_stub 1
 isr_stub_%+%1:
-    call exception_handler
-    iretq
+    push qword 0        ;push dummy error code
+    push qword %1       ;push vector
+    jmp common_stub
 %endmacro
 
 extern exception_handler
+
+common_stub:
+    ;save all caller-saved registers
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+
+    ;stack layout after pushes:
+    ;[rsp + 72] = vector
+    ;[rsp + 80] = error code
+    mov rdi, [rsp + 72] ;vector -> first arg
+    mov rsi, [rsp + 80] ;error code -> second arg
+    call exception_handler
+
+    ;restore registers
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rax
+
+    ;remove vector and error code from stack
+    add rsp, 16
+
+    ;return from interrupt
+    iretq
+
 isr_no_err_stub 0
 isr_no_err_stub 1
 isr_no_err_stub 2
@@ -45,8 +84,8 @@ isr_no_err_stub 31
 
 global isr_stub_table
 isr_stub_table:
-%assign i 0 
-%rep    32 
+%assign i 0
+%rep    32
     dq isr_stub_%+i
-%assign i i+1 
+%assign i i+1
 %endrep

@@ -1,4 +1,6 @@
 #include <types.h>
+#include "gdt.h"
+#include <drivers/serial.h>
 
 struct idt_entry {
 	uint16    isr_low;      // The lower 16 bits of the ISR's address
@@ -22,19 +24,19 @@ struct idtr  {
 
 static struct idtr idtr;
 
-__attribute__((noreturn))
-void exception_handler(void) {
-    __asm__ volatile ("cli; hlt"); // hangs the cpu on error
+void exception_handler(uint64 vector, uint64 error_code) {
+    serial_write("\nEXCEPTION\n");
+    serial_write("Vector:     ");
+    serial_write_hex(vector);
+    serial_write("\nError Code: ");
+    serial_write_hex(error_code);
 }
-
-
-#define GDT_OFFSET_KERNEL_CODE 0
 
 void idt_set_descriptor(uint8 vector, void *isr, uint8 flags) {
     struct idt_entry *descriptor = &idt[vector];
 
     descriptor->isr_low = (uint64)isr & 0xFFFF;
-    descriptor->kernel_cs = GDT_OFFSET_KERNEL_CODE; // TODO: GDT
+    descriptor->kernel_cs = GDT_KERNEL_CODE;
     descriptor->ist = 0;
     descriptor->attributes = flags;
     descriptor->isr_mid = ((uint64)isr >> 16) & 0xFFFF;
@@ -47,8 +49,9 @@ static bool vectors[IDT_MAX_DESCRIPTORS];
 extern void *isr_stub_table[];
 
 void idt_init(void) {
+    gdt_init();
     idtr.base = (uintptr)&idt[0];
-    idtr.limit = (uint16)sizeof(struct idt_entry) * IDT_MAX_DESCRIPTORS - 1;
+    idtr.limit = (uint16)sizeof(idt) - 1;
 
     for (uint8 vector = 0; vector < 32; vector++) {
         idt_set_descriptor(vector, isr_stub_table[vector], 0x8E);
