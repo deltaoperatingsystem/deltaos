@@ -408,6 +408,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
         gST->RuntimeServices->SetVirtualAddressMap(mmap_size, desc_size, desc_version, mmap);
     }
     
+    con_clear();
+
     //jump to kernel
     if (is_higher_half) {
         //switch CR3 and jump directly
