@@ -9,6 +9,7 @@
 #include "../src/menu.h"
 #include "../src/config.h"
 #include "../src/elf.h"
+#include "../src/paging.h"
 
 #define DELBOOT_NAME    "DelBoot 0.5"
 #define KERNEL_SCAN_SIZE (32 * 1024)
@@ -288,16 +289,26 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     
     //check if kernel is ELF64 and load it
     uint64_t entry_point = 0;
+    elf_load_info_t load_info = {0};
     int is_elf = elf_validate(kernel_data, kernel_size);
+    int is_higher_half = 0;
     
     if (is_elf) {
-        status = elf_load(gBS, kernel_data, kernel_size, &entry_point);
+        status = elf_load(gBS, kernel_data, kernel_size, &entry_point, &load_info);
         if (EFI_ERROR(status)) {
             con_set_color(COLOR_RED, 0);
             con_print_at(40, 80, "Failed to load ELF segments!");
             gBS->Stall(3000000);
             return status;
         }
+        //check if kernel expects higher-half
+        if (load_info.virt_base >= KERNEL_VMA) {
+            is_higher_half = 1;
+        }
+        
+        //ELF loaded successfully
+        con_set_color(COLOR_GRAY, 0);
+        con_print_at(40, 100, "Kernel symbols loaded.");
     } else {
         //if raw binary then use DB header entry_point or default to offset 0
         uint32_t entry_offset = db_req ? db_req->entry_point : 0;
@@ -312,6 +323,37 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     status = get_memory_map(&mmap, &mmap_size, &mmap_key, &desc_size, &desc_version);
     if (EFI_ERROR(status)) {
         return status;
+    }
+    
+    //set up paging if higher-half kernel
+    page_tables_t page_tables = {0};
+    if (is_higher_half) {
+        status = paging_init(gBS, &page_tables);
+        if (EFI_ERROR(status)) {
+            con_set_color(COLOR_RED, 0);
+            con_print_at(40, 80, "Failed to init paging");
+            gBS->Stall(3000000);
+            return status;
+        }
+        
+        //identity map first 4GB
+        status = paging_identity_map(gBS, &page_tables, 4);
+        if (EFI_ERROR(status)) {
+            con_set_color(COLOR_RED, 0);
+            con_print_at(40, 80, "Failed identity map");
+            gBS->Stall(3000000);
+            return status;
+        }
+        
+        //map kernel virt_base -> phys_base (where kernel actually loaded)
+        uint64_t kernel_size = load_info.phys_end - load_info.phys_base;
+        status = paging_map_kernel(gBS, &page_tables, load_info.virt_base, load_info.phys_base, kernel_size);
+        if (EFI_ERROR(status)) {
+            con_set_color(COLOR_RED, 0);
+            con_print_at(40, 80, "Failed kernel map");
+            gBS->Stall(3000000);
+            return status;
+        }
     }
     
     //build boot info
@@ -367,15 +409,28 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     }
     
     //jump to kernel
-    //and set up both RCX (MS ABI) and RDI (SysV ABI) so kernel works regardless of compiler
-    __asm__ volatile(
-        "mov %0, %%rcx\n\t"  //MS ABI: first arg in RCX
-        "mov %0, %%rdi\n\t"  //SysV ABI: first arg in RDI
-        "jmp *%1\n\t"
-        :
-        : "r"(boot_info), "r"(entry_point)
-        : "rcx", "rdi"
-    );
+    if (is_higher_half) {
+        //switch CR3 and jump directly
+        __asm__ volatile(
+            "mov %0, %%cr3\n\t"
+            "mov %1, %%rdi\n\t"  //boot_info to RDI (System V ABI)
+            "mov %1, %%rcx\n\t"  //boot_info to RCX (MS ABI)
+            "jmp *%2\n\t"
+            :
+            : "r"(page_tables.pml4_phys), "r"(boot_info), "r"(entry_point)
+            : "rdi", "rcx", "memory"
+        );
+    } else {
+        //if non-higher-half just jump with identity mapping from UEFI
+        __asm__ volatile(
+            "mov %1, %%rdi\n\t"
+            "mov %1, %%rcx\n\t"
+            "jmp *%0\n\t"
+            :
+            : "r"(entry_point), "r"(boot_info)
+            : "rcx", "rdi", "memory"
+        );
+    }
     
     for (;;) __asm__ volatile("hlt");
 }
