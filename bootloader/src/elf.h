@@ -83,14 +83,24 @@ typedef struct {
 #define EI_DATA     5
 #define EI_VERSION  6
 
+//kernel load information
+typedef struct {
+    uint64_t phys_base;     //lowest physical load address
+    uint64_t phys_end;      //highest physical address (exclusive)
+    uint64_t virt_base;     //lowest virtual address
+    uint64_t virt_entry;    //entry point (virtual)
+} elf_load_info_t;
+
 int elf_validate(const void *data, uint64_t size);
 
-//load ELF segments into memory, returns entry point
+//load ELF segments into memory returns entry point and load info
 EFI_STATUS elf_load(
     EFI_BOOT_SERVICES *bs,
     const void *elf_data,
     uint64_t elf_size,
-    uint64_t *entry_point
+    uint64_t *entry_point,
+    elf_load_info_t *load_info
 );
 
 #endif
+
