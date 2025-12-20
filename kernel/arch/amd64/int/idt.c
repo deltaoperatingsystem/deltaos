@@ -24,8 +24,35 @@ struct idtr  {
 } __attribute__((packed));
 
 static struct idtr idtr;
+extern void *isr_stub_table[];
+
+static void irq0_handler(void) {
+    serial_write("tick\n");
+}
 
 void exception_handler(uint64 vector, uint64 error_code) {
+    //check if this is an IRQ (vectors 32-47 after PIC remap to 0x20)
+    if (vector >= 32 && vector < 48) {
+        uint8 irq = vector - 32;
+        
+        //dispatch to specific IRQ handlers
+        switch (irq) {
+            case 0:
+                irq0_handler();
+                break;
+            default:
+                serial_write("Unhandled IRQ: ");
+                serial_write_hex(irq);
+                serial_write("\n");
+                break;
+        }
+        
+        //send EOI to PIC
+        pic_send_eoi(irq);
+        return;
+    }
+    
+    //when CPU exception print info
     serial_write("\nEXCEPTION\n");
     serial_write("Vector:     ");
     serial_write_hex(vector);
@@ -44,21 +71,15 @@ void idt_setgate(uint8 vector, void *isr, uint8 flags) {
     gate->isr_mid = ((uint64)isr >> 16) & 0xFFFF;
     gate->isr_high = ((uint64)isr >> 32) & 0xFFFFFFFF;
     gate->reserved = 0;
+    gate->isr_low = (uint64)isr & 0xFFFF;
+    gate->kernel_cs = GDT_KERNEL_CODE;
+    gate->ist = 0;
+    gate->attributes = flags;
+    gate->isr_mid = ((uint64)isr >> 16) & 0xFFFF;
+    gate->isr_high = ((uint64)isr >> 32) & 0xFFFFFFFF;
+    gate->reserved = 0;
 }
 
-extern void *isr_stub_table[];
-
-void test(void) {
-    serial_write("recieved int 32\n");
-    pic_send_eoi(0);
-}
-
-__asm__ (
-".global eeee\n"
-"eeee:\n"
-"call test\n"
-"iretq\n"
-);
 
 void idt_init(void) {
     gdt_init();
@@ -68,13 +89,12 @@ void idt_init(void) {
     //install handlers for all 256 vectors
     for (int vector = 0; vector < 256; vector++) {
         idt_setgate(vector, isr_stub_table[vector], 0x8E);
+        idt_setgate(vector, isr_stub_table[vector], 0x8E);
     }
 
-    // PIC
+    //remap PIC IRQ0-7 -> vectors 32-39, IRQ8-15 -> vectors 40-47
     pic_remap(0x20, 0x28);
-    extern void eeee(void);
-    idt_setgate(0x20, &eeee, 0x8E);
 
-    __asm__ volatile ("lidt %0" : : "m"(idtr)); //load the idt
-    __asm__ volatile ("sti"); //sets the interrupt flag
+    __asm__ volatile ("lidt %0" : : "m"(idtr)); // load the idt
+    __asm__ volatile ("sti"); // sets the interrupt flag
 }
