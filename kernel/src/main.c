@@ -5,13 +5,17 @@
 #include <drivers/console.h>
 #include <drivers/keyboard.h>
 #include <drivers/rtc.h>
-#include <kernel/device.h>
+#include <drivers/serial.h>
 #include <lib/string.h>
 #include <lib/io.h>
 #include <mm/mm.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
 #include <mm/kheap.h>
+#include <obj/handle.h>
+#include <obj/namespace.h>
+#include <fs/tmpfs.h>
+#include <fs/fs.h>
 
 void kernel_main(void) {
     set_outmode(SERIAL);
@@ -19,8 +23,10 @@ void kernel_main(void) {
     
     fb_init();
     fb_init_backbuffer();
+    serial_init_object();
     keyboard_init();
     rtc_init();
+    tmpfs_init();
     
     if (fb_available()) {
         con_init();
@@ -35,10 +41,29 @@ void kernel_main(void) {
         puts("Console: initialized\n");
         printf("Timer: running @ %dHz\n", arch_timer_getfreq());
         
-        struct device *con = device_find("console");
-        if (con && con->ops->write) {
-            con->ops->write(con, "Device manager: working!\n", 25);
+        //test object system
+        handle_t h = handle_open("$devices/console", 0);
+        if (h != INVALID_HANDLE) {
+            handle_write(h, "Object system: working!\n", 24);
+            handle_close(h);
         }
+        
+        //test filesystem with nested directories
+        handle_create("$files/docs/readme.txt", FS_TYPE_FILE);
+        handle_t f = handle_open("$files/docs/readme.txt", 0);
+        if (f != INVALID_HANDLE) {
+            handle_write(f, "Hello from nested tmpfs!", 24);
+            handle_close(f);
+        }
+        
+        //create some more files for a nice tree
+        handle_create("$files/config.txt", FS_TYPE_FILE);
+        handle_create("$files/docs/notes.txt", FS_TYPE_FILE);
+        
+        //dump trees
+        ns_dump();
+        tmpfs_dump();
+        con_flush();
     }
     
     for (;;) {

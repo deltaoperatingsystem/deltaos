@@ -2,7 +2,8 @@
 #include <drivers/fb.h>
 #include <boot/db.h>
 #include <lib/font.h>
-#include <kernel/device.h>
+#include <obj/object.h>
+#include <obj/namespace.h>
 
 #define FONT_WIDTH  8
 #define FONT_HEIGHT 16
@@ -14,26 +15,26 @@ static uint32 bg_color = 0x000000;  //black
 static uint32 cols = 0;
 static uint32 rows = 0;
 
-//device ops
-static ssize console_write(struct device *dev, const void *buf, size len) {
-    (void)dev;
+//object ops for console
+static ssize console_obj_write(object_t *obj, const void *buf, size len, size offset) {
+    (void)obj;
+    (void)offset;
     const char *s = buf;
     for (size i = 0; i < len; i++) {
         con_putc(s[i]);
     }
+    con_flush();
     return len;
 }
 
-static struct device_ops console_ops = {
-    .write = console_write
+static object_ops_t console_object_ops = {
+    .read = NULL,
+    .write = console_obj_write,
+    .close = NULL,
+    .ioctl = NULL
 };
 
-static struct device console_dev = {
-    .name = "console",
-    .type = DEV_CHAR,
-    .subtype = SUBDEV_CONSOLE,
-    .ops = &console_ops
-};
+static object_t *console_object = NULL;
 
 void con_init(void) {
     if (!fb_available()) return;
@@ -43,8 +44,11 @@ void con_init(void) {
     cursor_col = 0;
     cursor_row = 0;
     
-    //register with device manager
-    device_register(&console_dev);
+    //create console object and register in namespace
+    console_object = object_create(OBJECT_DEVICE, &console_object_ops, NULL);
+    if (console_object) {
+        ns_register("$devices/console", console_object);
+    }
 }
 
 void con_clear(void) {
@@ -73,7 +77,7 @@ static void draw_char(uint32 col, uint32 row, char c) {
     uint32 y = row * FONT_HEIGHT;
     uint8 ch = (uint8)c;
     
-    if (ch >= 128) ch = '?';  //unknown chars
+    if (ch >= 128) ch = '?';
     
     const uint8 *glyph = &font[ch * FONT_HEIGHT];
     
@@ -98,7 +102,7 @@ static void newline(void) {
         scroll();
         cursor_row = rows - 1;
     }
-    fb_flip();  //show text when line completes
+    fb_flip();
 }
 
 void con_putc(char c) {
