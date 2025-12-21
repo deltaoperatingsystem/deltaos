@@ -39,62 +39,70 @@ void printf(const char *format, ...) {
 
     char buffer[1024];
     char *out = buffer;
+    char *limit = buffer + sizeof(buffer) - 1;
     const char *p = format;
 
-    while (*p) {
+    while (*p && out < limit) {
         if (*p == '%') {
             p++;
+            int is_long = 0;
+            if (*p == 'l') {
+                is_long = 1;
+                p++;
+            }
+
             if (*p == 's') {
                 const char *str = va_arg(args, const char *);
-                while (*str) {
-                    if (*str == '\\' && *(str + 1)) {
-                        str++;
-                        switch (*str) {
-                            case 'n':  *out++ = '\n'; break;
-                            case 't':  *out++ = '\t'; break;
-                            case '\\': *out++ = '\\'; break;
-                            default:
-                                *out++ = '\\';
-                                *out++ = *str;
-                                break;
-                        }
-                    } else {
-                        *out++ = *str;
-                    }
-                    str++;
+                if (!str) str = "(null)";
+                while (*str && out < limit) {
+                    *out++ = *str++;
                 }
             }
             else if (*p == 'c') {
                 *out++ = (char)va_arg(args, int);
             }
             else if (*p == 'd') {
-                int num = va_arg(args, int);
-                char tmp[12];
+                int64 num;
+                if (is_long) num = va_arg(args, long);
+                else num = va_arg(args, int);
+
+                char tmp[21];
                 int len = 0;
 
                 if (num < 0) {
-                    *out++ = '-';
-                    /* handle INT_MIN safely */
-                    unsigned int u = (unsigned int)(-(num + 1)) + 1;
-                    num = (int)u;
-                }
-
-                if (num == 0) {
+                    if (out < limit) *out++ = '-';
+                    uint64 u = (num == INT64_MIN) ? (uint64)INT64_MAX + 1 : (uint64)-num;
+                    if (u == 0 && num != 0) u = 0x8000000000000000ULL; //absolute min
+                    while (u) {
+                        tmp[len++] = (char)('0' + (u % 10));
+                        u /= 10;
+                    }
+                } else if (num == 0) {
                     tmp[len++] = '0';
                 } else {
-                    unsigned int u = (unsigned int)num;
+                    uint64 u = (uint64)num;
                     while (u) {
                         tmp[len++] = (char)('0' + (u % 10));
                         u /= 10;
                     }
                 }
-                /* reverse into buffer */
-                for (int i = len - 1; i >= 0; i--) {
+                for (int i = len - 1; i >= 0 && out < limit; i--) {
                     *out++ = tmp[i];
                 }
-            } else if (*p == 'x') {
-                unsigned int num = va_arg(args, unsigned int);
-                char tmp[9];
+            } else if (*p == 'x' || *p == 'p') {
+                uint64 num;
+                if (*p == 'p') {
+                    num = (uintptr)va_arg(args, void*);
+                    if (out < limit - 2) {
+                        *out++ = '0';
+                        *out++ = 'x';
+                    }
+                } else {
+                    if (is_long) num = va_arg(args, unsigned long);
+                    else num = va_arg(args, unsigned int);
+                }
+
+                char tmp[17];
                 int len = 0;
 
                 if (num == 0) {
@@ -102,16 +110,11 @@ void printf(const char *format, ...) {
                 } else {
                     while (num) {
                         int digit = num & 0xF;
-                        if (digit < 10) {
-                            tmp[len++] = (char)('0' + digit);
-                        } else {
-                            tmp[len++] = (char)('a' + (digit - 10));
-                        }
+                        tmp[len++] = (char)((digit < 10) ? ('0' + digit) : ('a' + (digit - 10)));
                         num >>= 4;
                     }
                 }
-                /* reverse into buffer */
-                for (int i = len - 1; i >= 0; i--) {
+                for (int i = len - 1; i >= 0 && out < limit; i--) {
                     *out++ = tmp[i];
                 }
             }
@@ -119,10 +122,10 @@ void printf(const char *format, ...) {
                 *out++ = '%';
             }
             else {
-                /* unknown specifier → literal %}
-                */
-                *out++ = '%';
-                *out++ = *p;
+                if (out < limit - 1) {
+                    *out++ = '%';
+                    *out++ = *p;
+                }
             }
         }
         else {
@@ -131,10 +134,8 @@ void printf(const char *format, ...) {
         p++;
     }
 
-    /* terminate and write once */
     *out = '\0';
     va_end(args);
-
     puts(buffer);
 }
 

@@ -1,6 +1,9 @@
 #ifndef LIB_IO_H
 #define LIB_IO_H
 
+#include <arch/types.h>
+#include <string.h>
+
 enum output_mode {
     SERIAL,
     CONSOLE,

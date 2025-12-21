@@ -36,11 +36,4 @@ typedef char bool;
 #define true  1
 #define false 0
 
-// sizes
-typedef unsigned long long size;
-typedef long long ssize;
-
-#define SIZE_MAX    UINT64_MAX
-#define SSIZE_MAX   INT64_MAX
-
 #endif
