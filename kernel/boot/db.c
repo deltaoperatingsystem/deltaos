@@ -9,7 +9,6 @@ static struct db_tag_cmdline *cached_cmdline = NULL;
 static struct db_tag_efi_system_table *cached_efi = NULL;
 
 void db_parse(struct db_boot_info *info) {
-    set_outmode(SERIAL);
     if (!info) {
         puts("[db] ERROR: null boot info\n");
         return;

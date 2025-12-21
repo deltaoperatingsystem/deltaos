@@ -10,7 +10,6 @@ static uint32 fb_pitch = 0;
 void fb_init(void) {
     struct db_tag_framebuffer *fb = db_get_framebuffer();
     
-    set_outmode(SERIAL);
     if (!fb) {
         puts("[fb] no framebuffer available\n");
         return;
