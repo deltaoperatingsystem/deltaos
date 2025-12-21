@@ -82,27 +82,7 @@ static void draw_char(uint32 col, uint32 row, char c) {
 }
 
 static void scroll(void) {
-    if (!fb_available()) return;
-    
-    //move all rows up by one
-    uint32 *fb = (uint32 *)(uintptr)db_get_framebuffer()->address;
-    uint32 pitch = db_get_framebuffer()->pitch;
-    
-    for (uint32 y = 0; y < fb_height() - FONT_HEIGHT; y++) {
-        uint32 *dst = (uint32 *)((uint8 *)fb + y * pitch);
-        uint32 *src = (uint32 *)((uint8 *)fb + (y + FONT_HEIGHT) * pitch);
-        for (uint32 x = 0; x < fb_width(); x++) {
-            dst[x] = src[x];
-        }
-    }
-    
-    //clear bottom row
-    for (uint32 y = fb_height() - FONT_HEIGHT; y < fb_height(); y++) {
-        uint32 *row = (uint32 *)((uint8 *)fb + y * pitch);
-        for (uint32 x = 0; x < fb_width(); x++) {
-            row[x] = bg_color;
-        }
-    }
+    fb_scroll(FONT_HEIGHT, bg_color);
 }
 
 static void newline(void) {

@@ -69,27 +69,63 @@ char *strtok(char *str, const char *delim) {
 }
 
 void *memset(void *s, int c, size n) {
-    unsigned char *p = (unsigned char *)s;
-    while (n--) *p++ = (unsigned char)c;
+    uint8 *p = (uint8 *)s;
+    uint8 val = (uint8)c;
+    
+    //optimization: fill word by word if size is large enough
+    if (n >= sizeof(uword)) {
+        uword word_val = val;
+        for (size i = 1; i < sizeof(uword); i++) {
+            word_val |= (uword)val << (i * 8);
+        }
+        
+        while (n >= sizeof(uword)) {
+            *(uword *)p = word_val;
+            p += sizeof(uword);
+            n -= sizeof(uword);
+        }
+    }
+    
+    while (n--) *p++ = val;
     return s;
 }
 
 void *memcpy(void *dest, const void *src, size n) {
-    unsigned char *d = (unsigned char *)dest;
-    const unsigned char *s = (const unsigned char *)src;
+    uint8 *d = (uint8 *)dest;
+    const uint8 *s = (const uint8 *)src;
+    
+    while (n >= sizeof(uword)) {
+        *(uword *)d = *(const uword *)s;
+        d += sizeof(uword);
+        s += sizeof(uword);
+        n -= sizeof(uword);
+    }
+    
     while (n--) *d++ = *s++;
     return dest;
 }
 
 void *memmove(void *dest, const void *src, size n) {
-    unsigned char *d = (unsigned char *)dest;
-    const unsigned char *s = (const unsigned char *)src;
+    uint8 *d = (uint8 *)dest;
+    const uint8 *s = (const uint8 *)src;
 
     if (d < s) {
+        while (n >= sizeof(uword)) {
+            *(uword *)d = *(const uword *)s;
+            d += sizeof(uword);
+            s += sizeof(uword);
+            n -= sizeof(uword);
+        }
         while (n--) *d++ = *s++;
-    } else {
+    } else if (d > s) {
         d += n;
         s += n;
+        while (n >= sizeof(uword)) {
+            d -= sizeof(uword);
+            s -= sizeof(uword);
+            *(uword *)d = *(const uword *)s;
+            n -= sizeof(uword);
+        }
         while (n--) *--d = *--s;
     }
     return dest;

@@ -73,6 +73,9 @@ struct device {
     void *private;  //driver-specific data
 };
 
+//initialize the device manager (call after kheap_init)
+void device_init(void);
+
 //register a device with the manager
 void device_register(struct device *dev);
 

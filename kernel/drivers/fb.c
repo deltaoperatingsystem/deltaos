@@ -24,6 +24,23 @@ void fb_init(void) {
     printf("[fb] initialised: %dx%d@0x%x\n", fb_w, fb_h, fb->address);
 }
 
+static void fb_fill_words(uint32 *dest, uint32 color, size count) {
+    //if color is uniform (all bytes same) we can use memset
+    uint8 b1 = color & 0xFF;
+    uint8 b2 = (color >> 8) & 0xFF;
+    uint8 b3 = (color >> 16) & 0xFF;
+    uint8 b4 = (color >> 24) & 0xFF;
+    
+    if (b1 == b2 && b2 == b3 && b3 == b4) {
+        memset(dest, b1, count * 4);
+        return;
+    }
+    
+    while (count--) {
+        *dest++ = color;
+    }
+}
+
 bool fb_available(void) {
     return framebuffer != NULL;
 }
@@ -39,10 +56,13 @@ uint32 fb_height(void) {
 void fb_clear(uint32 color) {
     if (!framebuffer) return;
     
-    for (uint32 y = 0; y < fb_h; y++) {
-        uint32 *row = (uint32 *)((uint8 *)framebuffer + y * fb_pitch);
-        for (uint32 x = 0; x < fb_w; x++) {
-            row[x] = color;
+    //if pitch matches width * 4 we can clear the whole thing in one memset
+    if (fb_pitch == fb_w * 4) {
+        fb_fill_words(framebuffer, color, fb_h * fb_w);
+    } else {
+        for (uint32 y = 0; y < fb_h; y++) {
+            uint32 *row = (uint32 *)((uint8 *)framebuffer + y * fb_pitch);
+            fb_fill_words(row, color, fb_w);
         }
     }
 }
@@ -64,9 +84,7 @@ void fb_fillrect(uint32 x, uint32 y, uint32 w, uint32 h, uint32 color) {
     
     for (uint32 py = y; py < y + h; py++) {
         uint32 *row = (uint32 *)((uint8 *)framebuffer + py * fb_pitch);
-        for (uint32 px = x; px < x + w; px++) {
-            row[px] = color;
-        }
+        fb_fill_words(&row[x], color, w);
     }
 }
 
@@ -83,4 +101,15 @@ void fb_drawimage(const unsigned char *src, uint32 width, uint32 height, uint32 
             fb_putpixel(x + offset_x, y + offset_y, color);
         }
     }
+}
+
+void fb_scroll(uint32 lines, uint32 bg_color) {
+    if (!framebuffer || lines == 0 || lines >= fb_h) return;
+    
+    //use memmove for the bulk shift
+    size copy_size = (fb_h - lines) * fb_pitch;
+    memmove(framebuffer, (uint8 *)framebuffer + lines * fb_pitch, copy_size);
+    
+    //clear the bottom part
+    fb_fillrect(0, fb_h - lines, fb_w, lines, bg_color);
 }
