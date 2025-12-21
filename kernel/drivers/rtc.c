@@ -1,6 +1,7 @@
 #include <drivers/rtc.h>
 #include <arch/amd64/io.h>
-#include <kernel/device.h>
+#include <obj/object.h>
+#include <obj/namespace.h>
 #include <lib/io.h>
 
 #define CMOS_ADDR 0x70
@@ -55,19 +56,32 @@ void rtc_get_time(rtc_time_t *time) {
         time->hour = ((time->hour & 0x7F) + 12) % 24;
     }
 
-    //calculate full year (assume 21st century for simplicity if not provided)
     time->year += 2000;
 }
 
-static struct device rtc_dev;
+//object ops for RTC - read returns time as binary struct
+static ssize rtc_obj_read(object_t *obj, void *buf, size len, size offset) {
+    (void)obj;
+    (void)offset;
+    if (len < sizeof(rtc_time_t)) return -1;
+    
+    rtc_get_time((rtc_time_t *)buf);
+    return sizeof(rtc_time_t);
+}
+
+static object_ops_t rtc_object_ops = {
+    .read = rtc_obj_read,
+    .write = NULL,
+    .close = NULL,
+    .ioctl = NULL
+};
+
+static object_t *rtc_object = NULL;
 
 void rtc_init() {
-    rtc_dev.name = "rtc";
-    rtc_dev.type = DEV_TIME;
-    rtc_dev.subtype = SUBDEV_RTC;
-    rtc_dev.ops = NULL; //no standard ops yet as we use rtc_get_time directly for now
-    rtc_dev.private = NULL;
-
-    device_register(&rtc_dev);
+    rtc_object = object_create(OBJECT_DEVICE, &rtc_object_ops, NULL);
+    if (rtc_object) {
+        ns_register("$devices/rtc", rtc_object);
+    }
     puts("[rtc] initialized\n");
 }

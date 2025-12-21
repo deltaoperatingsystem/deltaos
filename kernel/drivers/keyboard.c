@@ -1,8 +1,10 @@
-#include <types.h>
+#include <arch/types.h>
 #include <arch/io.h>
 #include <arch/timer.h>
 #include <arch/interrupts.h>
 #include <arch/cpu.h>
+#include <obj/object.h>
+#include <obj/namespace.h>
 
 #define KBD_STATUS      0x64
 #define KBD_SC          0x60
@@ -55,16 +57,43 @@ bool get_key(char *c) {
     return true;
 }
 
+void keyboard_wait(void) {
+    while (head == tail) arch_halt();
+}
+
+//object ops for keyboard - read returns buffered keys
+static ssize keyboard_obj_read(object_t *obj, void *buf, size len, size offset) {
+    (void)obj;
+    (void)offset;
+    
+    char *out = buf;
+    size count = 0;
+    while (count < len && head != tail) {
+        out[count++] = in_codes[tail];
+        tail = (tail + 1) % 256;
+    }
+    return (ssize)count;  //0 if no keys available
+}
+
+static object_ops_t keyboard_object_ops = {
+    .read = keyboard_obj_read,
+    .write = NULL,
+    .close = NULL,
+    .ioctl = NULL
+};
+
+static object_t *keyboard_object = NULL;
+
 void keyboard_init(void) {
-    //flush any pending scancodes from the keyboard buffer
-    //this prevents the keyboard from locking up if keys were pressed during boot
+    //flush any pending scancodes
     while (inb(KBD_STATUS) & 1) {
-        inb(KBD_SC);  //read and discard
+        inb(KBD_SC);
     }
     
     pic_clear_mask(0x1);
-}
-
-void keyboard_wait(void) {
-    while (head == tail) arch_halt();
+    
+    keyboard_object = object_create(OBJECT_DEVICE, &keyboard_object_ops, NULL);
+    if (keyboard_object) {
+        ns_register("$devices/keyboard", keyboard_object);
+    }
 }
