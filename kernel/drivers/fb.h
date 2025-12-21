@@ -6,6 +6,12 @@
 //initialize framebuffer from boot info
 void fb_init(void);
 
+//allocate backbuffer for double buffering
+void fb_init_backbuffer(void);
+
+//copy backbuffer to VRAM
+void fb_flip(void);
+
 //check if framebuffer is available
 bool fb_available(void);
 

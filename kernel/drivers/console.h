@@ -9,6 +9,9 @@ void con_init(void);
 //clear screen
 void con_clear(void);
 
+//flush backbuffer to screen (for double buffering)
+void con_flush(void);
+
 //set text colors
 void con_set_fg(uint32 color);
 void con_set_bg(uint32 color);

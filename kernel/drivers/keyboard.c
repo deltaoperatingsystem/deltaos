@@ -56,6 +56,12 @@ bool get_key(char *c) {
 }
 
 void keyboard_init(void) {
+    //flush any pending scancodes from the keyboard buffer
+    //this prevents the keyboard from locking up if keys were pressed during boot
+    while (inb(KBD_STATUS) & 1) {
+        inb(KBD_SC);  //read and discard
+    }
+    
     pic_clear_mask(0x1);
 }
 

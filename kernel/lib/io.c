@@ -43,8 +43,12 @@ void printf(const char *format, ...) {
         if (*p == '%') {
             p++;
             int is_long = 0;
+            int is_size = 0;
             if (*p == 'l') {
                 is_long = 1;
+                p++;
+            } else if (*p == 'z') {
+                is_size = 1;
                 p++;
             }
 
@@ -60,7 +64,7 @@ void printf(const char *format, ...) {
             }
             else if (*p == 'd') {
                 intmax num;
-                if (is_long) num = va_arg(args, long);
+                if (is_long || is_size) num = va_arg(args, long);
                 else num = va_arg(args, int);
 
                 char tmp[32];
@@ -85,6 +89,24 @@ void printf(const char *format, ...) {
                 for (int i = len - 1; i >= 0; i--) {
                     putc(tmp[i]);
                 }
+            } else if (*p == 'u') {
+                uintmax num;
+                if (is_long || is_size) num = va_arg(args, unsigned long);
+                else num = va_arg(args, unsigned int);
+
+                char tmp[32];
+                int len = 0;
+                if (num == 0) {
+                    tmp[len++] = '0';
+                } else {
+                    while (num) {
+                        tmp[len++] = (char)('0' + (num % 10));
+                        num /= 10;
+                    }
+                }
+                for (int i = len - 1; i >= 0; i--) {
+                    putc(tmp[i]);
+                }
             } else if (*p == 'x' || *p == 'p') {
                 uintmax num;
                 if (*p == 'p') {
@@ -92,7 +114,7 @@ void printf(const char *format, ...) {
                     putc('0');
                     putc('x');
                 } else {
-                    if (is_long) num = va_arg(args, unsigned long);
+                    if (is_long || is_size) num = va_arg(args, unsigned long);
                     else num = va_arg(args, unsigned int);
                 }
 

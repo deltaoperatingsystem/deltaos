@@ -49,8 +49,13 @@ void con_init(void) {
 
 void con_clear(void) {
     fb_clear(bg_color);
+    fb_flip();
     cursor_col = 0;
     cursor_row = 0;
+}
+
+void con_flush(void) {
+    fb_flip();
 }
 
 void con_set_fg(uint32 color) {
@@ -83,6 +88,7 @@ static void draw_char(uint32 col, uint32 row, char c) {
 
 static void scroll(void) {
     fb_scroll(FONT_HEIGHT, bg_color);
+    fb_flip();
 }
 
 static void newline(void) {
@@ -92,6 +98,7 @@ static void newline(void) {
         scroll();
         cursor_row = rows - 1;
     }
+    fb_flip();  //show text when line completes
 }
 
 void con_putc(char c) {
