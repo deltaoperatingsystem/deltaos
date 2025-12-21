@@ -52,7 +52,7 @@ run_qemu() {
         -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
         -drive "file=$DISK_IMG,format=raw"
         -net none
-        -serial stdio
+        -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0
     )
 
     #handle writable variables if available
