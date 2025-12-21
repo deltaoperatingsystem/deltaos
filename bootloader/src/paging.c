@@ -129,14 +129,35 @@ EFI_STATUS paging_map_4kb(
     return EFI_SUCCESS;
 }
 
-EFI_STATUS paging_identity_map(EFI_BOOT_SERVICES *bs, page_tables_t *pt, uint64_t size_gb) {
+EFI_STATUS paging_identity_map(
+    EFI_BOOT_SERVICES *bs,
+    page_tables_t *pt,
+    EFI_MEMORY_DESCRIPTOR *mmap,
+    UINTN mmap_size,
+    UINTN desc_size
+) {
     EFI_STATUS status;
-    uint64_t num_2mb_pages = (size_gb * PAGE_SIZE_1G) / PAGE_SIZE_2M;
+    UINTN entry_count = mmap_size / desc_size;
+    uint8_t *ptr = (uint8_t *)mmap;
     
-    for (uint64_t i = 0; i < num_2mb_pages; i++) {
-        uint64_t addr = i * PAGE_SIZE_2M;
-        status = paging_map_2mb(bs, pt, addr, addr, PTE_WRITABLE);
-        if (EFI_ERROR(status)) return status;
+    for (UINTN i = 0; i < entry_count; i++) {
+        EFI_MEMORY_DESCRIPTOR *desc = (EFI_MEMORY_DESCRIPTOR *)ptr;
+        
+        //identity map the region
+        //uses 2MB pages for the bulk of memory mapping cuz it's efficient
+        uint64_t start = desc->PhysicalStart;
+        uint64_t end = start + (desc->NumberOfPages * PAGE_SIZE_4K);
+        
+        //round start down and end up to 2MB boundaries
+        uint64_t map_start = start & ~(PAGE_SIZE_2M - 1);
+        uint64_t map_end = (end + PAGE_SIZE_2M - 1) & ~(PAGE_SIZE_2M - 1);
+        
+        for (uint64_t addr = map_start; addr < map_end; addr += PAGE_SIZE_2M) {
+            status = paging_map_2mb(bs, pt, addr, addr, PTE_WRITABLE);
+            if (EFI_ERROR(status)) return status;
+        }
+        
+        ptr += desc_size;
     }
     
     return EFI_SUCCESS;
@@ -165,17 +186,42 @@ EFI_STATUS paging_map_kernel(
 ) {
     EFI_STATUS status;
     
-    //align to 4KB boundaries
     uint64_t virt_start = virt_base & ~(PAGE_SIZE_4K - 1);
     uint64_t phys_start = phys_base & ~(PAGE_SIZE_4K - 1);
     uint64_t virt_end = (virt_base + size + PAGE_SIZE_4K - 1) & ~(PAGE_SIZE_4K - 1);
     
     uint64_t num_pages = (virt_end - virt_start) / PAGE_SIZE_4K;
     
+    //ensure at least some pages
+    if (num_pages == 0) num_pages = 16;  //at least 64KB for entry code
+    
     for (uint64_t i = 0; i < num_pages; i++) {
         uint64_t virt = virt_start + i * PAGE_SIZE_4K;
         uint64_t phys = phys_start + i * PAGE_SIZE_4K;
         status = paging_map_4kb(bs, pt, virt, phys, PTE_WRITABLE);
+        if (EFI_ERROR(status)) return status;
+    }
+    
+    return EFI_SUCCESS;
+}
+
+EFI_STATUS paging_map_framebuffer(
+    EFI_BOOT_SERVICES *bs,
+    page_tables_t *pt,
+    uint64_t fb_base,
+    uint64_t fb_size
+) {
+    EFI_STATUS status;
+    
+    //align to 2MB boundaries for efficiency
+    uint64_t start = fb_base & ~(PAGE_SIZE_2M - 1);
+    uint64_t end = (fb_base + fb_size + PAGE_SIZE_2M - 1) & ~(PAGE_SIZE_2M - 1);
+    
+    //map each 2MB page with write-combining attributes
+    //PTE_NOCACHE + PTE_WRITETHROUGH = write-combining (PAT dependent but safe fallback)
+    for (uint64_t addr = start; addr < end; addr += PAGE_SIZE_2M) {
+        status = paging_map_2mb(bs, pt, addr, addr, 
+            PTE_WRITABLE | PTE_NOCACHE | PTE_WRITETHROUGH);
         if (EFI_ERROR(status)) return status;
     }
     

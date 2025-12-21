@@ -56,8 +56,14 @@ EFI_STATUS paging_map_4kb(
     uint64_t flags
 );
 
-//set up identity mapping for first N gigabytes
-EFI_STATUS paging_identity_map(EFI_BOOT_SERVICES *bs, page_tables_t *pt, uint64_t size_gb);
+//set up identity mapping from UEFI memory map
+EFI_STATUS paging_identity_map(
+    EFI_BOOT_SERVICES *bs,
+    page_tables_t *pt,
+    EFI_MEMORY_DESCRIPTOR *mmap,
+    UINTN mmap_size,
+    UINTN desc_size
+);
 
 //set up higher-half mapping: KERNEL_VMA -> 0 physical
 EFI_STATUS paging_map_higher_half(EFI_BOOT_SERVICES *bs, page_tables_t *pt, uint64_t size_gb);
@@ -69,6 +75,14 @@ EFI_STATUS paging_map_kernel(
     uint64_t virt_base,
     uint64_t phys_base,
     uint64_t size
+);
+
+//map framebuffer region (identity mapping for MMIO)
+EFI_STATUS paging_map_framebuffer(
+    EFI_BOOT_SERVICES *bs,
+    page_tables_t *pt,
+    uint64_t fb_base,
+    uint64_t fb_size
 );
 
 //load page tables into CR3 (call after ExitBootServices)

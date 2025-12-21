@@ -336,8 +336,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
             return status;
         }
         
-        //identity map first 4GB
-        status = paging_identity_map(gBS, &page_tables, 4);
+        //identity map from UEFI memory map
+        status = paging_identity_map(gBS, &page_tables, mmap, mmap_size, desc_size);
         if (EFI_ERROR(status)) {
             con_set_color(COLOR_RED, 0);
             con_print_at(40, 80, "Failed identity map");
@@ -345,8 +345,20 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
             return status;
         }
         
+        //map framebuffer explicitly (may be above 4GB on real hardware)
+        uint64_t fb_base = gop->Mode->FrameBufferBase;
+        uint64_t fb_size = gop->Mode->FrameBufferSize;
+        status = paging_map_framebuffer(gBS, &page_tables, fb_base, fb_size);
+        if (EFI_ERROR(status)) {
+            con_set_color(COLOR_RED, 0);
+            con_print_at(40, 80, "Failed framebuffer map");
+            gBS->Stall(3000000);
+            return status;
+        }
+        
         //map kernel virt_base -> phys_base (where kernel actually loaded)
         uint64_t kernel_size = load_info.phys_end - load_info.phys_base;
+        
         status = paging_map_kernel(gBS, &page_tables, load_info.virt_base, load_info.phys_base, kernel_size);
         if (EFI_ERROR(status)) {
             con_set_color(COLOR_RED, 0);
@@ -412,14 +424,18 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
 
     //jump to kernel
     if (is_higher_half) {
-        //switch CR3 and jump directly
+        con_clear();
+
+        
+        //now jump to kernel, switch to our CR3
+        __asm__ volatile("mov %0, %%cr3" : : "r"(page_tables.pml4_phys) : "memory");
+        
         __asm__ volatile(
-            "mov %0, %%cr3\n\t"
-            "mov %1, %%rdi\n\t"  //boot_info to RDI (System V ABI)
-            "mov %1, %%rcx\n\t"  //boot_info to RCX (MS ABI)
-            "jmp *%2\n\t"
+            "mov %0, %%rdi\n\t"  //boot_info to RDI (System V ABI)
+            "mov %0, %%rcx\n\t"  //boot_info to RCX (MS ABI)
+            "jmp *%1\n\t"
             :
-            : "r"(page_tables.pml4_phys), "r"(boot_info), "r"(entry_point)
+            : "r"(boot_info), "r"(entry_point)
             : "rdi", "rcx", "memory"
         );
     } else {

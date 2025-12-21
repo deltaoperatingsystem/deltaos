@@ -3,6 +3,7 @@
 #include <arch/amd64/timer.h>
 #include <boot/db.h>
 #include <lib/io.h>
+#include <drivers/serial.h>
 
 extern void kernel_main(void);
 
@@ -17,7 +18,7 @@ void arch_init(struct db_boot_info *boot_info) {
     //parse boot info from bootloader
     db_parse(boot_info);
 
-    char *cmdline = db_get_cmdline();
+    const char *cmdline = db_get_cmdline();
     if (cmdline) {
         printf("[amd64] cmdline = '%s'\n", cmdline);
     }
