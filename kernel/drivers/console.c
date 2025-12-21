@@ -122,6 +122,10 @@ void con_putc(char c) {
     } else if (c == '\t') {
         cursor_col = (cursor_col + 4) & ~3;
         if (cursor_col >= cols) newline();
+    } else if (c == '\b') {
+        if (cursor_col == 0) { cursor_row--; cursor_col = cols; }
+        else cursor_col--;
+        draw_char(cursor_col, cursor_row, ' ');
     } else {
         draw_char(cursor_col, cursor_row, c);
         cursor_col++;

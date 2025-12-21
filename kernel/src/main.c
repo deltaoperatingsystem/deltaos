@@ -39,6 +39,7 @@ void kernel_main(void) {
     
     //main kernel loop
     for (;;) {
+        set_outmode(CONSOLE);
         puts("[] ");
 
         char buffer[128] = {0};

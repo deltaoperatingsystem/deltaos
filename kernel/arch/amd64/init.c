@@ -1,9 +1,10 @@
-#include <arch/amd64/types.h>
-#include <arch/amd64/interrupts.h>
-#include <arch/amd64/timer.h>
+#include <arch/types.h>
+#include <arch/interrupts.h>
+#include <arch/timer.h>
 #include <boot/db.h>
 #include <lib/io.h>
 #include <drivers/serial.h>
+#include <mm/pmm.h>
 
 extern void kernel_main(void);
 
@@ -22,6 +23,8 @@ void arch_init(struct db_boot_info *boot_info) {
     if (cmdline) {
         printf("[amd64] cmdline = '%s'\n", cmdline);
     }
+
+    pmm_init();
     
     //set up interrupt infrastructure
     arch_interrupts_init();

@@ -55,6 +55,7 @@ void interrupt_handler(uint64 vector, uint64 error_code) {
         }
 
         pic_send_eoi(irq);
+        set_outmode(CONSOLE);
         return;
     }
 }
