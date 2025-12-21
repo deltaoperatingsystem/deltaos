@@ -36,7 +36,7 @@ void interrupt_handler(uint64 vector, uint64 error_code) {
     if (vector < 32) {
         set_outmode(SERIAL);
         puts("\n---CPU EXCEPTION OCCURRED---\n");
-        printf("Vector:    0x%x\n", vector);
+        printf("Vector:        0x%x\n", vector);
         printf("Error code:    0x%x\n", error_code);
         return;
     } else {
