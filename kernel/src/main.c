@@ -36,7 +36,17 @@ void kernel_main(void) {
             con->ops->write(con, "Device manager: working!\n", 25);
         }
     }
-    
+
+    extern const struct {
+        uint32   	    width;
+        uint32 	        height;
+        uint32 	        bytes_per_pixel; /* 2:RGB16, 3:RGB, 4:RGBA */ 
+        char         	*comment;
+        unsigned char   pixel_data[];
+    } gimp_image;
+
+    fb_drawimage(gimp_image.pixel_data, gimp_image.width, gimp_image.height, (fb_width() - gimp_image.width) / 2, (fb_height() - gimp_image.height) / 2);
+
     //main kernel loop
     for (;;) {
         set_outmode(CONSOLE);

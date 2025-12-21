@@ -68,3 +68,18 @@ void fb_fillrect(uint32 x, uint32 y, uint32 w, uint32 h, uint32 color) {
         }
     }
 }
+
+void fb_drawimage(const unsigned char *src, uint32 width, uint32 height, uint32 offset_x, uint32 offset_y) {
+    for (uint32 y = 0; y < height; y++) {
+        for (uint32 x = 0; x < width; x++) {
+
+            uint8 r = *src++;
+            uint8 g = *src++;
+            uint8 b = *src++;
+
+            uint32 color = (0xFF << 24) | (r << 16) | (g << 8) | b;
+
+            fb_putpixel(x + offset_x, y + offset_y, color);
+        }
+    }
+}

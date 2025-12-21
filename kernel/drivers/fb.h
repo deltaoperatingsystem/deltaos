@@ -18,6 +18,9 @@ void fb_clear(uint32 color);
 void fb_putpixel(uint32 x, uint32 y, uint32 color);
 void fb_fillrect(uint32 x, uint32 y, uint32 w, uint32 h, uint32 color);
 
+// image rendering!
+void fb_drawimage(const unsigned char *src, uint32 width, uint32 height, uint32 x, uint32 y);
+
 //color helpers (assumes BGRX format from UEFI GOP)
 #define FB_RGB(r, g, b) ((uint32)((b) | ((g) << 8) | ((r) << 16)))
 
