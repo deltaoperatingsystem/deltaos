@@ -47,23 +47,6 @@ void kernel_main(void) {
             handle_write(h, "Object system: working!\n", 24);
             handle_close(h);
         }
-        
-        //test filesystem with nested directories
-        handle_create("$files/docs/readme.txt", FS_TYPE_FILE);
-        handle_t f = handle_open("$files/docs/readme.txt", 0);
-        if (f != INVALID_HANDLE) {
-            handle_write(f, "Hello from nested tmpfs!", 24);
-            handle_close(f);
-        }
-        
-        //create some more files for a nice tree
-        handle_create("$files/config.txt", FS_TYPE_FILE);
-        handle_create("$files/docs/notes.txt", FS_TYPE_FILE);
-        
-        //dump trees
-        ns_dump();
-        tmpfs_dump();
-        con_flush();
     }
     
     for (;;) {

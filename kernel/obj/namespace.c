@@ -131,17 +131,3 @@ object_t *ns_lookup(const char *name) {
     }
     return NULL;
 }
-
-void ns_dump(void) {
-    puts("\n=== Namespace ===\n");
-    for (uint32 i = 0; i < bucket_count; i++) {
-        for (ns_entry_t *e = buckets[i]; e; e = e->next) {
-            const char *type = "???";
-            if (e->obj->type == OBJECT_FILE) type = "file";
-            else if (e->obj->type == OBJECT_DIR) type = "dir";
-            else if (e->obj->type == OBJECT_DEVICE) type = "device";
-            printf("  %s [%s]\n", e->name, type);
-        }
-    }
-}
-
