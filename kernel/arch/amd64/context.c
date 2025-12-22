@@ -47,9 +47,13 @@ void arch_context_get_syscall_args(arch_context_t *ctx, uint64 *args, int count)
     if (count > 5) args[5] = ctx->r9;
 }
 
-//context switch just aplaceholder impl needs asm
-void arch_context_switch(arch_context_t *old_ctx, arch_context_t *new_ctx) {
-    (void)old_ctx;
-    (void)new_ctx;
-    //TODO: implement in assembly
+void arch_context_init_user(arch_context_t *ctx, void *user_stack, void *entry, void *arg) {
+    memset(ctx, 0, sizeof(*ctx));
+    
+    ctx->rsp = (uint64)user_stack;
+    ctx->rip = (uint64)entry;
+    ctx->rdi = (uint64)arg;       //first arg in System V ABI
+    ctx->rflags = 0x202;          //IF=1 (interrupts enabled)
+    ctx->cs = 0x20 | 3;           //user code segment RPL=3
+    ctx->ss = 0x18 | 3;           //user data segment RPL=3
 }

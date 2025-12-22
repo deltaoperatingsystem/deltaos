@@ -42,6 +42,9 @@ ssize handle_seek(handle_t h, ssize offset, int whence);
 //close handle (releases object ref)
 int handle_close(handle_t h);
 
+//read directory entries
+int handle_readdir(handle_t h, void *entries, uint32 count);
+
 //seek whence values
 #define SEEK_SET 0
 #define SEEK_CUR 1

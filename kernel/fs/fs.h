@@ -13,6 +13,12 @@
 #define FS_TYPE_SOCKET  6   //socket
 #define FS_TYPE_DEVICE  7   //device node
 
+//directory entry (name points to fs-managed storage)
+typedef struct dirent {
+    const char *name;   //entry name (managed by filesystem)
+    uint32 type;        //FS_TYPE_*
+} dirent_t;
+
 struct fs;
 
 //filesystem operations
@@ -25,6 +31,9 @@ typedef struct fs_ops {
     
     //remove file/dir at path
     int (*remove)(struct fs *fs, const char *path);
+    
+    //read directory entries (index is in/out for stateless iteration)
+    int (*readdir)(struct fs *fs, const char *path, dirent_t *entries, uint32 count, uint32 *index);
 } fs_ops_t;
 
 //filesystem instance

@@ -209,3 +209,18 @@ int handle_close(handle_t h) {
     
     return 0;
 }
+
+int handle_readdir(handle_t h, void *entries, uint32 count) {
+    if (h < 0 || (uint32)h >= handle_capacity) return -1;
+    
+    handle_entry_t *entry = &handles[h];
+    if (!entry->obj) return -1;
+    if (!entry->obj->ops || !entry->obj->ops->readdir) return -1;
+    
+    uint32 index = (uint32)entry->offset;
+    int result = entry->obj->ops->readdir(entry->obj, entries, count, &index);
+    if (result >= 0) {
+        entry->offset = index;  //update position for next call
+    }
+    return result;
+}

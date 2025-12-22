@@ -27,18 +27,43 @@ struct idtr  {
 static struct idtr idtr;
 extern void *isr_stub_table[];
 extern void arch_timer_tick(void);
+extern void sched_tick(void);
 
 static void irq0_handler(void) {
     arch_timer_tick();
+    sched_tick();  //preemptive scheduling
 }
 
 void interrupt_handler(uint64 vector, uint64 error_code) {
     if (vector < 32) {
         set_outmode(SERIAL);
-        puts("\n---CPU EXCEPTION OCCURRED---\n");
-        printf("Vector:        0x%x\n", vector);
-        printf("Error code:    0x%x\n", error_code);
-        return;
+        puts("\n--- CPU EXCEPTION OCCURED ---\n");
+        printf("Vector:     0x%x\n", vector);
+        printf("Error code: 0x%llx\n", error_code);
+        
+        //page fault (vector 0xe) - decode error code and print details
+        if (vector == 0xe) {
+            uint64 cr2, cr3;
+            __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+            __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+            
+            printf("\n--- Page Fault Details ---\n");
+            printf("CR2 (faulting addr): 0x%llx\n", cr2);
+            printf("CR3 (page table):    0x%llx\n", cr3);
+            
+            //decode error code bits
+            printf("\nError code breakdown:\n");
+            printf("  [P]  Present:       %s\n", (error_code & 1) ? "YES (protection violation)" : "NO (page not present)");
+            printf("  [W]  Write:         %s\n", (error_code & 2) ? "WRITE" : "READ");
+            printf("  [U]  User:          %s\n", (error_code & 4) ? "USER mode" : "SUPERVISOR mode");
+            printf("  [R]  Reserved:      %s\n", (error_code & 8) ? "YES" : "NO");
+            printf("  [I]  Instr fetch:   %s\n", (error_code & 16) ? "YES (NX violation?)" : "NO");
+        }
+        
+        puts("\n--- END OF EXCEPTION ---\n");
+        
+        //halt on exception
+        for(;;) __asm__ volatile ("hlt");
     } else {
         uint8 irq = vector - 32;
         

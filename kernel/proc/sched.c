@@ -1,7 +1,11 @@
 #include <proc/sched.h>
 #include <proc/process.h>
 #include <arch/cpu.h>
+#include <arch/context.h>
+#include <arch/amd64/int/tss.h>
 #include <lib/io.h>
+
+#define KERNEL_STACK_SIZE 4096
 
 //simple round-robin queue
 static thread_t *run_queue_head = NULL;
@@ -86,8 +90,14 @@ static void schedule(void) {
     thread_set_current(next);
     process_set_current(next->process);
     
-    //actual context switch would happen here
-    //for now we just update the current pointers
+    //set TSS rsp0 for ring 3 -> ring 0 transitions
+    uint64 kernel_stack_top = (uint64)next->kernel_stack + next->kernel_stack_size;
+    tss_set_rsp0(kernel_stack_top);
+    
+    //perform actual context switch
+    if (current) {
+        arch_context_switch(&current->context, &next->context);
+    }
 }
 
 void sched_yield(void) {
@@ -114,8 +124,20 @@ void sched_start(void) {
     thread_set_current(first);
     process_set_current(first->process);
     
+    //set TSS rsp0 for ring 3 -> ring 0 transitions
+    uint64 kernel_stack_top = (uint64)first->kernel_stack + first->kernel_stack_size;
+    tss_set_rsp0(kernel_stack_top);
+    
     printf("[sched] starting scheduler with thread %llu\n", first->tid);
     
-    //in a real implementation, we would jump to the thread's entry point
-    //for now, this is a placeholder
+    //check if this is a usermode thread (cs has RPL=3)
+    if ((first->context.cs & 3) == 3) {
+        //enter usermode for the first time
+        arch_enter_usermode(&first->context);
+    } else {
+        //kernel thread so just jump to entry point
+        void (*entry)(void *) = (void (*)(void *))first->context.rip;
+        void *arg = (void *)first->context.rdi;
+        entry(arg);
+    }
 }

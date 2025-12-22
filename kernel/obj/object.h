@@ -18,6 +18,7 @@ typedef struct object_ops {
     ssize (*write)(struct object *obj, const void *buf, size len, size offset);
     int   (*close)(struct object *obj);  //called when refcount hits 0
     int   (*ioctl)(struct object *obj, uint32 cmd, void *arg);
+    int   (*readdir)(struct object *obj, void *entries, uint32 count, uint32 *index);
 } object_ops_t;
 
 //base object structure

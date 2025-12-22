@@ -47,6 +47,9 @@ void printf(const char *format, ...) {
             if (*p == 'l') {
                 is_long = 1;
                 p++;
+                if (*p == 'l') {  //handle %ll for long long
+                    p++;
+                }
             } else if (*p == 'z') {
                 is_size = 1;
                 p++;

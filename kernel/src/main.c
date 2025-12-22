@@ -16,6 +16,7 @@
 #include <obj/namespace.h>
 #include <fs/tmpfs.h>
 #include <fs/fs.h>
+#include <proc/sched.h>
 
 void kernel_main(void) {
     set_outmode(SERIAL);
@@ -27,6 +28,7 @@ void kernel_main(void) {
     keyboard_init();
     rtc_init();
     tmpfs_init();
+    sched_init();
     
     if (fb_available()) {
         con_init();
@@ -47,6 +49,7 @@ void kernel_main(void) {
             handle_write(h, "Object system: working!\n", 24);
             handle_close(h);
         }
+
     }
     
     for (;;) {

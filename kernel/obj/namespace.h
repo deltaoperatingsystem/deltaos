@@ -12,6 +12,10 @@ int ns_unregister(const char *name);
 //lookup an object by name (returns with +1 ref, caller must deref)
 object_t *ns_lookup(const char *name);
 
+//list namespace entries (index is in/out for stateless iteration)
+//returns number of entries filled 0 when done
+int ns_list(void *entries, uint32 count, uint32 *index);
+
 //initialize namespace
 void ns_init(void);
 

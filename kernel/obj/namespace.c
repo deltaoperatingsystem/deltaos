@@ -2,6 +2,7 @@
 #include <mm/kheap.h>
 #include <lib/string.h>
 #include <lib/io.h>
+#include <fs/fs.h>
 
 #define NS_INITIAL_BUCKETS 32
 #define NS_LOAD_FACTOR_NUM 3
@@ -130,4 +131,29 @@ object_t *ns_lookup(const char *name) {
         }
     }
     return NULL;
+}
+
+int ns_list(void *entries_ptr, uint32 count, uint32 *index) {
+    if (!buckets || !entries_ptr || !index) return -1;
+    
+    dirent_t *entries = (dirent_t *)entries_ptr;
+    uint32 filled = 0;
+    uint32 skip = *index;
+    uint32 seen = 0;
+    
+    //iterate all buckets and chains
+    for (uint32 b = 0; b < bucket_count && filled < count; b++) {
+        for (ns_entry_t *e = buckets[b]; e && filled < count; e = e->next) {
+            if (seen >= skip) {
+                //point to name (caller must not modify or free)
+                entries[filled].name = e->name;
+                entries[filled].type = e->obj->type;
+                filled++;
+            }
+            seen++;
+        }
+    }
+    
+    *index = skip + filled;  //update index for next call
+    return filled;
 }

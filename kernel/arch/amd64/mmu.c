@@ -16,9 +16,13 @@ pagemap_t *mmu_get_kernel_pagemap(void) {
     return &kernel_pagemap;
 }
 
-static uint64 *get_next_level(uint64 *current_table, uint32 index, bool allocate) {
+static uint64 *get_next_level(uint64 *current_table, uint32 index, bool allocate, bool user) {
     uint64 entry = current_table[index];
     if (entry & AMD64_PTE_PRESENT) {
+        //if we need user access and entry doesn't have it, add it
+        if (user && !(entry & AMD64_PTE_USER)) {
+            current_table[index] = entry | AMD64_PTE_USER;
+        }
         return (uint64 *)P2V(entry & AMD64_PTE_ADDR_MASK);
     }
     
@@ -32,8 +36,10 @@ static uint64 *get_next_level(uint64 *current_table, uint32 index, bool allocate
     memset(next_table_virt, 0, PAGE_SIZE);
     
     //set entry in current table to point to new table
-    //we allow all permissions here asactual permissions are enforced in the leaf PTE
-    current_table[index] = (uintptr)next_table_phys | AMD64_PTE_PRESENT | AMD64_PTE_WRITE | AMD64_PTE_USER;
+    //we set all permissions here as actual permissions are enforced in the leaf PTE
+    uint64 flags = AMD64_PTE_PRESENT | AMD64_PTE_WRITE;
+    if (user) flags |= AMD64_PTE_USER;
+    current_table[index] = (uintptr)next_table_phys | flags;
     
     return next_table_virt;
 }
@@ -45,17 +51,19 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
     if (flags & MMU_FLAG_WRITE) pte_flags |= AMD64_PTE_WRITE;
     if (flags & MMU_FLAG_USER)  pte_flags |= AMD64_PTE_USER;
     if (flags & MMU_FLAG_NOCACHE) pte_flags |= (AMD64_PTE_PCD | AMD64_PTE_PWT);
-    if (!(flags & MMU_FLAG_EXEC)) pte_flags |= AMD64_PTE_NX; 
+    if (!(flags & MMU_FLAG_EXEC)) pte_flags |= AMD64_PTE_NX;
+    
+    bool user = (flags & MMU_FLAG_USER) != 0;
 
     size i = 0;
     while (i < pages) {
         uintptr cur_virt = virt + (i * PAGE_SIZE);
         uintptr cur_phys = phys + (i * PAGE_SIZE);
 
-        uint64 *pdp = get_next_level(pml4, PML4_IDX(cur_virt), true);
+        uint64 *pdp = get_next_level(pml4, PML4_IDX(cur_virt), true, user);
         if (!pdp) return;
         
-        uint64 *pd = get_next_level(pdp, PDP_IDX(cur_virt), true);
+        uint64 *pd = get_next_level(pdp, PDP_IDX(cur_virt), true, user);
         if (!pd) return;
 
         //try to map a 2MB huge page
@@ -63,7 +71,7 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
             pd[PD_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | pte_flags | AMD64_PTE_HUGE;
             i += 512;
         } else {
-            uint64 *pt = get_next_level(pd, PD_IDX(cur_virt), true);
+            uint64 *pt = get_next_level(pd, PD_IDX(cur_virt), true, user);
             if (!pt) return;
             pt[PT_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | pte_flags;
             i++;
@@ -80,10 +88,10 @@ void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
     for (size i = 0; i < pages; ) {
         uintptr cur_virt = virt + (i * PAGE_SIZE);
 
-        uint64 *pdp = get_next_level(pml4, PML4_IDX(cur_virt), false);
+        uint64 *pdp = get_next_level(pml4, PML4_IDX(cur_virt), false, false);
         if (!pdp) { i++; continue; }
         
-        uint64 *pd = get_next_level(pdp, PDP_IDX(cur_virt), false);
+        uint64 *pd = get_next_level(pdp, PDP_IDX(cur_virt), false, false);
         if (!pd) { i++; continue; }
 
         uint64 pd_entry = pd[PD_IDX(cur_virt)];
@@ -91,7 +99,7 @@ void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
             pd[PD_IDX(cur_virt)] = 0;
             i += 512;
         } else {
-            uint64 *pt = get_next_level(pd, PD_IDX(cur_virt), false);
+            uint64 *pt = get_next_level(pd, PD_IDX(cur_virt), false, false);
             if (pt) {
                 pt[PT_IDX(cur_virt)] = 0;
             }
@@ -105,10 +113,10 @@ void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
 uintptr mmu_virt_to_phys(pagemap_t *map, uintptr virt) {
     uint64 *pml4 = (uint64 *)P2V(map->top_level);
     
-    uint64 *pdp = get_next_level(pml4, PML4_IDX(virt), false);
+    uint64 *pdp = get_next_level(pml4, PML4_IDX(virt), false, false);
     if (!pdp) return 0;
     
-    uint64 *pd = get_next_level(pdp, PDP_IDX(virt), false);
+    uint64 *pd = get_next_level(pdp, PDP_IDX(virt), false, false);
     if (!pd) return 0;
 
     uint64 pd_entry = pd[PD_IDX(virt)];
@@ -119,7 +127,7 @@ uintptr mmu_virt_to_phys(pagemap_t *map, uintptr virt) {
         return (pd_entry & AMD64_PTE_ADDR_MASK) + (virt & 0x1FFFFF);
     }
 
-    uint64 *pt = get_next_level(pd, PD_IDX(virt), false);
+    uint64 *pt = get_next_level(pd, PD_IDX(virt), false, false);
     if (!pt) return 0;
 
     uint64 pt_entry = pt[PT_IDX(virt)];
