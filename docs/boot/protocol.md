@@ -156,7 +156,7 @@ Specify preferred framebuffer resolution and pixel format.
 struct db_rtag_framebuffer_pref {
     u16 type;           // 0x0001
     u16 flags;          // Bit 0: required (fail if unavailable)
-    u32 size;           // 24
+    u32 size;           // 28
     u32 min_width;      // Minimum acceptable width (0 = any)
     u32 min_height;     // Minimum acceptable height (0 = any)
     u32 preferred_width;  // Preferred width (0 = any)
