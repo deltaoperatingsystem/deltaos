@@ -12,7 +12,4 @@ int tmpfs_create(const char *name);
 //open a file from tmpfs (returns object with +1 ref)
 object_t *tmpfs_open(const char *name);
 
-//debug: dump tmpfs tree
-void tmpfs_dump(void);
-
 #endif

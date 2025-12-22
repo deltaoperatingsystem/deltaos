@@ -15,7 +15,4 @@ object_t *ns_lookup(const char *name);
 //initialize namespace
 void ns_init(void);
 
-//debug: dump namespace contents
-void ns_dump(void);
-
 #endif

@@ -311,24 +311,3 @@ int tmpfs_create(const char *name) {
 object_t *tmpfs_open(const char *name) {
     return tmpfs_fs_lookup(&tmpfs_instance, name);
 }
-
-static void dump_node(tmpfs_node_t *node, int depth) {
-    for (int i = 0; i < depth; i++) puts("  ");
-    
-    if (node->type == FS_TYPE_DIR) {
-        printf("%s/\n", node->name[0] ? node->name : "(root)");
-        for (uint32 i = 0; i < node->dir.count; i++) {
-            dump_node(node->dir.children[i], depth + 1);
-        }
-    } else {
-        printf("%s (%zu bytes)\n", node->name, node->file.size);
-    }
-}
-
-void tmpfs_dump(void) {
-    puts("\n=== $files ===\n");
-    if (root) {
-        dump_node(root, 0);
-    }
-}
-

@@ -9,6 +9,7 @@
 #include <mm/vmm.h>
 #include <mm/kheap.h>
 #include <obj/handle.h>
+#include <proc/process.h>
 
 extern void kernel_main(void);
 
@@ -35,6 +36,7 @@ void arch_init(struct db_boot_info *boot_info) {
     vmm_init();
     kheap_init();
     handle_init();
+    proc_init();
     
     //set up interrupt infrastructure
     arch_interrupts_init();

@@ -37,8 +37,8 @@ void fb_init_backbuffer(void) {
         return;
     }
     
-    //copy current VRAM contents to backbuffer
-    memcpy(backbuffer, framebuffer, fb_size);
+    //zero backbuffer instead of slow VRAM read
+    memset(backbuffer, 0, fb_size);
     printf("[fb] backbuffer allocated: %zu bytes\n", fb_size);
 }
 
