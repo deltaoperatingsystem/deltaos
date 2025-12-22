@@ -72,7 +72,7 @@ struct dx_header {
 };
 ```
 
-**Common size:** 52 bytes
+**Common size:** 56 bytes
 
 > **Reserved fields:** All `reserved` fields MUST be zero. Loaders MUST reject
 > files with non-zero reserved fields. This allows clean version bumps.
@@ -91,7 +91,7 @@ struct dx_header_amd64 {
 };
 ```
 
-**Total header size (AMD64):** 60 bytes (52 + 8)
+**Total header size (AMD64):** 64 bytes (56 + 8)
 
 #### x86 (so 32-bit)
 
@@ -101,7 +101,7 @@ struct dx_header_x86 {
 };
 ```
 
-**Total header size (x86):** 56 bytes (52 + 4)
+**Total header size (x86):** 60 bytes (56 + 4)
 
 > **Note:** For PIE executables, add the load base to entry to get actual address.
 
@@ -196,7 +196,7 @@ struct dx_symbol {
 };
 ```
 
-**Size:** 24 bytes
+**Size:** 28 bytes
 
 ### Symbol Types
 
@@ -297,7 +297,7 @@ int dx_load(void *file, size_t size, uintptr load_base) {
 
 | Feature          | DX    | ELF     | PE      | Mach-O  |
 |------------------|-------|---------|---------|---------|
-| Header size      | 56-60B| 64B+    | 248B+   | 32B+    |
+| Header size      | 56-64B| 64B+    | 248B+   | 32B+    |
 | Fixed tables     | Yes   | No      | No      | No      |
 | Section names    | No    | Yes     | Yes     | Yes     |
 | Segment/Section  | Merged| Separate| Separate| Separate|
@@ -340,6 +340,7 @@ struct dx_prelink {
 
 struct dx_prelink_entry {
     u32 symbol;             // Symbol index
+    u32 reserved;           // Padding for alignment
     u64 resolved_addr;      // Pre-resolved address
 };
 ```
