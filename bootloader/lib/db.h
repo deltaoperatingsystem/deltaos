@@ -180,6 +180,22 @@ struct db_tag_bootloader {
     char name[];            //null-terminated
 } __attribute__((packed));
 
+//DB_TAG_BOOT_TIME
+struct db_tag_boot_time {
+    uint16_t type;          //0x0007
+    uint16_t flags;
+    uint32_t size;
+    uint64_t unix_timestamp;
+} __attribute__((packed));
+
+//DB_TAG_KERNEL_FILE
+struct db_tag_kernel_file {
+    uint16_t type;          //0x0009
+    uint16_t flags;
+    uint32_t size;
+    char path[];            //null-terminated
+} __attribute__((packed));
+
 //DB_TAG_EFI_SYSTEM_TABLE
 struct db_tag_efi_system_table {
     uint16_t type;          //0x000A

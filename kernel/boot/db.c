@@ -9,6 +9,7 @@ static struct db_tag_cmdline *cached_cmdline = NULL;
 static struct db_tag_efi_system_table *cached_efi = NULL;
 static struct db_tag_kernel_phys *cached_kernel_phys = NULL;
 static struct db_tag_initrd *cached_initrd = NULL;
+static struct db_tag_acpi_rsdp *cached_acpi = NULL;
 
 void db_parse(struct db_boot_info *info) {
     if (!info) {
@@ -46,6 +47,9 @@ void db_parse(struct db_boot_info *info) {
             case DB_TAG_INITRD:
                 cached_initrd = (struct db_tag_initrd *)tag;
                 break;
+            case DB_TAG_ACPI_RSDP:
+                cached_acpi = (struct db_tag_acpi_rsdp *)tag;
+                break;
             default:
                 break;
         }
@@ -70,6 +74,10 @@ struct db_tag_kernel_phys *db_get_kernel_phys(void) {
 
 struct db_tag_initrd *db_get_initrd(void) {
     return cached_initrd;
+}
+
+struct db_tag_acpi_rsdp *db_get_acpi_rsdp(void) {
+    return cached_acpi;
 }
 
 const char *db_get_bootloader_name(void) {

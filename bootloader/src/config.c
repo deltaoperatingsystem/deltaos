@@ -62,6 +62,7 @@ int config_parse(const char *data, uint64_t size, Config *cfg) {
             current->name[0] = 0;
             current->path[0] = 0;
             current->cmdline[0] = 0;
+            current->initrd[0] = 0;
             copy_until(&p, end, current->name, sizeof(current->name), ']');
             skip_line(&p, end);
             continue;
@@ -93,6 +94,12 @@ int config_parse(const char *data, uint64_t size, Config *cfg) {
             if (str_starts_with(p, "cmdline=")) {
                 p += 8;
                 copy_until(&p, end, current->cmdline, sizeof(current->cmdline), '\n');
+                skip_line(&p, end);
+                continue;
+            }
+            if (str_starts_with(p, "initrd=")) {
+                p += 7;
+                copy_until(&p, end, current->initrd, sizeof(current->initrd), '\n');
                 skip_line(&p, end);
                 continue;
             }

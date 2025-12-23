@@ -18,6 +18,7 @@ BOOT_LDFLAGS = -nostdlib -Wl,-dll -shared \
 
 BOOT_SRCS	= boot/uefi/main.c \
 			  lib/string.c \
+			  lib/crc32.c \
 			  src/graphics.c \
 			  src/console.c \
 			  src/file.c \

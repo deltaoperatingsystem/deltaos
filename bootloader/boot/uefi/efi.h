@@ -12,6 +12,7 @@ typedef uint32_t UINT32;
 typedef uint16_t UINT16;
 typedef uint8_t  UINT8;
 typedef int32_t  INT32;
+typedef int16_t  INT16;
 typedef uint16_t CHAR16;
 typedef char     CHAR8;
 typedef void     VOID;
@@ -20,12 +21,6 @@ typedef VOID*    EFI_HANDLE;
 typedef VOID*    EFI_EVENT;
 typedef UINT64   EFI_PHYSICAL_ADDRESS;
 
-#define EFIAPI __attribute__((ms_abi))
-#define IN
-#define OUT
-#define OPTIONAL
-#define CONST const
-
 #ifndef FALSE
 #define FALSE 0
 #endif
@@ -33,6 +28,32 @@ typedef UINT64   EFI_PHYSICAL_ADDRESS;
 #define TRUE  1
 #endif
 typedef UINT8 BOOLEAN;
+
+typedef struct {
+    UINT16 Year;       //1900 - 9999
+    UINT8  Month;      //1 - 12
+    UINT8  Day;        //1 - 31
+    UINT8  Hour;       //0 - 23
+    UINT8  Minute;     //0 - 59
+    UINT8  Second;     //0 - 59
+    UINT8  Pad1;
+    UINT32 Nanosecond; //0 - 999,999,999
+    INT16  TimeZone;   //-1440 to 1440 or 2047
+    UINT8  Daylight;
+    UINT8  Pad2;
+} EFI_TIME;
+
+typedef struct {
+    UINT32 Resolution;
+    UINT32 Accuracy;
+    BOOLEAN SetsToZero;
+} EFI_TIME_CAPABILITIES;
+
+#define EFIAPI __attribute__((ms_abi))
+#define IN
+#define OUT
+#define OPTIONAL
+#define CONST const
 
 //status codes
 
@@ -73,6 +94,12 @@ typedef struct {
 
 #define EFI_FILE_INFO_GUID \
     {0x09576e92, 0x6d3f, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}}
+
+#define ACPI_20_TABLE_GUID \
+    {0x8868e871, 0xe4f1, 0x11d3, {0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81}}
+
+#define ACPI_TABLE_GUID \
+    {0xeb9d2d30, 0x2d88, 0x11d3, {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}}
 
 //console protocols
 
@@ -361,6 +388,11 @@ typedef struct {
     EFI_LOCATE_PROTOCOL LocateProtocol;//37
 } EFI_BOOT_SERVICES;
 
+typedef EFI_STATUS (EFIAPI *EFI_GET_TIME)(
+    OUT EFI_TIME *Time,
+    OUT EFI_TIME_CAPABILITIES *Capabilities OPTIONAL
+);
+
 //runtime services
 typedef EFI_STATUS (EFIAPI *EFI_SET_VIRTUAL_ADDRESS_MAP)(
     IN UINTN MemoryMapSize,
@@ -375,7 +407,7 @@ typedef struct {
     UINT32 CRC32;
     UINT32 Reserved;
     //services
-    VOID *GetTime;                      //0
+    EFI_GET_TIME GetTime;               //0
     VOID *SetTime;                      //1
     VOID *GetWakeupTime;                //2
     VOID *SetWakeupTime;                //3
@@ -387,6 +419,11 @@ typedef struct {
     VOID *GetNextHighMonotonicCount;    //9
     VOID *ResetSystem;                  //10
 } EFI_RUNTIME_SERVICES;
+
+typedef struct {
+    EFI_GUID VendorGuid;
+    VOID *VendorTable;
+} EFI_CONFIGURATION_TABLE;
 
 //system table
 
@@ -407,7 +444,7 @@ typedef struct {
     EFI_RUNTIME_SERVICES *RuntimeServices;
     EFI_BOOT_SERVICES *BootServices;
     UINTN NumberOfTableEntries;
-    VOID *ConfigurationTable;
+    EFI_CONFIGURATION_TABLE *ConfigurationTable;
 } EFI_SYSTEM_TABLE;
 
 #endif

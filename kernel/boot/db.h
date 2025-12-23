@@ -18,6 +18,18 @@
 #define DB_REQ_INITRD       (1 << 6)
 #define DB_REQ_HAS_TAGS     (1 << 7)
 
+//use format-specific entry point
+#define DB_ENTRY_USE_FORMAT 0xFFFFFFFF
+
+struct db_request_header {
+    uint32 magic;         //DB_REQUEST_MAGIC
+    uint32 checksum;      //CRC32 (computed with this field as 0)
+    uint16 version;       //protocol version (0x0001)
+    uint16 header_size;   //size of header + all request tags
+    uint32 flags;         //request flags
+    uint32 entry_point;   //offset of entry or DB_ENTRY_USE_FORMAT
+} __attribute__((packed));
+
 //boot info (passed to kernel)
 struct db_boot_info {
     uint32 magic;         //DB_BOOT_INFO_MAGIC
@@ -127,6 +139,14 @@ struct db_tag_efi_system_table {
     uint64 system_table;  //pointer to EFI_SYSTEM_TABLE
 } __attribute__((packed));
 
+//DB_TAG_ACPI_RSDP
+struct db_tag_acpi_rsdp {
+    uint16 type;          //0x0005
+    uint16 flags;         //bit 0: is XSDP
+    uint32 size;
+    uint64 rsdp_address;
+} __attribute__((packed));
+
 //DB_TAG_INITRD
 struct db_tag_initrd {
     uint16 type;          //0x000B
@@ -145,6 +165,22 @@ struct db_tag_kernel_phys {
     uint64 phys_length;
 } __attribute__((packed));
 
+//DB_TAG_BOOT_TIME
+struct db_tag_boot_time {
+    uint16 type;          //0x0007
+    uint16 flags;
+    uint32 size;
+    uint64 unix_timestamp;
+} __attribute__((packed));
+
+//DB_TAG_KERNEL_FILE
+struct db_tag_kernel_file {
+    uint16 type;          //0x0009
+    uint16 flags;
+    uint32 size;
+    char path[];
+} __attribute__((packed));
+
 //macros
 #define DB_ALIGN8(x) (((x) + 7) & ~7)
 
@@ -160,6 +196,7 @@ struct db_tag_framebuffer *db_get_framebuffer(void);
 struct db_tag_memory_map *db_get_memory_map(void);
 struct db_tag_kernel_phys *db_get_kernel_phys(void);
 struct db_tag_initrd *db_get_initrd(void);
+struct db_tag_acpi_rsdp *db_get_acpi_rsdp(void);
 const char *db_get_bootloader_name(void);
 const char *db_get_cmdline(void);
 

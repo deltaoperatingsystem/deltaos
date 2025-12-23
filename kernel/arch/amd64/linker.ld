@@ -11,6 +11,7 @@ SECTIONS
 
     .text : ALIGN(0x1000)
     {
+        KEEP(*(.db_request))
         *(.text.entry)
         *(.text .text.*)
     }

@@ -116,9 +116,10 @@ void printf(const char *format, ...) {
                     num = (uintptr)va_arg(args, void*);
                     putc('0');
                     putc('x');
+                } else if (is_long || is_size) {
+                    num = va_arg(args, unsigned long);
                 } else {
-                    if (is_long || is_size) num = va_arg(args, unsigned long);
-                    else num = va_arg(args, unsigned int);
+                    num = va_arg(args, unsigned int);
                 }
 
                 char tmp[32];

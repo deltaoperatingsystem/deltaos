@@ -11,6 +11,7 @@ typedef struct {
     char name[64];
     char path[CONFIG_MAX_PATH];
     char cmdline[CONFIG_MAX_CMDLINE];
+    char initrd[CONFIG_MAX_PATH];
 } ConfigEntry;
 
 typedef struct {

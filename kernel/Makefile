@@ -25,6 +25,7 @@ OBJS := $(ASM_OBJS) $(C_OBJS)
 #build kernel
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^
+	@python3 ../tools/db_patch.py $@
 
 #compile C sources
 %.o: %.c
