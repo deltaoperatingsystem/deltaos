@@ -137,6 +137,33 @@ void printf(const char *format, ...) {
                 for (int i = len - 1; i >= 0; i--) {
                     putc(tmp[i]);
                 }
+            } else if (*p == 'X' || *p == 'P') {
+                uintmax num;
+                if (*p == 'P') {
+                    num = (uintptr)va_arg(args, void*);
+                    putc('0');
+                    putc('x');
+                } else if (is_long || is_size) {
+                    num = va_arg(args, unsigned long);
+                } else {
+                    num = va_arg(args, unsigned int);
+                }
+
+                char tmp[32];
+                int len = 0;
+
+                if (num == 0) {
+                    tmp[len++] = '0';
+                } else {
+                    while (num) {
+                        int digit = num & 0xF;
+                        tmp[len++] = (char)((digit < 10) ? ('0' + digit) : ('A' + (digit - 10)));
+                        num >>= 4;
+                    }
+                }
+                for (int i = len - 1; i >= 0; i--) {
+                    putc(tmp[i]);
+                }
             }
             else if (*p == '%') {
                 putc('%');
