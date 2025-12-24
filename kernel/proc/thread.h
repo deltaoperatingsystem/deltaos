@@ -19,7 +19,7 @@ typedef struct thread {
     uint32 state;
     
     //arch-opaque saved context
-    arch_context_t context;
+    context_t context;
     
     //kernel stack for this thread
     void *kernel_stack;

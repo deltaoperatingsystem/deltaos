@@ -58,7 +58,7 @@ bool get_key(char *c) {
 }
 
 void keyboard_wait(void) {
-    while (head == tail) arch_halt();
+    while (head == tail) halt();
 }
 
 //object ops for keyboard - read returns buffered keys

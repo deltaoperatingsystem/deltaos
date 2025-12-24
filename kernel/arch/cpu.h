@@ -19,19 +19,19 @@
 /*
  * required MI functions - each arch must implement:
  *
- * arch_halt() - halt CPU until next interrupt
- * arch_idle() - idle CPU (enable interrupts and halt)
- * arch_pause() - hint to CPU that we're in a spin loop
+ * halt() - halt CPU until next interrupt
+ * idle() - idle CPU (enable interrupts and halt)
+ * pause() - hint to CPU that we're in a spin loop
  *
  * memory barriers:
  *
- * arch_mb() - full memory barrier
- * arch_rmb() - read memory barrier
- * arch_wmb() - write memory barrier
+ * mb() - full memory barrier
+ * rmb() - read memory barrier
+ * wmb() - write memory barrier
  *
  * optional (arch-specific):
  *
- * arch_rdtsc() - read time-stamp counter (x86/amd64)
+ * rdtsc() - read time-stamp counter (x86/amd64)
  */
 
 #endif
