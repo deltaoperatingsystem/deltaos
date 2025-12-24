@@ -11,8 +11,9 @@
 #include "../src/elf.h"
 #include "../src/paging.h"
 #include <crc32.h>
+#include <stdio.h>
 
-#define DELBOOT_NAME    "DelBoot 0.5"
+#define DELBOOT_NAME    "DelBoot 0.6"
 #define KERNEL_SCAN_SIZE (32 * 1024)
 #define CONFIG_PATH     L"\\EFI\\BOOT\\delboot.cfg"
 
@@ -367,7 +368,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     }
     
     //show menu and get selection
-    int selection = menu_run();
+    int selection = menu_run(have_config ? boot_config.timeout : 0, have_config ? boot_config.default_entry : 0);
     if (selection < 0) {
         gfx_clear(COLOR_BG);
         con_set_color(COLOR_RED, 0);
@@ -395,7 +396,10 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     //show loading screen
     gfx_clear(COLOR_BG);
     con_set_color(COLOR_WHITE, 0);
-    con_print_at(40, 40, "Loading kernel...");
+    
+    char boot_msg[256];
+    snprintf(boot_msg, sizeof(boot_msg), "Loading kernel: %s...", menu_entry ? menu_entry->name : "kernel.bin");
+    con_print_at(40, 40, boot_msg);
     
     //load kernel
     void *kernel_data = NULL;
@@ -552,7 +556,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     //build boot info
     struct db_boot_info *boot_info = build_boot_info(req_flags, cmdline, gop, mmap, mmap_size, desc_size, &load_info, kernel_path, (uint64_t)initrd_data, initrd_size);
     
-    con_print_at(40, 60, "Booting...");
+    snprintf(boot_msg, sizeof(boot_msg), "Booting %s...", menu_entry ? menu_entry->name : "kernel.bin");
+    con_print_at(40, 60, boot_msg);
     gBS->Stall(500000);
     
     //get fresh memory map

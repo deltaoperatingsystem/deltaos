@@ -2,6 +2,7 @@
 #include "graphics.h"
 #include "console.h"
 #include "efi.h"
+#include "stdio.h"
 
 static MenuEntry entries[MENU_MAX_ENTRIES];
 static int entry_count = 0;
@@ -38,7 +39,7 @@ static void draw_menu(void) {
     
     //title
     con_set_color(COLOR_WHITE, 0);
-    con_print_at(char_w * 2, char_h, "DelBoot v0.4");
+    con_print_at(char_w * 2, char_h, "DelBoot v0.6");
     
     //seperator
     con_set_color(COLOR_GRAY, 0);
@@ -70,35 +71,77 @@ static void draw_menu(void) {
     con_print_at(char_w * 2, bottom_y + char_h, "Press enter to boot the selected entry");
 }
 
-int menu_run(void) {
+int menu_run(int timeout, int default_index) {
     if (entry_count == 0) return -1;
     
+    selected = default_index;
+    if (selected < 0 || selected >= entry_count) selected = 0;
+
     draw_menu();
     
     //wait for key input
     EFI_INPUT_KEY key;
     
+    uint64_t timeout_ms = (uint64_t)timeout * 1000;
+    uint64_t elapsed_ms = 0;
+    int timeout_active = (timeout > 0);
+
     for (;;) {
-        gST->ConIn->Reset(gST->ConIn, FALSE);
-        
-        //wait for key
-        while (gST->ConIn->ReadKeyStroke(gST->ConIn, &key) == EFI_NOT_READY) {
-            gBS->Stall(10000);
+        //handle timeout display
+        if (timeout_active) {
+            uint32_t char_h = con_get_char_height();
+            uint32_t char_w = con_get_char_width();
+            Framebuffer *fb = gfx_get_fb();
+            uint32_t y = fb->height - char_h * 5;
+            
+            char msg[64];
+            uint32_t remaining = (timeout_ms - elapsed_ms + 999) / 1000;
+            
+            snprintf(msg, sizeof(msg), "Booting automatically in %u seconds...  ", remaining);
+            
+            con_set_color(COLOR_WHITE, COLOR_BG);
+            con_print_at(char_w * 2, y, msg);
+            
+            if (elapsed_ms >= timeout_ms) {
+                return selected;
+            }
         }
+
+        //check for key without blocking
+        EFI_STATUS status = gST->ConIn->ReadKeyStroke(gST->ConIn, &key);
         
-        //handle key
-        if (key.ScanCode == 0x01) {  //up arrows
-            if (selected > 0) {
-                selected--;
-                draw_menu();
+        if (status == EFI_SUCCESS) {
+            //key pressed so cancel timeout if active
+            if (timeout_active) {
+                timeout_active = 0;
+                //clear the countdown line
+                uint32_t char_h = con_get_char_height();
+                uint32_t char_w = con_get_char_width();
+                Framebuffer *fb = gfx_get_fb();
+                uint32_t y = fb->height - char_h * 5;
+                con_print_at(char_w * 2, y, "                                        ");
             }
-        } else if (key.ScanCode == 0x02) {  //down arrow
-            if (selected < entry_count - 1) {
-                selected++;
-                draw_menu();
+
+            //handle key
+            if (key.ScanCode == 0x01) {  //up arrows
+                if (selected > 0) {
+                    selected--;
+                    draw_menu();
+                }
+            } else if (key.ScanCode == 0x02) {  //down arrow
+                if (selected < entry_count - 1) {
+                    selected++;
+                    draw_menu();
+                }
+            } else if (key.UnicodeChar == 0x0D || key.UnicodeChar == '\r') {  //enter
+                return selected;
             }
-        } else if (key.UnicodeChar == 0x0D || key.UnicodeChar == '\r') {  //enter
-            return selected;
+        } else {
+            //no key, wait a bit
+            gBS->Stall(10000); //10ms
+            if (timeout_active) {
+                elapsed_ms += 10;
+            }
         }
     }
 }
