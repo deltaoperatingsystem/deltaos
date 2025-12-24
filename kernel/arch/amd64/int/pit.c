@@ -9,15 +9,15 @@
 static volatile uint64 timer_ticks = 0;
 static volatile uint32 timer_freq = 0;
 
-void timer_tick(void) {
+void arch_timer_tick(void) {
     timer_ticks++;
 }
 
-uint64 timer_get_ticks(void) {
+uint64 arch_timer_get_ticks(void) {
     return timer_ticks;
 }
 
-void timer_setfreq(uint32 hz) {
+void arch_timer_setfreq(uint32 hz) {
     if (hz == 0) return;
     timer_freq = hz;
     uint16 div = (uint16)(PIT_BASE / hz);
@@ -26,11 +26,11 @@ void timer_setfreq(uint32 hz) {
     outb(PIT_CH0, (div >> 8) & 0xFF);
 }
 
-uint32 timer_getfreq(void) {
+uint32 arch_timer_getfreq(void) {
     return timer_freq;
 }
 
-void timer_init(uint32 hz) {
-    timer_setfreq(hz);
+void arch_timer_init(uint32 hz) {
+    arch_timer_setfreq(hz);
     pic_clear_mask(0);
 }

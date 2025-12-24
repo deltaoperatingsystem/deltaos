@@ -29,7 +29,7 @@ thread_t *thread_create(process_t *proc, void (*entry)(void *), void *arg) {
     
     //setup initial context using arch-agnostic API
     void *stack_top = (char *)thread->kernel_stack + KERNEL_STACK_SIZE;
-    context_init(&thread->context, stack_top, entry, arg);
+    arch_context_init(&thread->context, stack_top, entry, arg);
     
     //link into process thread list
     thread->next = proc->threads;

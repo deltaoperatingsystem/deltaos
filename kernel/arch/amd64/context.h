@@ -7,7 +7,7 @@
 //AMD64 context - System V ABI layout
 //callee-saved: rbx, rbp, r12-r15
 //caller-saved: rax, rcx, rdx, rsi, rdi, r8-r11
-struct context {
+struct arch_context {
     //callee-saved registers (preserved across calls)
     uint64 rbx;
     uint64 rbp;
@@ -36,21 +36,21 @@ struct context {
     uint64 r11;  //rflags saved by syscall instruction
 };
 
-typedef struct context context_t;
+typedef struct arch_context arch_context_t;
 
 //context functions
-void context_init(context_t *ctx, void *stack_top, void (*entry)(void *), void *arg);
-void context_init_user(context_t *ctx, void *user_stack, void *entry, void *arg);
-uint64 context_get_pc(context_t *ctx);
-void context_set_pc(context_t *ctx, uint64 pc);
-uint64 context_get_sp(context_t *ctx);
-void context_set_sp(context_t *ctx, uint64 sp);
-uint64 context_get_retval(context_t *ctx);
-void context_set_retval(context_t *ctx, uint64 val);
-void context_get_syscall_args(context_t *ctx, uint64 *args, int count);
-void context_switch(context_t *old_ctx, context_t *new_ctx);
-void enter_usermode(context_t *ctx);
-void return_to_usermode(context_t *ctx);
+void arch_context_init(arch_context_t *ctx, void *stack_top, void (*entry)(void *), void *arg);
+void arch_context_init_user(arch_context_t *ctx, void *user_stack, void *entry, void *arg);
+uint64 arch_context_get_pc(arch_context_t *ctx);
+void arch_context_set_pc(arch_context_t *ctx, uint64 pc);
+uint64 arch_context_get_sp(arch_context_t *ctx);
+void arch_context_set_sp(arch_context_t *ctx, uint64 sp);
+uint64 arch_context_get_retval(arch_context_t *ctx);
+void arch_context_set_retval(arch_context_t *ctx, uint64 val);
+void arch_context_get_syscall_args(arch_context_t *ctx, uint64 *args, int count);
+void arch_context_switch(arch_context_t *old_ctx, arch_context_t *new_ctx);
+void arch_enter_usermode(arch_context_t *ctx);
+void arch_return_to_usermode(arch_context_t *ctx);
 
 #endif
 

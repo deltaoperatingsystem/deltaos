@@ -22,7 +22,7 @@ static uint8 serial_is_transmit_empty(void) {
     if (ARCH_HAS_PORT_IO) {
         return inb(COM1_PORT + 5) & 0x20;
     } else {
-        return mmio_read8(COM1_MMIO + 5) & 0x20;
+        return arch_mmio_read8(COM1_MMIO + 5) & 0x20;
     }
 }
 
@@ -31,7 +31,7 @@ void serial_write_char(char c) {
     if (ARCH_HAS_PORT_IO) {
         outb(COM1_PORT, c);
     } else {
-        mmio_write8(COM1_MMIO, c);
+        arch_mmio_write8(COM1_MMIO, c);
     }
 }
 

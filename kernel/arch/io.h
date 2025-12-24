@@ -24,10 +24,10 @@
  *
  * required MI functions - each arch must implement:
  *
- * mmio_read8(addr) - read 8-bit from MMIO address
- * mmio_write8(addr, val) - write 8-bit to MMIO address
- * mmio_read32(addr) - read 32-bit from MMIO address
- * mmio_write32(addr, val)- write 32-bit to MMIO address
+ * arch_mmio_read8(addr) - read 8-bit from MMIO address
+ * arch_mmio_write8(addr, val) - write 8-bit to MMIO address
+ * arch_mmio_read32(addr) - read 32-bit from MMIO address
+ * arch_mmio_write32(addr, val)- write 32-bit to MMIO address
  *
  * optional (only if ARCH_HAS_PORT_IO):
  *

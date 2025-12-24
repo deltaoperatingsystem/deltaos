@@ -4,9 +4,9 @@
 #include <arch/amd64/types.h>
 
 //MI interface
-void interrupts_init(void);
-void interrupts_enable(void);
-void interrupts_disable(void);
+void arch_interrupts_init(void);
+void arch_interrupts_enable(void);
+void arch_interrupts_disable(void);
 
 //MD internals
 #define GDT_KERNEL_CODE 0x08

@@ -43,7 +43,7 @@ void kernel_main(void) {
         
         con_set_fg(FB_WHITE);
         puts("Console: initialized\n");
-        printf("Timer: running @ %dHz\n", timer_getfreq());
+        printf("Timer: running @ %dHz\n", arch_timer_getfreq());
         
         struct db_tag_acpi_rsdp *acpi = db_get_acpi_rsdp();
         if (acpi) {

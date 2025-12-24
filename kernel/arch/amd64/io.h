@@ -12,19 +12,19 @@ uint8 inb(uint16 port);
 void outb(uint16 port, uint8 value);
 
 //MMIO functions
-static inline uint8 mmio_read8(uintptr addr) {
+static inline uint8 arch_mmio_read8(uintptr addr) {
     return *(volatile uint8*)addr;
 }
 
-static inline void mmio_write8(uintptr addr, uint8 val) {
+static inline void arch_mmio_write8(uintptr addr, uint8 val) {
     *(volatile uint8*)addr = val;
 }
 
-static inline uint32 mmio_read32(uintptr addr) {
+static inline uint32 arch_mmio_read32(uintptr addr) {
     return *(volatile uint32*)addr;
 }
 
-static inline void mmio_write32(uintptr addr, uint32 val) {
+static inline void arch_mmio_write32(uintptr addr, uint32 val) {
     *(volatile uint32*)addr = val;
 }
 

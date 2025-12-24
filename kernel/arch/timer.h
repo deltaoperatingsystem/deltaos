@@ -19,9 +19,9 @@
 /*
  * required MI functions - each arch must implement:
  *
- * timer_init(hz) - initialize timer at given frequency
- * timer_setfreq(hz) - change timer frequency
- * timer_get_ticks() - get monotonic tick count since boot
+ * arch_timer_init(hz) - initialize timer at given frequency
+ * arch_timer_setfreq(hz) - change timer frequency
+ * arch_timer_get_ticks() - get monotonic tick count since boot
  */
 
 #endif

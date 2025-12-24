@@ -2,7 +2,7 @@
 #include <arch/amd64/context.h>
 #include <lib/string.h>
 
-void context_init(context_t *ctx, void *stack_top, void (*entry)(void *), void *arg) {
+void arch_context_init(arch_context_t *ctx, void *stack_top, void (*entry)(void *), void *arg) {
     memset(ctx, 0, sizeof(*ctx));
     
     ctx->rsp = (uint64)stack_top;
@@ -13,31 +13,31 @@ void context_init(context_t *ctx, void *stack_top, void (*entry)(void *), void *
     ctx->ss = 0x10;               //kernel data segment
 }
 
-uint64 context_get_pc(context_t *ctx) {
+uint64 arch_context_get_pc(arch_context_t *ctx) {
     return ctx->rip;
 }
 
-void context_set_pc(context_t *ctx, uint64 pc) {
+void arch_context_set_pc(arch_context_t *ctx, uint64 pc) {
     ctx->rip = pc;
 }
 
-uint64 context_get_sp(context_t *ctx) {
+uint64 arch_context_get_sp(arch_context_t *ctx) {
     return ctx->rsp;
 }
 
-void context_set_sp(context_t *ctx, uint64 sp) {
+void arch_context_set_sp(arch_context_t *ctx, uint64 sp) {
     ctx->rsp = sp;
 }
 
-uint64 context_get_retval(context_t *ctx) {
+uint64 arch_context_get_retval(arch_context_t *ctx) {
     return ctx->rax;
 }
 
-void context_set_retval(context_t *ctx, uint64 val) {
+void arch_context_set_retval(arch_context_t *ctx, uint64 val) {
     ctx->rax = val;
 }
 
-void context_get_syscall_args(context_t *ctx, uint64 *args, int count) {
+void arch_context_get_syscall_args(arch_context_t *ctx, uint64 *args, int count) {
     //System V AMD64 syscall ABI: rdi, rsi, rdx, r10, r8, r9
     if (count > 0) args[0] = ctx->rdi;
     if (count > 1) args[1] = ctx->rsi;
@@ -47,7 +47,7 @@ void context_get_syscall_args(context_t *ctx, uint64 *args, int count) {
     if (count > 5) args[5] = ctx->r9;
 }
 
-void context_init_user(context_t *ctx, void *user_stack, void *entry, void *arg) {
+void arch_context_init_user(arch_context_t *ctx, void *user_stack, void *entry, void *arg) {
     memset(ctx, 0, sizeof(*ctx));
     
     ctx->rsp = (uint64)user_stack;

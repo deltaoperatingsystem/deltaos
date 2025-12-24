@@ -5,35 +5,35 @@
 
 //MI interface implementations
 
-static inline void halt(void) {
+static inline void arch_halt(void) {
     __asm__ volatile ("hlt");
 }
 
-static inline void idle(void) {
+static inline void arch_idle(void) {
     __asm__ volatile ("sti; hlt");
 }
 
-static inline void pause(void) {
+static inline void arch_pause(void) {
     __asm__ volatile ("pause");
 }
 
 //memory barriers
 
-static inline void mb(void) {
+static inline void arch_mb(void) {
     __asm__ volatile ("mfence" ::: "memory");
 }
 
-static inline void rmb(void) {
+static inline void arch_rmb(void) {
     __asm__ volatile ("lfence" ::: "memory");
 }
 
-static inline void wmb(void) {
+static inline void arch_wmb(void) {
     __asm__ volatile ("sfence" ::: "memory");
 }
 
 //x86-specific
 
-static inline uint64 rdtsc(void) {
+static inline uint64 arch_rdtsc(void) {
     uint32 lo, hi;
     __asm__ volatile ("rdtsc" : "=a"(lo), "=d"(hi));
     return ((uint64)hi << 32) | lo;

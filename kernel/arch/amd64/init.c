@@ -13,7 +13,7 @@
 
 extern void kernel_main(void);
 
-void init(struct db_boot_info *boot_info) {
+void arch_init(struct db_boot_info *boot_info) {
     //early console for debugging
     serial_init();
     set_outmode(SERIAL);
@@ -39,15 +39,15 @@ void init(struct db_boot_info *boot_info) {
     proc_init();
     
     //set up interrupt infrastructure
-    interrupts_init();
+    arch_interrupts_init();
     puts("[amd64] interrupts initialized\n");
     
     //enable interrupts
-    interrupts_enable();
+    arch_interrupts_enable();
     puts("[amd64] interrupts enabled\n");
     
     //initialize timer at 100Hz
-    timer_init(100);
+    arch_timer_init(100);
     puts("[amd64] timer initialized @ 100Hz\n");
     
     //jump to MI kernel

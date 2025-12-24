@@ -26,11 +26,11 @@ struct idtr  {
 
 static struct idtr idtr;
 extern void *isr_stub_table[];
-extern void timer_tick(void);
+extern void arch_timer_tick(void);
 extern void sched_tick(void);
 
 static void irq0_handler(void) {
-    timer_tick();
+    arch_timer_tick();
     sched_tick();  //preemptive scheduling
 }
 
@@ -96,7 +96,7 @@ static void idt_setgate(uint8 vector, void *isr, uint8 flags) {
     gate->reserved = 0;
 }
 
-void interrupts_init(void) {
+void arch_interrupts_init(void) {
     gdt_init();
     idtr.base = (uintptr)&idt[0];
     idtr.limit = (uint16)sizeof(idt) - 1;
@@ -112,10 +112,10 @@ void interrupts_init(void) {
     __asm__ volatile ("lidt %0" : : "m"(idtr));
 }
 
-void interrupts_enable(void) {
+void arch_interrupts_enable(void) {
     __asm__ volatile ("sti");
 }
 
-void interrupts_disable(void) {
+void arch_interrupts_disable(void) {
     __asm__ volatile ("cli");
 }

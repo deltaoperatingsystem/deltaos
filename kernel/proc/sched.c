@@ -96,7 +96,7 @@ static void schedule(void) {
     
     //perform actual context switch
     if (current) {
-        context_switch(&current->context, &next->context);
+        arch_context_switch(&current->context, &next->context);
     }
 }
 
@@ -133,7 +133,7 @@ void sched_start(void) {
     //check if this is a usermode thread (cs has RPL=3)
     if ((first->context.cs & 3) == 3) {
         //enter usermode for the first time
-        enter_usermode(&first->context);
+        arch_enter_usermode(&first->context);
     } else {
         //kernel thread so just jump to entry point
         void (*entry)(void *) = (void (*)(void *))first->context.rip;

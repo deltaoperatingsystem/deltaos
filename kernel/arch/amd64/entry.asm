@@ -8,7 +8,7 @@ section .text.entry
 
 global _start
 
-extern init
+extern arch_init
 
 _start:
     ;clear direction flag
@@ -18,7 +18,7 @@ _start:
     lea rsp, [rel kernel_stack_top]
 
     ;call arch-specific init (which then calls kernel_main)
-    call init
+    call arch_init
 
 .halt:
     cli

@@ -1,6 +1,6 @@
 section .text
 
-;struct context offsets
+;struct arch_context offsets
 %define CTX_RBX     0
 %define CTX_RBP     8
 %define CTX_R12     16
@@ -27,12 +27,12 @@ section .text
 %define USER_CS     0x23    ;0x20 | 3 (RPL=3)
 %define USER_DS     0x1B    ;0x18 | 3 (RPL=3)
 
-;context_switch(old_ctx, new_ctx)
+;arch_context_switch(old_ctx, new_ctx)
 ;rdi = pointer to old context (to save)
 ;rsi = pointer to new context (to load)
 ;saves callee-saved registers to old_ctx and loads from new_ctx
-global context_switch
-context_switch:
+global arch_context_switch
+arch_context_switch:
     ;save callee-saved registers to old context
     mov [rdi + CTX_RBX], rbx
     mov [rdi + CTX_RBP], rbp
@@ -66,12 +66,12 @@ context_switch:
     ;we land here when switched back
     ret
 
-;enter_usermode(ctx)
+;arch_enter_usermode(ctx)
 ;rdi = pointer to context with user state
 ;first-time entry to Ring 3 via iretq
 ;sets up stack frame for iretq: ss, rsp, rflags, cs, rip
-global enter_usermode
-enter_usermode:
+global arch_enter_usermode
+arch_enter_usermode:
     ;TODO: swapgs
     ;swapgs
     
@@ -113,8 +113,8 @@ enter_usermode:
 ;rdi = pointer to context with saved user state
 ;returns to usermode after syscall/interrupt
 ;similar to enter_usermode but handles swapgs correctly
-global return_to_usermode
-return_to_usermode:
+global arch_return_to_usermode
+arch_return_to_usermode:
     ;check if returning to user mode (CS has RPL=3)
     mov rax, [rdi + CTX_CS]
     and rax, 3
