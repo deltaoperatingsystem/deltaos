@@ -44,14 +44,7 @@ void kernel_main(void) {
         con_set_fg(FB_WHITE);
         puts("Console: initialized\n");
         printf("Timer: running @ %dHz\n", arch_timer_getfreq());
-        
-        struct db_tag_acpi_rsdp *acpi = db_get_acpi_rsdp();
-        if (acpi) {
-            printf("ACPI: RSDP found at 0x%lx (%s)\n", acpi->rsdp_address, acpi->flags & 1 ? "XSDP" : "RSDP");
-        } else {
-            puts("ACPI: RSDP not found\n");
-        }
-        
+
         struct db_tag_memory_map *mmap = db_get_memory_map();
         if (mmap) {
             int usable = 0, kernel = 0, boot = 0;
@@ -69,17 +62,7 @@ void kernel_main(void) {
         } else {
             puts("ACPI: RSDP not found\n");
         }
-        
-        struct db_tag_memory_map *mmap = db_get_memory_map();
-        if (mmap) {
-            int usable = 0, kernel = 0, boot = 0;
-            for (uint32 i = 0; i < mmap->entry_count; i++) {
-                if (mmap->entries[i].type == DB_MEM_USABLE) usable++;
-                else if (mmap->entries[i].type == DB_MEM_KERNEL) kernel++;
-                else if (mmap->entries[i].type == DB_MEM_BOOTLOADER) boot++;
-            }
-            printf("Memory: %d usable, %d kernel, %d bootloader regions\n", usable, kernel, boot);
-        }
+    
         
         //test object system
         handle_t h = handle_open("$devices/console", 0);
