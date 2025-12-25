@@ -10,6 +10,7 @@
 #include <mm/kheap.h>
 #include <obj/handle.h>
 #include <proc/process.h>
+#include <drivers/pci.h>
 
 extern void kernel_main(void);
 
@@ -49,6 +50,8 @@ void arch_init(struct db_boot_info *boot_info) {
     //initialize timer at 100Hz
     arch_timer_init(100);
     puts("[amd64] timer initialized @ 100Hz\n");
+    
+    pci_init();
     
     //jump to MI kernel
     puts("[amd64] jumping to kernel_main\n\n");

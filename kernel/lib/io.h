@@ -12,6 +12,8 @@ enum output_mode {
 void putc(const char c);
 void puts(const char *s);
 void printf(const char *format, ...);
+int snprintf(char *buf, size n, const char *format, ...);
+int vsnprintf(char *buf, size n, const char *format, __builtin_va_list args);
 void set_outmode(enum output_mode m);
 
 #endif
