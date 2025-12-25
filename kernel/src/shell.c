@@ -38,9 +38,6 @@ void shell(void) {
             printf("Current time: %d:%d:%d %d/%d/%d\n", 
                 time.hour, time.minute, time.second,
                 time.day, time.month, time.year);
-        } else if (strcmp(buffer, "snake") == 0) {
-            extern void snake_game(void);
-            snake_game();
         } else if (buffer[0] != '\0') {
             printf("%s: command not found\n", buffer);
         }
