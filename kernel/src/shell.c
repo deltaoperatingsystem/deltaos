@@ -38,7 +38,10 @@ void shell(void) {
             printf("Current time: %d:%d:%d %d/%d/%d\n", 
                 time.hour, time.minute, time.second,
                 time.day, time.month, time.year);
-        } else if (buffer[0] != '\0') {
+        } else if (strcmp(buffer, "r") == 0) {
+            extern void rmain(void);
+            rmain();
+        }else if (buffer[0] != '\0') {
             printf("%s: command not found\n", buffer);
         }
     }
