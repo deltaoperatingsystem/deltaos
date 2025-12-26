@@ -89,14 +89,10 @@ void frame() {
     double dt = 1.0/FPS;
     // dz += dt;
     // angle += M_PI * dt * 0.5;
-    char c;
-    get_key(&c);
-    switch (c) {
-        case 'w': dz += dt; break;
-        case 's': dz -= dt; break;
-        case 'a': angle += M_PI * dt * 0.5; break;
-        case 'd': angle -= M_PI * dt * 0.5; break;
-    }
+    if (get_keystate('w')) dz += dt;
+    if (get_keystate('s')) dz -= dt;
+    if (get_keystate('a')) angle += M_PI * dt * 0.5;
+    if (get_keystate('d')) angle -= M_PI * dt * 0.5;
     fb_clear(FB_BLACK);
     for (int i = 0; i < 12; i++) {
             const point a = vs[es[i][0]];

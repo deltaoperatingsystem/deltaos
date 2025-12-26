@@ -31,11 +31,29 @@ static volatile uint8 tail = 0;
 
 static bool shift = false;
 
+static uint64 pressed = 0;
+
+bool get_keystate(char c) {
+    set_outmode(SERIAL);
+    for (int i = 0; i < 128; i++) {
+        if (scancodes_normal[i] == c) {
+            if (pressed & (1ULL << i)) return true;
+            else return false;
+        }
+    }
+    return false;
+}
+
 void keyboard_irq(void) {
     uint8 status = inb(KBD_STATUS);
     if (!(status & 1)) return;
 
     uint8 sc = inb(KBD_SC);
+    if (sc & 0x80) { // key release
+        uint8 code = sc & 0x7F;
+        pressed &= ~(1ULL << code);
+    } else // key press
+        pressed |= 1ULL << sc;
     if (sc == KBD_SHIFT_ON) { shift = true; return; }
     if (sc == KBD_SHIFT_OFF) { shift = false; return; }
     if (sc > 0x80) return;
