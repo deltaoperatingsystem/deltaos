@@ -3,7 +3,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/console.h>
 #include <obj/handle.h>
-#include <fs/vfs.h>
+#include <fs/fs.h>
 
 void shell(void) {
     for (;;) {
