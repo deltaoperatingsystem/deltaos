@@ -1,6 +1,20 @@
+#define M_PI 3.14159265358979323846
+
+double mod(double a, double b) {
+    double res;
+    if (a < 0) res = -a;
+    else res = a;
+    if (b < 0) b = -b;
+
+    while (res >= b) res -= b;
+
+    if (a < 0) return -res;
+    return res;
+}
 
 // approximate sin using a truncated taylor series.
 double sin(double x) {
+    x = mod(x, M_PI);
     double x2 = x * x;
 
     double t1 = x;
@@ -14,6 +28,7 @@ double sin(double x) {
 
 // approximate cos using a truncated taylor series.
 double cos(double x) {
+    x = mod(x, M_PI);
     double x2 = x * x;
 
     double t1 = 1;
