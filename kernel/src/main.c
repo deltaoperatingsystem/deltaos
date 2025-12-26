@@ -18,7 +18,11 @@
 #include <obj/namespace.h>
 #include <fs/tmpfs.h>
 #include <fs/fs.h>
+#include <fs/initrd.h>
 #include <proc/sched.h>
+#include <string.h>
+
+extern void shell(void);
 
 void kernel_main(void) {
     set_outmode(SERIAL);
@@ -30,6 +34,7 @@ void kernel_main(void) {
     keyboard_init();
     rtc_init();
     tmpfs_init();
+    initrd_init();
     sched_init();
     
     if (fb_available()) {
@@ -73,6 +78,5 @@ void kernel_main(void) {
 
     }
     
-    extern void shell(void);
     shell();    
 }

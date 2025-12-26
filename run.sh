@@ -39,6 +39,7 @@ create_disk_image() {
 
     [[ -f "boot/delboot.cfg" ]] && mcopy -i "$DISK_IMG"@@${PART_OFFSET} "boot/delboot.cfg" ::/EFI/BOOT/delboot.cfg
     [[ -f "../kernel/delta.elf" ]] && mcopy -i "$DISK_IMG"@@${PART_OFFSET} "../kernel/delta.elf" ::/EFI/BOOT/kernel.bin
+    [[ -f "../initrd.da" ]] && mcopy -i "$DISK_IMG"@@${PART_OFFSET} "../initrd.da" ::/EFI/BOOT/initrd.da
 }
 
 #execute qemu with ovmf

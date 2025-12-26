@@ -172,16 +172,49 @@ static object_ops_t tmpfs_file_ops = {
     .read = tmpfs_file_read,
     .write = tmpfs_file_write,
     .close = NULL,
-    .ioctl = NULL
+    .ioctl = NULL,
+    .readdir = NULL
+};
+
+//directory object readdir
+static int tmpfs_dir_readdir(object_t *obj, void *buf, uint32 count, uint32 *index) {
+    tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
+    if (!node || node->type != FS_TYPE_DIR) return -1;
+    
+    dirent_t *entries = (dirent_t *)buf;
+    uint32 start = *index;
+    uint32 filled = 0;
+    
+    for (uint32 i = start; i < node->dir.count && filled < count; i++) {
+        entries[filled].name = node->dir.children[i]->name;
+        entries[filled].type = node->dir.children[i]->type;
+        filled++;
+    }
+    
+    *index = start + filled;
+    return filled;
+}
+
+static object_ops_t tmpfs_dir_ops = {
+    .read = NULL,
+    .write = NULL,
+    .close = NULL,
+    .ioctl = NULL,
+    .readdir = tmpfs_dir_readdir
 };
 
 //filesystem ops
 static object_t *tmpfs_fs_lookup(fs_t *fs, const char *path) {
     (void)fs;
     tmpfs_node_t *node = resolve_path(path, false, NULL, NULL);
-    if (!node || node->type != FS_TYPE_FILE) return NULL;
+    if (!node) return NULL;
     
-    return object_create(OBJECT_FILE, &tmpfs_file_ops, node);
+    if (node->type == FS_TYPE_FILE) {
+        return object_create(OBJECT_FILE, &tmpfs_file_ops, node);
+    } else if (node->type == FS_TYPE_DIR) {
+        return object_create(OBJECT_DIR, &tmpfs_dir_ops, node);
+    }
+    return NULL;
 }
 
 static int tmpfs_fs_create(fs_t *fs, const char *path, uint32 type) {
@@ -304,10 +337,14 @@ void tmpfs_init(void) {
     puts("[tmpfs] initialized\n");
 }
 
-int tmpfs_create(const char *name) {
-    return tmpfs_fs_create(&tmpfs_instance, name, FS_TYPE_FILE);
+int tmpfs_create(const char *path) {
+    return tmpfs_fs_create(&tmpfs_instance, path, FS_TYPE_FILE);
 }
 
-object_t *tmpfs_open(const char *name) {
-    return tmpfs_fs_lookup(&tmpfs_instance, name);
+int tmpfs_create_dir(const char *path) {
+    return tmpfs_fs_create(&tmpfs_instance, path, FS_TYPE_DIR);
+}
+
+object_t *tmpfs_open(const char *path) {
+    return tmpfs_fs_lookup(&tmpfs_instance, path);
 }

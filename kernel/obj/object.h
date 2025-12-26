@@ -38,4 +38,13 @@ void object_ref(object_t *obj);
 //decrement reference count (frees if 0)
 void object_deref(object_t *obj);
 
+//alias for object_deref
+static inline void object_release(object_t *obj) { object_deref(obj); }
+
+//write to object
+static inline ssize object_write(object_t *obj, const void *buf, size len, size offset) {
+    if (!obj || !obj->ops || !obj->ops->write) return -1;
+    return obj->ops->write(obj, buf, len, offset);
+}
+
 #endif

@@ -6,6 +6,7 @@
 word atoi(const char *p);
 size strlen(const char *s);
 int strcmp(const char *s1, const char *s2);
+int strncmp(const char *s1, const char *s2, size n);
 char *strcpy(char *dest, const char *src);
 char *strncpy(char *dest, const char *src, size n);
 char *strchr(const char *s, int c);
