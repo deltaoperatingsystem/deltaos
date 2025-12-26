@@ -1,11 +1,10 @@
 #include <drivers/fb.h>
 #include <lib/time.h>
 #include <drivers/console.h>
+#include <lib/math.h>
 
 #define SIZE    10
 #define FPS     60
-
-static double dz = 0;
 
 typedef struct {
     double x;
@@ -24,6 +23,10 @@ void draw_point(point p) {
     fb_fillrect(p.x - SIZE / 2, p.y - SIZE / 2, SIZE, SIZE, FB_WHITE);
 }
 
+void line(point a, point b) {
+    fb_drawline(a.x, a.y, b.x, b.y, FB_WHITE);
+}
+
 point project(point p) {
     return (point){
         .x = p.x / p.z,
@@ -32,10 +35,30 @@ point project(point p) {
 }
 
 const point vs[] = {
-    { .x = 0.5,     .y = 0.5,   .z = 1},
-    { .x = -0.5,    .y = 0.5,   .z = 1},
-    { .x = 0.5,     .y = -0.5,  .z = 1},
-    { .x = -0.5,    .y = -0.5,  .z = 1},
+    { .x = 0.25,     .y = 0.25,   .z = 0.25},
+    { .x = -0.25,    .y = 0.25,   .z = 0.25},
+    { .x = -0.25,    .y = -0.25,  .z = 0.25},
+    { .x = 0.25,     .y = -0.25,  .z = 0.25},
+
+    { .x = 0.25,     .y = 0.25,   .z = -0.25},
+    { .x = -0.25,    .y = 0.25,   .z = -0.25},
+    { .x = -0.25,    .y = -0.25,  .z = -0.25},
+    { .x = 0.25,     .y = -0.25,  .z = -0.25},
+};
+
+const int es[12][2] = {
+    {0, 1},
+    {1, 2},
+    {2, 3},
+    {3, 0},
+    {4, 5},
+    {5, 6},
+    {6, 7},
+    {7, 4},
+    {0, 4},
+    {1, 5},
+    {2, 6},
+    {3, 7}
 };
 
 point translate_z(point p, double dz) {
@@ -46,12 +69,31 @@ point translate_z(point p, double dz) {
     };
 }
 
+point rotate_xz(point p, double theta) {
+    return (point){
+        .x = p.x * cos(theta) - p.z * sin(theta),
+        .y = p.y,
+        .z = p.x * sin(theta) + p.z * cos(theta)
+    };
+}
+
+static double dz = 1;
+static double angle = 0;
+
 void frame() {
     double dt = 1.0/FPS;
-    dz += dt;
+    // dz += dt;
+    angle += M_PI * dt * 0.5;
     fb_clear(FB_BLACK);
-    for (int i = 0; i < 4; i++) {
-        draw_point(screen(project(translate_z(vs[i], dz))));
+    // for (int i = 0; i < 8; i++) {
+    //     draw_point(screen(project(translate_z(rotate_xz(vs[i], angle), dz))));
+    // }
+    for (int i = 0; i < 12; i++) {
+            const point a = vs[es[i][0]];
+            const point b = vs[es[i][1]];
+
+            line(screen(project(translate_z(rotate_xz(a, angle), dz))),
+                screen(project(translate_z(rotate_xz(b, angle), dz))));
     }
 }
 
