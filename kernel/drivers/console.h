@@ -32,4 +32,8 @@ void con_set_cursor(uint32 col, uint32 row);
 uint32 con_cols(void);
 uint32 con_rows(void);
 
+//draw a single character at position without moving cursor or handling special chars
+//used by VT subsystem for raw buffer rendering
+void con_draw_char_at(uint32 col, uint32 row, char c, uint32 fg, uint32 bg);
+
 #endif

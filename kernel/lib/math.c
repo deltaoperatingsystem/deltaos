@@ -46,22 +46,23 @@ double tan(double x) {
 
 // https://en.wikipedia.org/wiki/Fast_inverse_square_root
 float isqrt(float a) {
-    long i;
-    float x, y;
-
-    x = a * 0.5F;
-    y  = a;
-    i  = *(long*)&y;
-    i  = 0x5f3759df - (i >> 1);
-    y = *(float*)&i;
-    y  = y * (1.5F - (x * y * y));
-    y  = y * (1.5F - (x * y * y));
-
+    union {
+        float f;
+        __INT32_TYPE__ i;
+    } conv;
+    
+    float x = a * 0.5F;
+    conv.f = a;
+    conv.i = 0x5f3759df - (conv.i >> 1);
+    float y = conv.f;
+    y = y * (1.5F - (x * y * y));
+    y = y * (1.5F - (x * y * y));
+    
     return y;
 }
 
 float sqrt(float x) {
-    return 1.0 / isqrt(x);
+    return 1.0f / isqrt(x);
 }
 
 int floor(double x) {

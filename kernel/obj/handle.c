@@ -224,3 +224,34 @@ int handle_readdir(handle_t h, void *entries, uint32 count) {
     }
     return result;
 }
+
+int handle_stat(const char *path, stat_t *st) {
+    if (!path || !st) return -1;
+    
+    //find first slash to split namespace from subpath
+    const char *slash = path;
+    while (*slash && *slash != '/') slash++;
+    
+    if (*slash != '/') return -1;  //need fs prefix
+    
+    size prefix_len = slash - path;
+    char prefix[64];
+    if (prefix_len >= sizeof(prefix)) return -1;
+    
+    memcpy(prefix, path, prefix_len);
+    prefix[prefix_len] = '\0';
+    
+    object_t *root = ns_lookup(prefix);
+    if (!root) return -1;
+    
+    if (root->type == OBJECT_DIR && root->data) {
+        fs_t *fs = (fs_t *)root->data;
+        if (fs->ops && fs->ops->stat) {
+            int result = fs->ops->stat(fs, slash + 1, st);
+            object_deref(root);
+            return result;
+        }
+    }
+    object_deref(root);
+    return -1;
+}

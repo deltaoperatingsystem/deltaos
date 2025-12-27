@@ -148,3 +148,23 @@ uint32 con_cols(void) {
 uint32 con_rows(void) {
     return rows;
 }
+
+void con_draw_char_at(uint32 col, uint32 row, char c, uint32 fg, uint32 bg) {
+    if (!fb_available() || col >= cols || row >= rows) return;
+    
+    uint32 x = col * FONT_WIDTH;
+    uint32 y = row * FONT_HEIGHT;
+    uint8 ch = (uint8)c;
+    
+    if (ch >= 128) ch = '?';
+    
+    const uint8 *glyph = &font[ch * FONT_HEIGHT];
+    
+    for (uint32 py = 0; py < FONT_HEIGHT; py++) {
+        uint8 row_bits = glyph[py];
+        for (uint32 px = 0; px < FONT_WIDTH; px++) {
+            uint32 color = (row_bits & (0x80 >> px)) ? fg : bg;
+            fb_putpixel(x + px, y + py, color);
+        }
+    }
+}

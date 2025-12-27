@@ -3,6 +3,10 @@
 
 #include <obj/object.h>
 
+//forward declare (defined in fs/fs.h)
+struct stat;
+typedef struct stat stat_t;
+
 //handle is just an index into the handle table
 typedef int32 handle_t;
 
@@ -44,6 +48,9 @@ int handle_close(handle_t h);
 
 //read directory entries
 int handle_readdir(handle_t h, void *entries, uint32 count);
+
+//stat a path (without opening)
+int handle_stat(const char *path, stat_t *st);
 
 //seek whence values
 #define SEEK_SET 0
