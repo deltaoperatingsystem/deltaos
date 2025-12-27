@@ -74,6 +74,14 @@ point translate_z(point p, double dz) {
     };
 }
 
+point translate_xz(point p, double dx, double dz) {
+    return (point){
+        .x = p.x + dx,
+        .y = p.y,
+        .z = p.z + dz
+    };
+}
+
 point rotate_xz(point p, double theta) {
     return (point){
         .x = p.x * cos(theta) - p.z * sin(theta),
@@ -82,6 +90,7 @@ point rotate_xz(point p, double theta) {
     };
 }
 
+static double dx = 0;
 static double dz = 1;
 static double angle = 0;
 
@@ -89,8 +98,15 @@ void frame() {
     double dt = 1.0/FPS;
     // dz += dt;
     // angle += M_PI * dt * 0.5;
-    if (get_keystate('w')) dz += dt;
-    if (get_keystate('s')) dz -= dt;
+    if (get_keystate('w')) {
+        dx += dt * -cos(-angle + M_PI / 2.0);
+        dz += dt * sin(-angle + M_PI / 2.0);
+    }
+    if (get_keystate('s')) {
+        dx -= dt * -cos(-angle + M_PI / 2.0);
+        dz -= dt * sin(-angle + M_PI / 2.0);
+    }
+    // if (get_keystate('s')) dz -= dt;
     if (get_keystate('a')) angle += M_PI * dt * 0.5;
     if (get_keystate('d')) angle -= M_PI * dt * 0.5;
     fb_clear(FB_BLACK);
@@ -98,8 +114,8 @@ void frame() {
             const point a = vs[es[i][0]];
             const point b = vs[es[i][1]];
 
-            line(screen(project(translate_z(rotate_xz(a, angle), dz))),
-                screen(project(translate_z(rotate_xz(b, angle), dz))));
+            line(screen(project(translate_xz(rotate_xz(a, angle), dx, dz))),
+                screen(project(translate_xz(rotate_xz(b, angle), dx, dz))));
     }
 }
 
