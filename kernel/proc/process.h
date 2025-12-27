@@ -46,6 +46,9 @@ typedef struct process {
 //create a new process
 process_t *process_create(const char *name);
 
+//create a new userspace process (with address space)
+process_t *process_create_user(const char *name);
+
 //destroy a process
 void process_destroy(process_t *proc);
 

@@ -42,6 +42,9 @@ thread_t *thread_create(struct process *proc, void (*entry)(void *), void *arg);
 //destroy a thread (frees resources)
 void thread_destroy(thread_t *thread);
 
+//create a usermode thread (entry/stack are in user address space)
+thread_t *thread_create_user(struct process *proc, void *entry, void *user_stack);
+
 //exit current thread (never returns)
 void thread_exit(void);
 

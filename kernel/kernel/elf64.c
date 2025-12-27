@@ -1,5 +1,7 @@
 #include "elf64.h"
 #include <mm/pmm.h>
+#include <mm/mm.h>
+#include <mm/vmm.h>
 #include <string.h>
 
 int elf_validate(const void *data, size len) {
@@ -87,8 +89,8 @@ int elf_load(const void *data, size len, elf_load_info_t *info) {
     
     uint64 alloc_addr = (uint64)alloc;
     
-    //zero the memory
-    memset(alloc, 0, load_size);
+    //zero the memory (via HHDM for physical access)
+    memset(P2V(alloc), 0, load_size);
     
     //second pass: load segments
     for (uint16 i = 0; i < ehdr->e_phnum; i++) {
@@ -99,7 +101,7 @@ int elf_load(const void *data, size len, elf_load_info_t *info) {
         
         //calculate destination: alloc_addr + (virt_addr - aligned_min_vaddr)
         uint64 offset = phdr->p_vaddr - aligned_min_vaddr;
-        uint8 *dest = (uint8 *)(alloc_addr + offset);
+        uint8 *dest = (uint8 *)P2V(alloc_addr + offset);
         
         //copy file data
         if (phdr->p_filesz > 0) {
@@ -110,9 +112,10 @@ int elf_load(const void *data, size len, elf_load_info_t *info) {
     //fill in load info
     if (info) {
         info->phys_base = alloc_addr;
-        info->phys_size = load_size;
-        info->virt_base = aligned_min_vaddr;
         info->pages = pages;
+        info->virt_base = aligned_min_vaddr;
+        info->virt_end = max_vaddr;
+        info->segment_count = 0;  //kernel load doesn't track segments
         
         //determine entry point
         //if higher-half kernel, keep virtual entry
@@ -127,6 +130,96 @@ int elf_load(const void *data, size len, elf_load_info_t *info) {
     return ELF_OK;
 }
 
+int elf_load_user(const void *data, size len, pagemap_t *pagemap, elf_load_info_t *info) {
+    if (!elf_validate(data, len)) {
+        return ELF_ERR_INVALID;
+    }
+    
+    if (!pagemap || !info) {
+        return ELF_ERR_INVALID;
+    }
+    
+    const Elf64_Ehdr *ehdr = (const Elf64_Ehdr *)data;
+    const uint8 *base = (const uint8 *)data;
+    
+    //count loadable segments first
+    uint32 load_count = 0;
+    uint64 min_vaddr = ~0ULL;
+    uint64 max_vaddr = 0;
+    
+    for (uint16 i = 0; i < ehdr->e_phnum; i++) {
+        const Elf64_Phdr *phdr = (const Elf64_Phdr *)(base + ehdr->e_phoff + (i * ehdr->e_phentsize));
+        
+        if (phdr->p_type != PT_LOAD) continue;
+        if (phdr->p_memsz == 0) continue;
+        
+        load_count++;
+        if (phdr->p_vaddr < min_vaddr) min_vaddr = phdr->p_vaddr;
+        if (phdr->p_vaddr + phdr->p_memsz > max_vaddr) max_vaddr = phdr->p_vaddr + phdr->p_memsz;
+    }
+    
+    if (load_count == 0) {
+        return ELF_ERR_NO_SEGMENTS;
+    }
+    
+    if (load_count > ELF_MAX_SEGMENTS) {
+        return ELF_ERR_TOO_MANY;
+    }
+    
+    //clear info
+    memset(info, 0, sizeof(elf_load_info_t));
+    info->virt_base = min_vaddr;
+    info->virt_end = max_vaddr;
+    info->entry = ehdr->e_entry;
+    
+    //load each segment
+    for (uint16 i = 0; i < ehdr->e_phnum; i++) {
+        const Elf64_Phdr *phdr = (const Elf64_Phdr *)(base + ehdr->e_phoff + (i * ehdr->e_phentsize));
+        
+        if (phdr->p_type != PT_LOAD) continue;
+        if (phdr->p_memsz == 0) continue;
+        
+        //page-align the segment
+        uint64 seg_vaddr = phdr->p_vaddr & ~(PAGE_SIZE - 1);
+        uint64 seg_offset = phdr->p_vaddr - seg_vaddr;
+        uint64 seg_size = (phdr->p_memsz + seg_offset + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        size seg_pages = seg_size / PAGE_SIZE;
+        
+        //allocate physical pages
+        void *phys = pmm_alloc(seg_pages);
+        if (!phys) {
+            //rollback already allocated segments
+            elf_unload_user(pagemap, info);
+            return ELF_ERR_NO_MEMORY;
+        }
+        
+        //zero the pages via HHDM
+        void *virt_access = P2V(phys);
+        memset(virt_access, 0, seg_size);
+        
+        //copy file data
+        if (phdr->p_filesz > 0) {
+            memcpy((uint8 *)virt_access + seg_offset, base + phdr->p_offset, phdr->p_filesz);
+        }
+        
+        //build MMU flags from ELF flags
+        uint64 mmu_flags = MMU_FLAG_PRESENT | MMU_FLAG_USER;
+        if (phdr->p_flags & PF_W) mmu_flags |= MMU_FLAG_WRITE;
+        if (phdr->p_flags & PF_X) mmu_flags |= MMU_FLAG_EXEC;
+        
+        //map into user address space
+        vmm_map(pagemap, seg_vaddr, (uintptr)phys, seg_pages, mmu_flags);
+        
+        //track segment for cleanup
+        elf_segment_t *seg = &info->segments[info->segment_count++];
+        seg->virt_addr = seg_vaddr;
+        seg->phys_addr = (uint64)phys;
+        seg->pages = seg_pages;
+    }
+    
+    return ELF_OK;
+}
+
 void elf_unload(elf_load_info_t *info) {
     if (info && info->phys_base && info->pages > 0) {
         pmm_free((void *)info->phys_base, info->pages);
@@ -134,3 +227,28 @@ void elf_unload(elf_load_info_t *info) {
         info->pages = 0;
     }
 }
+
+void elf_unload_user(pagemap_t *pagemap, elf_load_info_t *info) {
+    if (!info) return;
+    
+    for (uint32 i = 0; i < info->segment_count; i++) {
+        elf_segment_t *seg = &info->segments[i];
+        
+        //unmap from address space
+        if (pagemap) {
+            vmm_unmap(pagemap, seg->virt_addr, seg->pages);
+        }
+        
+        //free physical pages
+        if (seg->phys_addr && seg->pages > 0) {
+            pmm_free((void *)seg->phys_addr, seg->pages);
+        }
+        
+        seg->virt_addr = 0;
+        seg->phys_addr = 0;
+        seg->pages = 0;
+    }
+    
+    info->segment_count = 0;
+}
+

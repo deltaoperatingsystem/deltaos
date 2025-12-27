@@ -46,4 +46,8 @@ uintptr mmu_virt_to_phys(pagemap_t *map, uintptr virt);
 void mmu_switch(pagemap_t *map);
 pagemap_t *mmu_get_kernel_pagemap(void);
 
+//user address space management
+pagemap_t *mmu_pagemap_create(void);
+void mmu_pagemap_destroy(pagemap_t *map);
+
 #endif

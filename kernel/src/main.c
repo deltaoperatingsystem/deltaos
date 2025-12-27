@@ -21,7 +21,6 @@
 #include <fs/tmpfs.h>
 #include <fs/fs.h>
 #include <fs/initrd.h>
-#include <proc/sched.h>
 #include <string.h>
 
 extern void shell(void);
@@ -71,7 +70,7 @@ void kernel_main(void) {
         } else {
             puts("ACPI: RSDP not found\n");
         }
-        //test object system
+        
         handle_t h = handle_open("$devices/console", 0);
         if (h != INVALID_HANDLE) {
             handle_write(h, "Object system: working!\n", 24);
@@ -81,3 +80,6 @@ void kernel_main(void) {
     
     shell();
 }
+
+
+

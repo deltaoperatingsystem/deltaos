@@ -1,6 +1,7 @@
 #include <proc/process.h>
 #include <proc/thread.h>
 #include <mm/kheap.h>
+#include <arch/mmu.h>
 #include <lib/string.h>
 #include <lib/io.h>
 
@@ -36,6 +37,20 @@ process_t *process_create(const char *name) {
     return proc;
 }
 
+process_t *process_create_user(const char *name) {
+    process_t *proc = process_create(name);
+    if (!proc) return NULL;
+    
+    //create user address space
+    proc->pagemap = mmu_pagemap_create();
+    if (!proc->pagemap) {
+        process_destroy(proc);
+        return NULL;
+    }
+    
+    return proc;
+}
+
 void process_destroy(process_t *proc) {
     if (!proc) return;
     
@@ -46,6 +61,12 @@ void process_destroy(process_t *proc) {
         }
     }
     kfree(proc->handles);
+    
+    //free user address space if present
+    if (proc->pagemap) {
+        mmu_pagemap_destroy(proc->pagemap);
+        proc->pagemap = NULL;
+    }
     
     //remove from process list
     process_t **pp = &process_list;

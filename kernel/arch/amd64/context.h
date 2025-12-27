@@ -34,6 +34,7 @@ struct arch_context {
     uint64 r8;   //arg5
     uint64 r9;   //arg6
     uint64 r11;  //rflags saved by syscall instruction
+    uint64 rcx;  //clobbered by syscall, saved for interrupt returns
 };
 
 typedef struct arch_context arch_context_t;
