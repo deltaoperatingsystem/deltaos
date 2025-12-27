@@ -139,3 +139,71 @@ uintptr mmu_virt_to_phys(pagemap_t *map, uintptr virt) {
 void mmu_switch(pagemap_t *map) {
     __asm__ volatile ("mov %0, %%cr3" :: "r"(map->top_level) : "memory");
 }
+
+pagemap_t *mmu_pagemap_create(void) {
+    //allocate pagemap structure from kernel heap
+    pagemap_t *map = (pagemap_t *)P2V(pmm_alloc(1));
+    if (!map) return NULL;
+    
+    //allocate PML4
+    void *pml4_phys = pmm_alloc(1);
+    if (!pml4_phys) {
+        pmm_free((void *)V2P(map), 1);
+        return NULL;
+    }
+    
+    uint64 *pml4 = (uint64 *)P2V(pml4_phys);
+    memset(pml4, 0, PAGE_SIZE);
+    
+    //copy kernel upper-half entries (indices 256-511) from kernel pagemap
+    pagemap_t *kernel_map = mmu_get_kernel_pagemap();
+    uint64 *kernel_pml4 = (uint64 *)P2V(kernel_map->top_level);
+    
+    for (int i = 256; i < 512; i++) {
+        pml4[i] = kernel_pml4[i];
+    }
+    
+    map->top_level = (uintptr)pml4_phys;
+    return map;
+}
+
+static void free_page_table_level(uint64 *table, int level) {
+    //level 4 = PML4, level 1 = PT
+    //only recurse for levels > 1 and free page tables not actual data pages
+    for (int i = 0; i < 512; i++) {
+        uint64 entry = table[i];
+        if (!(entry & AMD64_PTE_PRESENT)) continue;
+        if (entry & AMD64_PTE_HUGE) continue;  //huge page so don't recurse
+        
+        if (level > 1) {
+            uint64 *next = (uint64 *)P2V(entry & AMD64_PTE_ADDR_MASK);
+            free_page_table_level(next, level - 1);
+        }
+        
+        //free this page table page (or data page at level 1)
+        pmm_free((void *)(entry & AMD64_PTE_ADDR_MASK), 1);
+    }
+}
+
+void mmu_pagemap_destroy(pagemap_t *map) {
+    if (!map || !map->top_level) return;
+    
+    uint64 *pml4 = (uint64 *)P2V(map->top_level);
+    
+    //only free user-space entries (lower half indices 0-255)
+    //don't touch kernel entries (256-511)
+    for (int i = 0; i < 256; i++) {
+        uint64 entry = pml4[i];
+        if (!(entry & AMD64_PTE_PRESENT)) continue;
+        
+        uint64 *pdp = (uint64 *)P2V(entry & AMD64_PTE_ADDR_MASK);
+        free_page_table_level(pdp, 3);  //PDP is level 3
+        pmm_free((void *)(entry & AMD64_PTE_ADDR_MASK), 1);
+    }
+    
+    //free PML4 itself
+    pmm_free((void *)map->top_level, 1);
+    
+    //free pagemap structure
+    pmm_free((void *)V2P(map), 1);
+}

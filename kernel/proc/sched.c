@@ -2,6 +2,7 @@
 #include <proc/process.h>
 #include <arch/cpu.h>
 #include <arch/context.h>
+#include <arch/mmu.h>
 #include <arch/amd64/int/tss.h>
 #include <lib/io.h>
 #include <drivers/serial.h>
@@ -75,6 +76,8 @@ void sched_remove(thread_t *thread) {
 }
 
 //pick next thread and switch to it
+//when called from ISR, ISR has already saved context and will restore new threads context
+//when called from sched_yield we are in kernel context and can use arch_context_switch
 static void schedule(void) {
     thread_t *current = thread_current();
     thread_t *next = NULL;
@@ -105,17 +108,21 @@ static void schedule(void) {
     thread_set_current(next);
     process_set_current(next->process);
     
+    //switch address space if different process has user pagemap
+    process_t *next_proc = next->process;
+    process_t *curr_proc = current ? current->process : NULL;
+    
+    if (next_proc && next_proc->pagemap) {
+        //switching to userspace process - load its address space
+        mmu_switch((pagemap_t *)next_proc->pagemap);
+    } else if (curr_proc && curr_proc->pagemap) {
+        //switching from user to kernel - reload kernel pagemap
+        mmu_switch(mmu_get_kernel_pagemap());
+    }
+    
     //set TSS rsp0 for ring 3 -> ring 0 transitions
     uint64 kernel_stack_top = (uint64)next->kernel_stack + next->kernel_stack_size;
     tss_set_rsp0(kernel_stack_top);
-    
-    //perform actual context switch
-    if (current) {
-        arch_context_switch(&current->context, &next->context);
-    } else {
-        //no current thread (just exited) so load context directly
-        arch_context_load(&next->context);
-    }
 }
 
 void sched_yield(void) {
@@ -163,6 +170,11 @@ void sched_start(void) {
     first->state = THREAD_STATE_RUNNING;
     thread_set_current(first);
     process_set_current(first->process);
+    
+    //switch address space if first thread has user pagemap
+    if (first->process && first->process->pagemap) {
+        mmu_switch((pagemap_t *)first->process->pagemap);
+    }
     
     //set TSS rsp0 for ring 3 -> ring 0 transitions
     uint64 kernel_stack_top = (uint64)first->kernel_stack + first->kernel_stack_size;

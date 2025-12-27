@@ -2,6 +2,7 @@
 #define KERNEL_ELF64_H
 
 #include <arch/types.h>
+#include <arch/mmu.h>
 
 //ELF magic
 #define ELFMAG0     0x7f
@@ -82,13 +83,28 @@ typedef struct {
 #define EI_DATA     5
 #define EI_VERSION  6
 
+//segment tracking for cleanup
+#define ELF_MAX_SEGMENTS 16
+
+typedef struct {
+    uint64 virt_addr;
+    uint64 phys_addr;
+    size   pages;
+} elf_segment_t;
+
 //load result info
 typedef struct {
-    uint64 phys_base;       //physical base of loaded image
-    uint64 phys_size;       //total size in bytes
-    uint64 virt_base;       //virtual base address
-    uint64 entry;           //entry point (physical or virtual depending on flags)
-    size   pages;           //number of pages allocated
+    uint64 entry;               //entry point virtual address
+    uint64 virt_base;           //lowest virtual address loaded
+    uint64 virt_end;            //highest virtual address + size
+    
+    //for kernel loads (physical allocation)
+    uint64 phys_base;
+    size   pages;
+    
+    //for user loads (segment tracking)
+    elf_segment_t segments[ELF_MAX_SEGMENTS];
+    uint32 segment_count;
 } elf_load_info_t;
 
 //error codes
@@ -97,17 +113,25 @@ typedef struct {
 #define ELF_ERR_UNSUPPORTED 2   //unsupported format (not 64-bit, wrong arch)
 #define ELF_ERR_NO_MEMORY   3   //failed to allocate memory
 #define ELF_ERR_NO_SEGMENTS 4   //no loadable segments
+#define ELF_ERR_TOO_MANY    5   //too many segments
 
 //validate an ELF64 file
 //returns 1 if valid, 0 if invalid
 int elf_validate(const void *data, size len);
 
-//load an ELF64 executable into memory
+//load an ELF64 executable into physical memory (for kernel use)
 //allocates physical pages and copies segments
-//returns entry point (physical address for flat binaries, virtual for higher-half)
 int elf_load(const void *data, size len, elf_load_info_t *info);
+
+//load an ELF64 executable into a user address space
+//allocates pages and maps them with user permissions
+int elf_load_user(const void *data, size len, pagemap_t *pagemap, elf_load_info_t *info);
 
 //free memory from a loaded ELF
 void elf_unload(elf_load_info_t *info);
 
+//free user ELF mappings from an address space
+void elf_unload_user(pagemap_t *pagemap, elf_load_info_t *info);
+
 #endif
+

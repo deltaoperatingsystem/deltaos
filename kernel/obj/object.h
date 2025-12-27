@@ -47,4 +47,10 @@ static inline ssize object_write(object_t *obj, const void *buf, size len, size 
     return obj->ops->write(obj, buf, len, offset);
 }
 
+//read from object
+static inline ssize object_read(object_t *obj, void *buf, size len, size offset) {
+    if (!obj || !obj->ops || !obj->ops->read) return -1;
+    return obj->ops->read(obj, buf, len, offset);
+}
+
 #endif

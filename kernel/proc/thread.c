@@ -88,6 +88,39 @@ void thread_set_current(thread_t *thread) {
     current_thread = thread;
 }
 
+thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
+    if (!proc) return NULL;
+    
+    thread_t *thread = kzalloc(sizeof(thread_t));
+    if (!thread) return NULL;
+    
+    thread->tid = next_tid++;
+    thread->process = proc;
+    thread->state = THREAD_STATE_READY;
+    
+    //usermode threads don't use entry/arg - context set directly
+    thread->entry = NULL;
+    thread->arg = NULL;
+    
+    //allocate kernel stack (for syscalls/interrupts)
+    thread->kernel_stack = kmalloc(KERNEL_STACK_SIZE);
+    if (!thread->kernel_stack) {
+        kfree(thread);
+        return NULL;
+    }
+    thread->kernel_stack_size = KERNEL_STACK_SIZE;
+    
+    //setup usermode context
+    arch_context_init_user(&thread->context, user_stack, entry, NULL);
+    
+    //link into process thread list
+    thread->next = proc->threads;
+    proc->threads = thread;
+    proc->thread_count++;
+    
+    return thread;
+}
+
 void thread_exit(void) {
     //just delegate to scheduler
     sched_exit();
