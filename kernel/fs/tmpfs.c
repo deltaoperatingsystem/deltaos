@@ -282,10 +282,33 @@ static int tmpfs_fs_remove(fs_t *fs, const char *path) {
     return 0;
 }
 
+static int tmpfs_fs_stat(fs_t *fs, const char *path, stat_t *st) {
+    (void)fs;
+    if (!st) return -1;
+    
+    tmpfs_node_t *node = resolve_path(path, false, NULL, NULL);
+    if (!node) return -1;
+    
+    st->type = node->type;
+    st->ctime = 0;  //TODO: track timestamps
+    st->mtime = 0;
+    st->atime = 0;
+    
+    if (node->type == FS_TYPE_FILE) {
+        st->size = node->file.size;
+    } else {
+        st->size = 0;
+    }
+    
+    return 0;
+}
+
 static fs_ops_t tmpfs_ops = {
     .lookup = tmpfs_fs_lookup,
     .create = tmpfs_fs_create,
-    .remove = tmpfs_fs_remove
+    .remove = tmpfs_fs_remove,
+    .readdir = NULL,
+    .stat = tmpfs_fs_stat
 };
 
 static fs_t tmpfs_instance = {

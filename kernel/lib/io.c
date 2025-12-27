@@ -1,5 +1,6 @@
 #include <drivers/console.h>
 #include <drivers/serial.h>
+#include <drivers/vt/vt.h>
 #include <stdarg.h>
 #include <arch/types.h>
 
@@ -15,9 +16,14 @@ void puts(const char *s) {
         case SERIAL:
             serial_write(s);
             return;
-        case CONSOLE:
-            con_print(s);
+        case CONSOLE: {
+            vt_t *vt = vt_get_active();
+            if (vt) {
+                vt_print(vt, s);
+                vt_flush(vt);
+            }
             return;
+        }
         default: return;
     }
 }
@@ -27,9 +33,14 @@ void putc(const char c) {
         case SERIAL:
             serial_write_char(c);
             return;
-        case CONSOLE:
-            con_putc(c);
+        case CONSOLE: {
+            vt_t *vt = vt_get_active();
+            if (vt) {
+                vt_putc(vt, c);
+                //don't flush on every char, caller should flush
+            }
             return;
+        }
         default: return;
     }
 }

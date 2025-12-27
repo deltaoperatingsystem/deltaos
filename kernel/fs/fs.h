@@ -19,6 +19,15 @@ typedef struct dirent {
     uint32 type;        //FS_TYPE_*
 } dirent_t;
 
+//file status info
+typedef struct stat {
+    uint32 type;        //FS_TYPE_*
+    size   size;        //file size in bytes (0 for dirs)
+    uint64 ctime;       //creation time (ticks or unix timestamp)
+    uint64 mtime;       //modification time
+    uint64 atime;       //access time
+} stat_t;
+
 struct fs;
 
 //filesystem operations
@@ -34,6 +43,9 @@ typedef struct fs_ops {
     
     //read directory entries (index is in/out for stateless iteration)
     int (*readdir)(struct fs *fs, const char *path, dirent_t *entries, uint32 count, uint32 *index);
+    
+    //get file status (returns 0 on success, -1 on error)
+    int (*stat)(struct fs *fs, const char *path, stat_t *st);
 } fs_ops_t;
 
 //filesystem instance

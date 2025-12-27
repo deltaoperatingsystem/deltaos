@@ -6,6 +6,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/rtc.h>
 #include <drivers/serial.h>
+#include <drivers/vt/vt.h>
 #include <lib/string.h>
 #include <lib/io.h>
 #include <lib/path.h>
@@ -31,7 +32,6 @@ void kernel_main(void) {
     fb_init();
     fb_init_backbuffer();
     serial_init_object();
-    keyboard_init();
     rtc_init();
     tmpfs_init();
     initrd_init();
@@ -39,14 +39,16 @@ void kernel_main(void) {
     
     if (fb_available()) {
         con_init();
-        con_clear();
+        vt_init();
+        keyboard_init(); 
         set_outmode(CONSOLE);
         
-        con_set_fg(FB_RGB(0, 255, 128));
+        vt_t *vt = vt_get_active();
+        vt_set_attr(vt, VT_ATTR_FG, FB_RGB(0, 255, 128));
         puts("DeltaOS Kernel\n");
         puts("==============\n\n");
         
-        con_set_fg(FB_WHITE);
+        vt_set_attr(vt, VT_ATTR_FG, FB_WHITE);
         puts("Console: initialized\n");
         printf("Timer: running @ %dHz\n", arch_timer_getfreq());
 
