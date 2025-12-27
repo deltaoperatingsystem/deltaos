@@ -34,12 +34,17 @@ static void irq0_handler(void) {
     sched_tick();  //preemptive scheduling
 }
 
-void interrupt_handler(uint64 vector, uint64 error_code) {
+void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip) {
     if (vector < 32) {
+        uint64 rsp;
+        __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+        
         set_outmode(SERIAL);
         puts("\n--- CPU EXCEPTION OCCURED ---\n");
         printf("Vector:     0x%X\n", vector);
         printf("Error code: 0x%llx\n", error_code);
+        printf("RIP:        0x%llx\n", rip);
+        printf("RSP:        0x%llx\n", rsp);
         
         //page fault (vector 0xe) - decode error code and print details
         if (vector == 0xe) {
@@ -66,6 +71,8 @@ void interrupt_handler(uint64 vector, uint64 error_code) {
         for(;;) __asm__ volatile ("hlt");
     } else {
         uint8 irq = vector - 32;
+
+        pic_send_eoi(irq);
         
         switch (irq) {
             case 0:
@@ -79,7 +86,6 @@ void interrupt_handler(uint64 vector, uint64 error_code) {
                 break;
         }
 
-        pic_send_eoi(irq);
         return;
     }
 }

@@ -18,6 +18,10 @@ typedef struct thread {
     struct process *process;
     uint32 state;
     
+    //entry point and argument (for kernel trampoline)
+    void (*entry)(void *);
+    void *arg;
+    
     //arch-opaque saved context
     arch_context_t context;
     
@@ -35,8 +39,11 @@ typedef struct thread {
 //create a thread in a process
 thread_t *thread_create(struct process *proc, void (*entry)(void *), void *arg);
 
-//destroy a thread
+//destroy a thread (frees resources)
 void thread_destroy(thread_t *thread);
+
+//exit current thread (never returns)
+void thread_exit(void);
 
 //get current thread
 thread_t *thread_current(void);

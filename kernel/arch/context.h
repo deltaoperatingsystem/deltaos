@@ -33,6 +33,7 @@
  * arch_context_set_retval(ctx, val) - set return value register
  * arch_context_get_syscall_args(ctx, args, count) - get syscall arguments
  * arch_context_switch(old, new) - switch between contexts
+ * arch_context_load(ctx) - load context without saving (for thread exit)
  * arch_enter_usermode(ctx) - enter usermode for first time
  * arch_return_to_usermode(ctx) - return to usermode after syscall/interrupt
  */
