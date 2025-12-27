@@ -116,6 +116,8 @@ void shell(void) {
         } else if (strcmp(buffer, "r") == 0) {
             extern void rmain(void);
             rmain();
+        } else if (strcmp(buffer, "syscall") == 0) {
+            __asm__ volatile ("syscall");
         } else if (buffer[0] != '\0') {
             char msg[128];
             snprintf(msg, sizeof(msg), "%s: command not found\n", buffer);

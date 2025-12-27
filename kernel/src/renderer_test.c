@@ -251,13 +251,13 @@ static void clear_zbuffer(void){
 }
 
 /* write pixel with depth test: depth here is positive camera-space z (smaller = closer) */
-static inline void put_pixel_depth(int x,int y,double depth,double intensity){
+static inline void put_pixel_depth(int x,int y,double depth,double intensity,uint32 colour){
     if (!zbuffer) return;
     if (x<0 || x>=zbuf_width || y<0 || y>=zbuf_height) return;
     size idx = (size)y * (size)zbuf_width + (size)x;
     if (depth >= (double)zbuffer[idx]) return;
     zbuffer[idx] = (float)depth;
-    uint32 col = color_from_intensity(intensity);
+    uint32 col = color_from_intensity(intensity) & colour;
     fb_putpixel(x,y,col);
 }
 
@@ -309,7 +309,7 @@ static void rasterize_triangle(ScreenVert v0, ScreenVert v1, ScreenVert v2, doub
                 /* interpolate camera z (we use linear interpolation of camera-space z) */
                 double depth = alpha * v0.cam_z + beta * v1.cam_z + gamma * v2.cam_z;
                 /* depth test and paint */
-                put_pixel_depth(x,y,depth,intensity);
+                put_pixel_depth(x,y,depth,intensity,FB_BLUE);
             }
         }
     }

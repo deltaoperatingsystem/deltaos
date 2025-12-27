@@ -13,6 +13,10 @@ void outb(uint16 port, uint8 value);
 uint32 inl(uint16 port);
 void outl(uint16 port, uint32 value);
 
+// MSR read/write (x86 only)
+void wrmsr(uint32 msr, uint64 value);
+uint64 rdmsr(uint32 msr);
+
 //MMIO functions
 static inline uint8 arch_mmio_read8(uintptr addr) {
     return *(volatile uint8*)addr;
