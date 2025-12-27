@@ -18,6 +18,7 @@
 #include <drivers/fb.h>
 #include <drivers/keyboard.h>
 #include <drivers/console.h>
+#include <drivers/vt/vt.h>
 #include <lib/time.h>
 #include <lib/mem.h>
 #include <lib/string.h>
@@ -431,6 +432,12 @@ static void draw_hud(void){
 /* global model rotation angle */
 static double angle = 0.0;
 
+bool keystate[128] = {0};
+
+bool get_keystate(char c) {
+    return keystate[c];
+}
+
 void frame_step(void){
     int w = fb_width(), h = fb_height();
     ensure_zbuffer_size(w,h);
@@ -440,6 +447,12 @@ void frame_step(void){
     double dt = 1.0 / (double)TARGET_FPS;
     double move_speed = 2.0 * dt;
     double rot_speed  = 1.2 * dt;
+
+    vt_event_t vt;
+    vt_poll_event(vt_get_active(), &vt);
+    if (vt.type == VT_EVENT_KEY) {
+        keystate[vt.codepoint] = vt.pressed;
+    }
 
     if (get_keystate('w')) {
         camera.pos.x += -sin(camera.yaw) * move_speed;
@@ -457,8 +470,8 @@ void frame_step(void){
         camera.pos.x -= -cos(camera.yaw) * move_speed;
         camera.pos.z -=  sin(camera.yaw) * move_speed;
     }
-    if (get_keystate('q')) camera.pos.y += move_speed;
-    if (get_keystate('e')) camera.pos.y -= move_speed;
+    if (get_keystate('q')) camera.pos.y -= move_speed;
+    if (get_keystate('e')) camera.pos.y += move_speed;
 
     /* arrow key codes — replace if your kernel uses different constants */
     if (get_keystate('j')) camera.yaw += rot_speed;

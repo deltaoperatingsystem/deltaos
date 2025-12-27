@@ -2,3 +2,4 @@
 *.log
 *.da
 initrd/
+darc
