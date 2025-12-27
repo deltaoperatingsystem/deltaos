@@ -39,11 +39,6 @@ static char in_codes[256];
 static volatile uint8 head = 0;
 static volatile uint8 tail = 0;
 
-bool get_keystate(char c) {
-    (void)c;
-    return false;
-}
-
 void keyboard_irq(void) {
     uint8 status = inb(KBD_STATUS);
     if (!(status & 1)) return;
@@ -69,8 +64,8 @@ void keyboard_irq(void) {
         return;
     }
     
-    //ignore key releases for non-modifiers
-    if (released) return;
+    // ignore key releases for non-modifiers
+    // if (released) return;
     
     //get ASCII (will be extended to codepoint for UTF-8 later)
     char ascii = (mods & VT_MOD_SHIFT) ? scancodes_shift[code] : scancodes_normal[code];
@@ -81,7 +76,7 @@ void keyboard_irq(void) {
         .mods = mods,
         .keycode = code,
         .codepoint = (uint32)ascii,  //ASCII is valid unicode codepoint for 0-127
-        .pressed = true
+        .pressed = !released
     };
     
     //push to active VT
