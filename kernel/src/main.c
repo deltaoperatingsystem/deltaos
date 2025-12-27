@@ -1,6 +1,7 @@
 #include <arch/types.h>
 #include <arch/cpu.h>
 #include <arch/timer.h>
+#include <arch/interrupts.h>
 #include <drivers/fb.h>
 #include <drivers/console.h>
 #include <drivers/keyboard.h>
@@ -36,6 +37,7 @@ void kernel_main(void) {
     tmpfs_init();
     initrd_init();
     sched_init();
+    syscall_init();
     
     if (fb_available()) {
         con_init();

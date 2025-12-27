@@ -82,7 +82,7 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip) {
                 keyboard_irq();
                 break;
             default:
-                printf("Unhandled IRQ: 0x%X\n", irq);
+                printf("Unhandled IRQ: 0x%X\n", irq + 32);
                 break;
         }
 
