@@ -28,8 +28,10 @@ common_stub:
     ;stack layout after pushes:
     ;[rsp + 72] = vector
     ;[rsp + 80] = error code
+    ;[rsp + 88] = RIP (from CPU iret frame)
     mov rdi, [rsp + 72] ;vector -> first arg
     mov rsi, [rsp + 80] ;error code -> second arg
+    mov rdx, [rsp + 88] ;saved RIP -> third arg
     call interrupt_handler
 
     ;restore registers

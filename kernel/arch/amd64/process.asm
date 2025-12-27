@@ -31,6 +31,7 @@ section .text
 ;rdi = pointer to old context (to save)
 ;rsi = pointer to new context (to load)
 ;saves callee-saved registers to old_ctx and loads from new_ctx
+;and as a note this does NOT restore RFLAGS - new threads must enable interrupts explicitly
 global arch_context_switch
 arch_context_switch:
     ;save callee-saved registers to old context
@@ -56,6 +57,9 @@ arch_context_switch:
     mov r14, [rsi + CTX_R14]
     mov r15, [rsi + CTX_R15]
     
+    ;load RDI    
+    mov rdi, [rsi + CTX_RDI]
+    
     ;load new stack pointer
     mov rsp, [rsi + CTX_RSP]
     
@@ -65,6 +69,32 @@ arch_context_switch:
 .switch_return:
     ;we land here when switched back
     ret
+
+;arch_context_load(ctx)
+;rdi = pointer to context to load
+;loads context without saving anything - used when current thread has exited
+;does not return
+global arch_context_load
+arch_context_load:
+    ;load callee-saved registers
+    mov rbx, [rdi + CTX_RBX]
+    mov rbp, [rdi + CTX_RBP]
+    mov r12, [rdi + CTX_R12]
+    mov r13, [rdi + CTX_R13]
+    mov r14, [rdi + CTX_R14]
+    mov r15, [rdi + CTX_R15]
+    
+    ;save RIP before we clobber rdi
+    mov rax, [rdi + CTX_RIP]
+    
+    ;load new stack pointer
+    mov rsp, [rdi + CTX_RSP]
+    
+    ;load RDI (function argument)
+    mov rdi, [rdi + CTX_RDI]
+    
+    ;jump to context's saved RIP
+    jmp rax
 
 ;arch_enter_usermode(ctx)
 ;rdi = pointer to context with user state

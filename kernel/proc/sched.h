@@ -21,4 +21,7 @@ void sched_tick(void);
 //start the scheduler (never returns)
 void sched_start(void);
 
+//exit current thread and schedule next (never returns)
+void sched_exit(void);
+
 #endif

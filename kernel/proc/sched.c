@@ -4,8 +4,9 @@
 #include <arch/context.h>
 #include <arch/amd64/int/tss.h>
 #include <lib/io.h>
+#include <drivers/serial.h>
 
-#define KERNEL_STACK_SIZE 4096
+#define KERNEL_STACK_SIZE 16384  //16KB
 
 //simple round-robin queue
 static thread_t *run_queue_head = NULL;
@@ -13,12 +14,26 @@ static thread_t *run_queue_tail = NULL;
 static uint32 tick_count = 0;
 static uint32 time_slice = 10;  //switch every 10 ticks
 
+//dead thread list - threads waiting to have their resources freed
+static thread_t *dead_list_head = NULL;
+
 extern void thread_set_current(thread_t *thread);
 extern void process_set_current(process_t *proc);
+extern void arch_context_load(arch_context_t *ctx);
+
+//reap dead threads (free their resources)
+static void reap_dead_threads(void) {
+    while (dead_list_head) {
+        thread_t *dead = dead_list_head;
+        dead_list_head = dead->sched_next;
+        thread_destroy(dead);
+    }
+}
 
 void sched_init(void) {
     run_queue_head = NULL;
     run_queue_tail = NULL;
+    dead_list_head = NULL;
     tick_count = 0;
 }
 
@@ -97,6 +112,9 @@ static void schedule(void) {
     //perform actual context switch
     if (current) {
         arch_context_switch(&current->context, &next->context);
+    } else {
+        //no current thread (just exited) so load context directly
+        arch_context_load(&next->context);
     }
 }
 
@@ -104,7 +122,29 @@ void sched_yield(void) {
     schedule();
 }
 
+void sched_exit(void) {
+    thread_t *current = thread_current();
+    if (!current) return;
+    
+    //mark as dead and add to dead list for cleanup
+    current->state = THREAD_STATE_DEAD;
+    current->sched_next = dead_list_head;
+    dead_list_head = current;
+    
+    //clear current thread
+    thread_set_current(NULL);
+    
+    //schedule next thread
+    schedule();
+    
+    //should never reach here
+    for(;;) __asm__ volatile("hlt");
+}
+
 void sched_tick(void) {
+    //reap dead threads
+    reap_dead_threads();
+    
     tick_count++;
     if (tick_count >= time_slice) {
         tick_count = 0;

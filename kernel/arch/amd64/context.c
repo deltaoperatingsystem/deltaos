@@ -5,7 +5,7 @@
 void arch_context_init(arch_context_t *ctx, void *stack_top, void (*entry)(void *), void *arg) {
     memset(ctx, 0, sizeof(*ctx));
     
-    ctx->rsp = (uint64)stack_top;
+    ctx->rsp = (uint64)stack_top - 8;
     ctx->rip = (uint64)entry;
     ctx->rdi = (uint64)arg;       //first arg in System V ABI
     ctx->rflags = 0x202;          //IF=1 (interrupts enabled)
