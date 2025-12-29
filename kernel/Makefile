@@ -41,4 +41,5 @@ $(KERNEL): $(OBJS)
 all: $(KERNEL)
 
 clean:
-	rm -f $(KERNEL) $(OBJS)
+	rm -f $(KERNEL)
+	find . -type f -name *.o -exec rm {} \;

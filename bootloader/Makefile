@@ -40,4 +40,5 @@ $(BOOTLOADER): $(BOOT_OBJS)
 	$(MINGW_CC) $(BOOT_LDFLAGS) $(BOOT_OBJS) -o $@
 
 clean:
-	rm -f $(BOOT_OBJS) $(BOOTLOADER)
+	rm -f $(BOOTLOADER)
+	find . -type f -name *.o -exec rm {} \;
