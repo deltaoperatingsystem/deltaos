@@ -3,6 +3,7 @@
 
 #include <arch/types.h>
 #include <obj/object.h>
+#include <obj/rights.h>
 
 //process states
 #define PROC_STATE_READY    0
@@ -14,18 +15,32 @@
 
 struct thread;
 
-//per-process handle entry
+//per-process handle entry (capability)
 typedef struct {
-    object_t *obj;
-    size offset;
-    uint32 flags;
+    object_t *obj;              //the kernel object
+    size offset;                //file position (for seekable objects)
+    uint32 flags;               //open flags (O_RDONLY, etc.)
+    handle_rights_t rights;     //capability rights
 } proc_handle_t;
+
+//virtual memory area (for tracking user mappings)
+typedef struct proc_vma {
+    uintptr start;              //start virtual address
+    size length;                //length in bytes
+    uint32 flags;               //mapping flags
+    object_t *obj;              //backing object (VMO) if any
+    size obj_offset;            //offset into backing object
+    struct proc_vma *next;      //linked list
+} proc_vma_t;
 
 //process structure
 typedef struct process {
     uint64 pid;
     char name[32];
     uint32 state;
+    
+    //kernel object wrapper (for capability-based access)
+    object_t *obj;
     
     //capability-based handle table (dynamic)
     proc_handle_t *handles;
@@ -35,6 +50,10 @@ typedef struct process {
     //address space (NULL for kernel threads)
     void *pagemap;
     
+    //virtual memory areas (for address space tracking)
+    proc_vma_t *vma_list;       //head of VMA list
+    uintptr vma_next_addr;      //next allocation address hint
+    
     //threads in this process
     struct thread *threads;
     uint32 thread_count;
@@ -42,6 +61,10 @@ typedef struct process {
     //linked list for scheduler
     struct process *next;
 } process_t;
+
+//user address space bounds
+#define USER_SPACE_START    0x0000000000400000ULL  //4MB
+#define USER_SPACE_END      0x00007FFFFFFFFFFFULL  //canonical low half
 
 //create a new process
 process_t *process_create(const char *name);
@@ -52,11 +75,26 @@ process_t *process_create_user(const char *name);
 //destroy a process
 void process_destroy(process_t *proc);
 
-//grant a handle to a process (returns handle index or -1)
-int process_grant_handle(process_t *proc, object_t *obj, uint32 flags);
+//get the process as a kernel object (for granting handles to processes)
+object_t *process_get_object(process_t *proc);
 
-//get object from process handle
+//grant a handle to a process with rights (returns handle index or -1)
+int process_grant_handle(process_t *proc, object_t *obj, handle_rights_t rights);
+
+//get object from handle (does NOT add ref)
 object_t *process_get_handle(process_t *proc, int handle);
+
+//get handle entry (for rights/offset access)
+proc_handle_t *process_get_handle_entry(process_t *proc, int handle);
+
+//check if handle has required rights
+int process_handle_has_rights(process_t *proc, int handle, handle_rights_t required);
+
+//duplicate a handle with same or reduced rights (returns new handle or -1)
+int process_duplicate_handle(process_t *proc, int handle, handle_rights_t new_rights);
+
+//replace handle rights (can only reduce, never increase)
+int process_replace_handle_rights(process_t *proc, int handle, handle_rights_t new_rights);
 
 //close a process handle
 int process_close_handle(process_t *proc, int handle);
@@ -67,7 +105,28 @@ process_t *process_current(void);
 //set current process
 void process_set_current(process_t *proc);
 
+//get the kernel process (PID 0) as it owns kernel-internal handles
+process_t *process_get_kernel(void);
+
 //initialize process system with kernel process 0
 void proc_init(void);
 
+//allocate a free virtual address region of given size
+//returns start address or 0 on failure
+uintptr process_vma_alloc(process_t *proc, size length, uint32 flags, object_t *backing_obj, size obj_offset);
+
+//find free virtual address region
+uintptr process_vma_find_free(process_t *proc, size length);
+
+//add a VMA entry (for tracking existing mappings)
+int process_vma_add(process_t *proc, uintptr start, size length, uint32 flags, object_t *backing_obj, size obj_offset);
+
+//remove a VMA entry
+int process_vma_remove(process_t *proc, uintptr start);
+
+//find VMA containing the given address
+proc_vma_t *process_vma_find(process_t *proc, uintptr addr);
+
 #endif
+
+

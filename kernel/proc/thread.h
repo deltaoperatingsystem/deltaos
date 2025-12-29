@@ -3,6 +3,7 @@
 
 #include <arch/types.h>
 #include <arch/context.h>
+#include <obj/object.h>
 
 struct process;
 
@@ -17,6 +18,9 @@ typedef struct thread {
     uint64 tid;
     struct process *process;
     uint32 state;
+    
+    //kernel object wrapper (for capability-based access)
+    object_t *obj;
     
     //entry point and argument (for kernel trampoline)
     void (*entry)(void *);
@@ -42,6 +46,9 @@ thread_t *thread_create(struct process *proc, void (*entry)(void *), void *arg);
 //destroy a thread (frees resources)
 void thread_destroy(thread_t *thread);
 
+//get the thread as a kernel object (for granting handles to threads)
+object_t *thread_get_object(thread_t *thread);
+
 //create a usermode thread (entry/stack are in user address space)
 thread_t *thread_create_user(struct process *proc, void *entry, void *user_stack);
 
@@ -55,3 +62,4 @@ thread_t *thread_current(void);
 void thread_set_current(thread_t *thread);
 
 #endif
+

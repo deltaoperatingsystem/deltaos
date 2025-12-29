@@ -3,12 +3,15 @@
 
 #include <arch/types.h>
 
-//object types
+//base object types
 #define OBJECT_NONE    0
 #define OBJECT_FILE    1
 #define OBJECT_DIR     2
 #define OBJECT_DEVICE  3
 #define OBJECT_PIPE    4
+
+//extended kernel object types
+#include <obj/kobject.h>
 
 struct object;
 
@@ -23,7 +26,7 @@ typedef struct object_ops {
 
 //base object structure
 typedef struct object {
-    uint32 type;           //OBJECT_FILE, OBJECT_DIR, etc.
+    uint32 type;           //OBJECT_FILE, OBJECT_DIR, OBJECT_PROCESS, etc.
     uint32 refcount;       //freed when 0
     object_ops_t *ops;     //polymorphic operations
     void *data;            //type-specific data
@@ -53,4 +56,11 @@ static inline ssize object_read(object_t *obj, void *buf, size len, size offset)
     return obj->ops->read(obj, buf, len, offset);
 }
 
+//get type name (for debugging)
+static inline const char *object_get_type_name(object_t *obj) {
+    if (!obj) return "null";
+    return object_type_name(obj->type);
+}
+
 #endif
+

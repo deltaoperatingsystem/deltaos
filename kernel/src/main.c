@@ -10,77 +10,122 @@
 #include <drivers/vt/vt.h>
 #include <lib/string.h>
 #include <lib/io.h>
-#include <lib/path.h>
 #include <boot/db.h>
-#include <mm/mm.h>
 #include <mm/pmm.h>
-#include <mm/vmm.h>
 #include <mm/kheap.h>
 #include <obj/handle.h>
-#include <obj/namespace.h>
+#include <obj/rights.h>
+#include <proc/process.h>
+#include <proc/sched.h>
 #include <fs/tmpfs.h>
-#include <fs/fs.h>
 #include <fs/initrd.h>
 #include <lib/string.h>
 #include <proc/sched.h>
+#include <arch/mmu.h>
+#include <kernel/elf64.h>
 
-extern void shell(void);
+extern void arch_enter_usermode(arch_context_t *ctx);
+
+//load and execute init from initrd
+static void spawn_init(void) {
+    //open init
+    handle_t h = handle_open("$files/initrd/init", HANDLE_RIGHT_READ);
+    if (h == INVALID_HANDLE) {
+        printf("[init] failed to open /initrd/init\n");
+        return;
+    }
+    
+    //read init binary
+    char buf[8192];
+    ssize len = handle_read(h, buf, sizeof(buf));
+    handle_close(h);
+    
+    if (len <= 0) {
+        printf("[init] failed to read init binary\n");
+        return;
+    }
+    printf("[init] loaded init: %ld bytes\n", len);
+    
+    //validate ELF
+    if (!elf_validate(buf, len)) {
+        printf("[init] invalid ELF\n");
+        return;
+    }
+    
+    //create user process
+    process_t *proc = process_create_user("init");
+    if (!proc) {
+        printf("[init] failed to create process\n");
+        return;
+    }
+    printf("[init] created process PID %lu\n", proc->pid);
+    
+    //load ELF into user address space
+    elf_load_info_t info;
+    int err = elf_load_user(buf, len, proc->pagemap, &info);
+    if (err != ELF_OK) {
+        printf("[init] ELF load failed: %d\n", err);
+        process_destroy(proc);
+        return;
+    }
+    printf("[init] entry: 0x%lx\n", info.entry);
+    
+    //allocate user stack
+    uintptr user_stack_base = 0x7FFFFFFFE000ULL;
+    size stack_size = 0x2000;
+    
+    uintptr stack_phys = (uintptr)pmm_alloc(stack_size / 4096);
+    if (!stack_phys) {
+        printf("[init] failed to allocate stack\n");
+        return;
+    }
+    mmu_map_range(proc->pagemap, user_stack_base - stack_size, stack_phys, 
+                  stack_size / 4096, MMU_FLAG_WRITE | MMU_FLAG_USER);
+    
+    uintptr user_stack_top = user_stack_base;
+    
+    //create user thread
+    thread_t *thread = thread_create_user(proc, (void*)info.entry, (void*)user_stack_top);
+    if (!thread) {
+        printf("[init] failed to create thread\n");
+        return;
+    }
+    printf("[init] created thread TID %lu\n", thread->tid);
+    
+    //set up per-CPU kernel stack for syscalls
+    extern void percpu_set_kernel_stack(void *stack_top);
+    percpu_set_kernel_stack((char*)thread->kernel_stack + thread->kernel_stack_size);
+    
+    //add init thread to scheduler
+    sched_add(thread);
+}
 
 void kernel_main(void) {
     set_outmode(SERIAL);
-    puts("kernel_main started\n");
+    printf("kernel_main started\n");
     
+    //initialize drivers
     fb_init();
     fb_init_backbuffer();
     serial_init_object();
     rtc_init();
+    
+    //initialize filesystems
     tmpfs_init();
     initrd_init();
+    
+    //initialize scheduler (creates idle thread)
     sched_init();
     syscall_init();
     
-    if (fb_available()) {
-        con_init();
-        vt_init();
-        keyboard_init(); 
-        set_outmode(CONSOLE);
-        
-        vt_t *vt = vt_get_active();
-        vt_set_attr(vt, VT_ATTR_FG, FB_RGB(0, 255, 128));
-        puts("DeltaOS Kernel\n");
-        puts("==============\n\n");
-        
-        vt_set_attr(vt, VT_ATTR_FG, FB_WHITE);
-        puts("Console: initialized\n");
-        printf("Timer: running @ %dHz\n", arch_timer_getfreq());
-
-        struct db_tag_memory_map *mmap = db_get_memory_map();
-        if (mmap) {
-            int usable = 0, kernel = 0, boot = 0;
-            for (uint32 i = 0; i < mmap->entry_count; i++) {
-                if (mmap->entries[i].type == DB_MEM_USABLE) usable++;
-                else if (mmap->entries[i].type == DB_MEM_KERNEL) kernel++;
-                else if (mmap->entries[i].type == DB_MEM_BOOTLOADER) boot++;
-            }
-            printf("Memory: %d usable, %d kernel, %d bootloader regions\n", usable, kernel, boot);
-        }
-        
-        struct db_tag_acpi_rsdp *acpi = db_get_acpi_rsdp();
-        if (acpi) {
-            printf("ACPI: RSDP found at 0x%lX (%s)\n", acpi->rsdp_address, acpi->flags & 1 ? "XSDP" : "RSDP");
-        } else {
-            puts("ACPI: RSDP not found\n");
-        }
-        
-        handle_t h = handle_open("$devices/console", 0);
-        if (h != INVALID_HANDLE) {
-            handle_write(h, "Object system: working!\n", 24);
-            handle_close(h);
-        }
-    }
+    //spawn init process
+    spawn_init();
     
-    shell();
+    //start scheduler - never returns
+    printf("[kernel] starting scheduler...\n");
+    sched_start();
+    
+    //should never reach here
+    printf("[kernel] ERROR: scheduler returned!\n");
+    for (;;) arch_halt();
 }
-
-
-

@@ -22,6 +22,7 @@
  * arch_halt() - halt CPU until next interrupt
  * arch_idle() - idle CPU (enable interrupts and halt)
  * arch_pause() - hint to CPU that we're in a spin loop
+ * arch_set_kernel_stack(void *stack_top) - set kernel stack for ring transitions
  *
  * memory barriers:
  *

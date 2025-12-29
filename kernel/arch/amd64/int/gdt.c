@@ -123,3 +123,8 @@ void tss_set_rsp0(uint64 rsp) {
 tss_t *tss_get(void) {
     return &tss;
 }
+
+//set kernel stack for ring 3 -> ring 0 transitions
+void arch_set_kernel_stack(void *stack_top) {
+    tss_set_rsp0((uint64)stack_top);
+}

@@ -1,30 +1,28 @@
 #include <obj/handle.h>
 #include <obj/namespace.h>
+#include <proc/process.h>
 #include <fs/fs.h>
-#include <mm/kheap.h>
 #include <lib/string.h>
 #include <lib/io.h>
 
-#define HANDLE_INITIAL_CAP 16
-#define HANDLE_GROW_FACTOR 2
 
-static handle_entry_t *handles = NULL;
-static uint32 handle_capacity = 0;
-static uint32 handle_count = 0;
+static process_t *get_handle_owner(void) {
+    process_t *proc = process_current();
+    if (!proc) {
+        proc = process_get_kernel();
+    }
+    return proc;
+}
 
 void handle_init(void) {
-    handles = kzalloc(HANDLE_INITIAL_CAP * sizeof(handle_entry_t));
-    if (!handles) {
-        printf("[handle] ERR: failed to allocate handle table\n");
-        return;
-    }
-    handle_capacity = HANDLE_INITIAL_CAP;
-    handle_count = 0;
     ns_init();
 }
 
-handle_t handle_open(const char *path, uint32 flags) {
+handle_t handle_open(const char *path, handle_rights_t rights) {
     if (!path) return INVALID_HANDLE;
+    
+    process_t *proc = get_handle_owner();
+    if (!proc) return INVALID_HANDLE;
     
     //find first slash to split namespace from subpath
     const char *slash = path;
@@ -50,8 +48,8 @@ handle_t handle_open(const char *path, uint32 flags) {
                 object_deref(root);
                 if (!file) return INVALID_HANDLE;
                 
-                handle_t h = handle_alloc(file, flags);
-                if (h == INVALID_HANDLE) object_deref(file);
+                handle_t h = process_grant_handle(proc, file, rights);
+                object_deref(file);  //grant_handle refs it
                 return h;
             }
         }
@@ -63,10 +61,8 @@ handle_t handle_open(const char *path, uint32 flags) {
     object_t *obj = ns_lookup(path);
     if (!obj) return INVALID_HANDLE;
     
-    handle_t h = handle_alloc(obj, flags);
-    if (h == INVALID_HANDLE) {
-        object_deref(obj);
-    }
+    handle_t h = process_grant_handle(proc, obj, rights);
+    object_deref(obj);  //grant_handle refs it
     return h;
 }
 
@@ -101,54 +97,39 @@ int handle_create(const char *path, uint32 type) {
     return -1;
 }
 
-handle_t handle_alloc(object_t *obj, uint32 flags) {
-    if (!obj || !handles) return INVALID_HANDLE;
+handle_t handle_alloc(object_t *obj, handle_rights_t rights) {
+    if (!obj) return INVALID_HANDLE;
     
-    //find free slot
-    for (uint32 i = 0; i < handle_capacity; i++) {
-        if (handles[i].obj == NULL) {
-            handles[i].obj = obj;
-            handles[i].offset = 0;
-            handles[i].flags = flags;
-            handle_count++;
-            return i;
-        }
-    }
+    process_t *proc = get_handle_owner();
+    if (!proc) return INVALID_HANDLE;
     
-    //grow table
-    uint32 new_cap = handle_capacity * HANDLE_GROW_FACTOR;
-    handle_entry_t *new_handles = krealloc(handles, new_cap * sizeof(handle_entry_t));
-    if (!new_handles) return INVALID_HANDLE;
-    
-    //zero new entries
-    for (uint32 i = handle_capacity; i < new_cap; i++) {
-        new_handles[i].obj = NULL;
-        new_handles[i].offset = 0;
-        new_handles[i].flags = 0;
-    }
-    
-    handle_t h = handle_capacity;
-    new_handles[h].obj = obj;
-    new_handles[h].offset = 0;
-    new_handles[h].flags = flags;
-    
-    handles = new_handles;
-    handle_capacity = new_cap;
-    handle_count++;
-    
-    return h;
+    return process_grant_handle(proc, obj, rights);
 }
 
 object_t *handle_get(handle_t h) {
-    if (h < 0 || (uint32)h >= handle_capacity) return NULL;
-    return handles[h].obj;
+    process_t *proc = get_handle_owner();
+    if (!proc) return NULL;
+    return process_get_handle(proc, h);
+}
+
+int handle_has_rights(handle_t h, handle_rights_t required) {
+    process_t *proc = get_handle_owner();
+    if (!proc) return 0;
+    return process_handle_has_rights(proc, h, required);
+}
+
+handle_t handle_duplicate(handle_t h, handle_rights_t new_rights) {
+    process_t *proc = get_handle_owner();
+    if (!proc) return INVALID_HANDLE;
+    return process_duplicate_handle(proc, h, new_rights);
 }
 
 ssize handle_read(handle_t h, void *buf, size len) {
-    if (h < 0 || (uint32)h >= handle_capacity) return -1;
+    process_t *proc = get_handle_owner();
+    if (!proc) return -1;
     
-    handle_entry_t *entry = &handles[h];
-    if (!entry->obj) return -1;
+    proc_handle_t *entry = process_get_handle_entry(proc, h);
+    if (!entry) return -1;
     if (!entry->obj->ops || !entry->obj->ops->read) return -1;
     
     ssize result = entry->obj->ops->read(entry->obj, buf, len, entry->offset);
@@ -159,10 +140,11 @@ ssize handle_read(handle_t h, void *buf, size len) {
 }
 
 ssize handle_write(handle_t h, const void *buf, size len) {
-    if (h < 0 || (uint32)h >= handle_capacity) return -1;
+    process_t *proc = get_handle_owner();
+    if (!proc) return -1;
     
-    handle_entry_t *entry = &handles[h];
-    if (!entry->obj) return -1;
+    proc_handle_t *entry = process_get_handle_entry(proc, h);
+    if (!entry) return -1;
     if (!entry->obj->ops || !entry->obj->ops->write) return -1;
     
     ssize result = entry->obj->ops->write(entry->obj, buf, len, entry->offset);
@@ -173,10 +155,11 @@ ssize handle_write(handle_t h, const void *buf, size len) {
 }
 
 ssize handle_seek(handle_t h, ssize offset, int whence) {
-    if (h < 0 || (uint32)h >= handle_capacity) return -1;
+    process_t *proc = get_handle_owner();
+    if (!proc) return -1;
     
-    handle_entry_t *entry = &handles[h];
-    if (!entry->obj) return -1;
+    proc_handle_t *entry = process_get_handle_entry(proc, h);
+    if (!entry) return -1;
     
     switch (whence) {
         case SEEK_SET:
@@ -195,26 +178,17 @@ ssize handle_seek(handle_t h, ssize offset, int whence) {
 }
 
 int handle_close(handle_t h) {
-    if (h < 0 || (uint32)h >= handle_capacity) return -1;
-    
-    handle_entry_t *entry = &handles[h];
-    if (!entry->obj) return -1;
-    
-    object_deref(entry->obj);
-    
-    entry->obj = NULL;
-    entry->offset = 0;
-    entry->flags = 0;
-    handle_count--;
-    
-    return 0;
+    process_t *proc = get_handle_owner();
+    if (!proc) return -1;
+    return process_close_handle(proc, h);
 }
 
 int handle_readdir(handle_t h, void *entries, uint32 count) {
-    if (h < 0 || (uint32)h >= handle_capacity) return -1;
+    process_t *proc = get_handle_owner();
+    if (!proc) return -1;
     
-    handle_entry_t *entry = &handles[h];
-    if (!entry->obj) return -1;
+    proc_handle_t *entry = process_get_handle_entry(proc, h);
+    if (!entry) return -1;
     if (!entry->obj->ops || !entry->obj->ops->readdir) return -1;
     
     uint32 index = (uint32)entry->offset;
@@ -255,3 +229,4 @@ int handle_stat(const char *path, stat_t *st) {
     object_deref(root);
     return -1;
 }
+

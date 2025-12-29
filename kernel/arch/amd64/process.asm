@@ -102,8 +102,8 @@ arch_context_load:
 ;sets up stack frame for iretq: ss, rsp, rflags, cs, rip
 global arch_enter_usermode
 arch_enter_usermode:
-    ;TODO: swapgs
-    ;swapgs
+    ;swap GS - switch from kernel percpu to user GS
+    swapgs
     
     ;load user segment into data segments
     mov ax, USER_DS
@@ -150,8 +150,8 @@ arch_return_to_usermode:
     and rax, 3
     jz .kernel_return       ;RPL=0, returning to kernel
     
-    ;TODO: Returning to usermode - swap GS
-    ;swapgs
+    ;returning to usermode - swap GS back to user
+    swapgs
 
 .kernel_return:
     ;build iretq frame
@@ -164,7 +164,7 @@ arch_return_to_usermode:
     ;restore all general purpose registers
     mov rax, [rdi + CTX_RAX]
     mov rbx, [rdi + CTX_RBX]
-    mov rcx, rdi                ;save ctx pointer temporarily in rcx
+    mov rcx, rdi ;save ctx pointer temporarily in rcx
     mov rdx, [rdi + CTX_RDX]
     mov rsi, [rdi + CTX_RSI]
     mov rbp, [rdi + CTX_RBP]

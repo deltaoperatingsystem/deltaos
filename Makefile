@@ -1,4 +1,4 @@
-.PHONY: all kernel bootloader tools initrd clean run
+.PHONY: all kernel bootloader tools user initrd clean run
 
 all: kernel bootloader initrd
 
@@ -11,8 +11,12 @@ bootloader:
 tools:
 	@$(MAKE) --no-print-directory -C tools/darc
 
-initrd: tools
+user:
+	@$(MAKE) --no-print-directory -C $@
+
+initrd: tools user
 	@mkdir -p initrd
+	@cp user/init.bin initrd/init
 	@echo "===> Creating initrd.da"
 	@./tools/darc/darc create initrd.da initrd
 
