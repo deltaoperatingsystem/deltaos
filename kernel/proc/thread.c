@@ -2,6 +2,7 @@
 #include <proc/process.h>
 #include <proc/sched.h>
 #include <arch/context.h>
+#include <arch/interrupts.h>
 #include <mm/kheap.h>
 #include <lib/string.h>
 
@@ -10,6 +11,20 @@
 static uint64 next_tid = 1;
 static thread_t *current_thread = NULL;
 
+//thread object ops (called when all handles to a thread are closed)
+static int thread_obj_close(object_t *obj) {
+    (void)obj;
+    return 0;
+}
+
+static object_ops_t thread_object_ops = {
+    .read = NULL,
+    .write = NULL,
+    .close = thread_obj_close,
+    .ioctl = NULL,
+    .readdir = NULL
+};
+
 //kernel trampoline - enables interrupts before calling thread entry
 //context switch from within ISR leaves IF=0 we enable it here so
 //threads don't need to know about interrupt state
@@ -17,7 +32,7 @@ static void thread_entry_trampoline(void *thread_ptr) {
     thread_t *thread = (thread_t *)thread_ptr;
     
     //enable interrupts before calling user code
-    __asm__ volatile("sti");
+    arch_interrupts_enable();
     
     //call the actual entry function
     thread->entry(thread->arg);
@@ -36,6 +51,13 @@ thread_t *thread_create(process_t *proc, void (*entry)(void *), void *arg) {
     thread->process = proc;
     thread->state = THREAD_STATE_READY;
     
+    //create kernel object for this thread
+    thread->obj = object_create(OBJECT_THREAD, &thread_object_ops, thread);
+    if (!thread->obj) {
+        kfree(thread);
+        return NULL;
+    }
+    
     //save entry point and arg for trampoline
     thread->entry = entry;
     thread->arg = arg;
@@ -43,6 +65,7 @@ thread_t *thread_create(process_t *proc, void (*entry)(void *), void *arg) {
     //allocate kernel stack
     thread->kernel_stack = kmalloc(KERNEL_STACK_SIZE);
     if (!thread->kernel_stack) {
+        object_deref(thread->obj);
         kfree(thread);
         return NULL;
     }
@@ -76,8 +99,19 @@ void thread_destroy(thread_t *thread) {
         }
     }
     
+    //free the thread object
+    if (thread->obj) {
+        thread->obj->data = NULL;  //clear back-pointer
+        object_deref(thread->obj);
+    }
+    
     kfree(thread->kernel_stack);
     kfree(thread);
+}
+
+object_t *thread_get_object(thread_t *thread) {
+    if (!thread) return NULL;
+    return thread->obj;
 }
 
 thread_t *thread_current(void) {
@@ -98,6 +132,13 @@ thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
     thread->process = proc;
     thread->state = THREAD_STATE_READY;
     
+    //create kernel object for this thread
+    thread->obj = object_create(OBJECT_THREAD, &thread_object_ops, thread);
+    if (!thread->obj) {
+        kfree(thread);
+        return NULL;
+    }
+    
     //usermode threads don't use entry/arg - context set directly
     thread->entry = NULL;
     thread->arg = NULL;
@@ -105,6 +146,7 @@ thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
     //allocate kernel stack (for syscalls/interrupts)
     thread->kernel_stack = kmalloc(KERNEL_STACK_SIZE);
     if (!thread->kernel_stack) {
+        object_deref(thread->obj);
         kfree(thread);
         return NULL;
     }

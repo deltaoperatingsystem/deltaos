@@ -3,6 +3,10 @@
 
 #include <arch/amd64/types.h>
 
+//kernel stack for ring transitions (wraps TSS RSP0)
+void arch_set_kernel_stack(void *stack_top);
+
+
 //MI interface implementations
 
 static inline void arch_halt(void) {

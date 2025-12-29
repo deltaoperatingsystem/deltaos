@@ -3,7 +3,6 @@
 #include <arch/cpu.h>
 #include <arch/context.h>
 #include <arch/mmu.h>
-#include <arch/amd64/int/tss.h>
 #include <lib/io.h>
 #include <drivers/serial.h>
 
@@ -13,14 +12,16 @@
 static thread_t *run_queue_head = NULL;
 static thread_t *run_queue_tail = NULL;
 static uint32 tick_count = 0;
-static uint32 time_slice = 10;  //switch every 10 ticks
+static uint32 time_slice = 10; //switch every 10 ticks
 
 //dead thread list - threads waiting to have their resources freed
 static thread_t *dead_list_head = NULL;
 
+//idle thread - always runnable runs when no other threads available
+static thread_t *idle_thread = NULL;
+
 extern void thread_set_current(thread_t *thread);
 extern void process_set_current(process_t *proc);
-extern void arch_context_load(arch_context_t *ctx);
 
 //reap dead threads (free their resources)
 static void reap_dead_threads(void) {
@@ -31,15 +32,32 @@ static void reap_dead_threads(void) {
     }
 }
 
+//idle thread entry - just halts forever
+static void idle_thread_entry(void *arg) {
+    (void)arg;
+    
+    for (;;) {
+        arch_halt();
+    }
+}
+
 void sched_init(void) {
     run_queue_head = NULL;
     run_queue_tail = NULL;
     dead_list_head = NULL;
     tick_count = 0;
+    
+    //create idle thread attached to kernel process
+    process_t *kernel = process_get_kernel();
+    idle_thread = thread_create(kernel, idle_thread_entry, NULL);
+    if (idle_thread) {
+        idle_thread->state = THREAD_STATE_READY;
+    }
 }
 
 void sched_add(thread_t *thread) {
     if (!thread) return;
+    if (thread == idle_thread) return; //don't add idle to queue
     
     thread->sched_next = NULL;
     
@@ -56,6 +74,7 @@ void sched_add(thread_t *thread) {
 
 void sched_remove(thread_t *thread) {
     if (!thread) return;
+    if (thread == idle_thread) return;  //idle never in queue
     
     thread_t **tp = &run_queue_head;
     while (*tp) {
@@ -75,22 +94,25 @@ void sched_remove(thread_t *thread) {
     }
 }
 
+//pick next thread - returns idle thread if no other threads
+static thread_t *pick_next(void) {
+    if (run_queue_head) {
+        return run_queue_head;
+    }
+    return idle_thread;
+}
+
 //pick next thread and switch to it
-//when called from ISR, ISR has already saved context and will restore new threads context
-//when called from sched_yield we are in kernel context and can use arch_context_switch
 static void schedule(void) {
     thread_t *current = thread_current();
-    thread_t *next = NULL;
+    thread_t *next = pick_next();
     
-    if (!run_queue_head) {
-        //no threads to run
+    if (!next) {
+        //no idle thread that shouldn't happen
         return;
     }
     
-    //round-robin: pick head of queue
-    next = run_queue_head;
-    
-    if (current && current->state == THREAD_STATE_RUNNING) {
+    if (current && current->state == THREAD_STATE_RUNNING && current != idle_thread) {
         //move current to end of queue
         current->state = THREAD_STATE_READY;
         sched_remove(current);
@@ -98,12 +120,14 @@ static void schedule(void) {
     }
     
     if (next == current) {
-        //same thread, nothing to do
+        //same thread so nothing to do
         return;
     }
     
     //switch to next thread
-    sched_remove(next);
+    if (next != idle_thread) {
+        sched_remove(next);
+    }
     next->state = THREAD_STATE_RUNNING;
     thread_set_current(next);
     process_set_current(next->process);
@@ -120,9 +144,9 @@ static void schedule(void) {
         mmu_switch(mmu_get_kernel_pagemap());
     }
     
-    //set TSS rsp0 for ring 3 -> ring 0 transitions
-    uint64 kernel_stack_top = (uint64)next->kernel_stack + next->kernel_stack_size;
-    tss_set_rsp0(kernel_stack_top);
+    //set kernel stack for ring 3 -> ring 0 transitions
+    void *kernel_stack_top = (char *)next->kernel_stack + next->kernel_stack_size;
+    arch_set_kernel_stack(kernel_stack_top);
 }
 
 void sched_yield(void) {
@@ -141,11 +165,11 @@ void sched_exit(void) {
     //clear current thread
     thread_set_current(NULL);
     
-    //schedule next thread
+    //schedule next thread (will be idle if no others)
     schedule();
     
-    //should never reach here
-    for(;;) __asm__ volatile("hlt");
+    //should never reach here - schedule switches away
+    for(;;) arch_halt();
 }
 
 void sched_tick(void) {
@@ -160,12 +184,12 @@ void sched_tick(void) {
 }
 
 void sched_start(void) {
-    if (!run_queue_head) {
+    thread_t *first = pick_next();
+    if (!first) {
         printf("[sched] no threads to run!\n");
         return;
     }
     
-    thread_t *first = run_queue_head;
     sched_remove(first);
     first->state = THREAD_STATE_RUNNING;
     thread_set_current(first);
@@ -176,9 +200,9 @@ void sched_start(void) {
         mmu_switch((pagemap_t *)first->process->pagemap);
     }
     
-    //set TSS rsp0 for ring 3 -> ring 0 transitions
-    uint64 kernel_stack_top = (uint64)first->kernel_stack + first->kernel_stack_size;
-    tss_set_rsp0(kernel_stack_top);
+    //set kernel stack for ring 3 -> ring 0 transitions
+    void *kernel_stack_top = (char *)first->kernel_stack + first->kernel_stack_size;
+    arch_set_kernel_stack(kernel_stack_top);
     
     printf("[sched] starting scheduler with thread %llu\n", first->tid);
     

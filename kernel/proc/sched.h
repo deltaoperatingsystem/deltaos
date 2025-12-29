@@ -18,7 +18,7 @@ void sched_yield(void);
 //called from timer interrupt for preemptive scheduling
 void sched_tick(void);
 
-//start the scheduler (never returns)
+//start the scheduler (never returns - idle thread runs when no work)
 void sched_start(void);
 
 //exit current thread and schedule next (never returns)
