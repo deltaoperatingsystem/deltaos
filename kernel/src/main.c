@@ -21,7 +21,8 @@
 #include <fs/tmpfs.h>
 #include <fs/fs.h>
 #include <fs/initrd.h>
-#include <string.h>
+#include <lib/string.h>
+#include <proc/sched.h>
 
 extern void shell(void);
 

@@ -432,12 +432,6 @@ static void draw_hud(void){
 /* global model rotation angle */
 static double angle = 0.0;
 
-bool keystate[128] = {0};
-
-bool get_keystate(char c) {
-    return keystate[c];
-}
-
 void frame_step(void){
     int w = fb_width(), h = fb_height();
     ensure_zbuffer_size(w,h);
@@ -447,12 +441,6 @@ void frame_step(void){
     double dt = 1.0 / (double)TARGET_FPS;
     double move_speed = 2.0 * dt;
     double rot_speed  = 1.2 * dt;
-
-    vt_event_t vt;
-    vt_poll_event(vt_get_active(), &vt);
-    if (vt.type == VT_EVENT_KEY) {
-        keystate[vt.codepoint] = vt.pressed;
-    }
 
     if (get_keystate('w')) {
         camera.pos.x += -sin(camera.yaw) * move_speed;

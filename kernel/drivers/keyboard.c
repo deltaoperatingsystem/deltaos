@@ -39,6 +39,9 @@ static char in_codes[256];
 static volatile uint8 head = 0;
 static volatile uint8 tail = 0;
 
+// keystate bitmap
+static bool keystate[128] = {0};
+
 void keyboard_irq(void) {
     uint8 status = inb(KBD_STATUS);
     if (!(status & 1)) return;
@@ -93,6 +96,9 @@ void keyboard_irq(void) {
             head = next;
         }
     }
+
+    // push to keystate bitmap
+    keystate[ascii] = !released;
 }
 
 bool get_key(char *c) {
@@ -100,6 +106,10 @@ bool get_key(char *c) {
     *c = in_codes[tail];
     tail = (tail + 1) % 256;
     return true;
+}
+
+bool get_keystate(char c) {
+    return keystate[c];
 }
 
 void keyboard_wait(void) {
