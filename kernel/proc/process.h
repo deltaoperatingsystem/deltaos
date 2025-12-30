@@ -127,6 +127,11 @@ int process_vma_remove(process_t *proc, uintptr start);
 //find VMA containing the given address
 proc_vma_t *process_vma_find(process_t *proc, uintptr addr);
 
+//setup user stack with argc/argv
+//returns adjusted stack pointer to use for thread creation
+uintptr process_setup_user_stack(uintptr stack_phys, uintptr stack_base,
+                                  size stack_size, int argc, char *argv[]);
+
 #endif
 
 

@@ -1,6 +1,7 @@
 #include <proc/process.h>
 #include <proc/thread.h>
 #include <mm/kheap.h>
+#include <mm/mm.h>
 #include <arch/mmu.h>
 #include <lib/string.h>
 #include <lib/io.h>
@@ -354,3 +355,39 @@ proc_vma_t *process_vma_find(process_t *proc, uintptr addr) {
     return NULL;
 }
 
+uintptr process_setup_user_stack(uintptr stack_phys, uintptr stack_base, 
+                                  size stack_size, int argc, char *argv[]) {
+    //write to physical memory since user pagemap isn't active
+    char *stack_virt = (char *)P2V(stack_phys);
+    uintptr offset_from_base = stack_base - stack_size;
+    uintptr sp = stack_base;
+    
+    //first pass: calculate total space needed for strings and store addresses
+    uintptr argv_addrs[64];  //max 64 args
+    if (argc > 64) argc = 64;
+    
+    //write argv strings at top of stack (reverse order for natural layout)
+    for (int i = argc - 1; i >= 0; i--) {
+        size len = strlen(argv[i]) + 1;
+        sp -= len;
+        sp &= ~7ULL;  //8-byte align
+        argv_addrs[i] = sp;
+        memcpy(stack_virt + (sp - offset_from_base), argv[i], len);
+    }
+    
+    //push NULL terminator for argv
+    sp -= 8;
+    *(uint64 *)(stack_virt + (sp - offset_from_base)) = 0;
+    
+    //push argv pointers in reverse order
+    for (int i = argc - 1; i >= 0; i--) {
+        sp -= 8;
+        *(uint64 *)(stack_virt + (sp - offset_from_base)) = argv_addrs[i];
+    }
+    
+    //push argc
+    sp -= 8;
+    *(uint64 *)(stack_virt + (sp - offset_from_base)) = (uint64)argc;
+    
+    return sp;
+}

@@ -28,7 +28,7 @@ _start:
     mov %rax, %rdi
     call exit
 
-    /*should never reach here, but just in case*/
+    /*should never reach here= but just in case*/
 1:
     hlt
     jmp 1b
