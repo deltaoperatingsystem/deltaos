@@ -50,6 +50,7 @@ uint64 arch_context_get_retval(arch_context_t *ctx);
 void arch_context_set_retval(arch_context_t *ctx, uint64 val);
 void arch_context_get_syscall_args(arch_context_t *ctx, uint64 *args, int count);
 void arch_context_switch(arch_context_t *old_ctx, arch_context_t *new_ctx);
+void arch_context_load(arch_context_t *ctx); 
 void arch_enter_usermode(arch_context_t *ctx);
 void arch_return_to_usermode(arch_context_t *ctx);
 

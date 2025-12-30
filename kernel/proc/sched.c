@@ -2,6 +2,7 @@
 #include <proc/process.h>
 #include <arch/cpu.h>
 #include <arch/context.h>
+#include <arch/interrupts.h>
 #include <arch/mmu.h>
 #include <lib/io.h>
 #include <drivers/serial.h>
@@ -154,8 +155,14 @@ void sched_yield(void) {
 }
 
 void sched_exit(void) {
+    //disable interrupts - critical section soooo can't have timer fire during exit
+    arch_interrupts_disable();
+    
     thread_t *current = thread_current();
-    if (!current) return;
+    if (!current) {
+        arch_interrupts_enable();
+        return;
+    }
     
     //mark as dead and add to dead list for cleanup
     current->state = THREAD_STATE_DEAD;
@@ -168,7 +175,20 @@ void sched_exit(void) {
     //schedule next thread (will be idle if no others)
     schedule();
     
-    //should never reach here - schedule switches away
+    //schedule() set up the next thread - we need to actually jump to it
+    //interrupts will be re-enabled when we iret/sysret to the next thread
+    thread_t *next = thread_current();
+    if (next) {
+        if ((next->context.cs & 3) == 3) {
+            //usermode thread
+            arch_enter_usermode(&next->context);
+        } else {
+            //kernel thread - load its context
+            arch_context_load(&next->context);
+        }
+    }
+    
+    //should never reach here
     for(;;) arch_halt();
 }
 

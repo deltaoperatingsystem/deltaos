@@ -97,8 +97,10 @@ void keyboard_irq(void) {
         }
     }
 
-    // push to keystate bitmap
-    keystate[ascii] = !released;
+    //push to keystate bitmap (only for valid ASCII)
+    if (ascii > 0) {
+        keystate[(unsigned char)ascii] = !released;
+    }
 }
 
 bool get_key(char *c) {
@@ -109,7 +111,7 @@ bool get_key(char *c) {
 }
 
 bool get_keystate(char c) {
-    return keystate[c];
+    return keystate[(unsigned char)c];
 }
 
 void keyboard_wait(void) {

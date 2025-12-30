@@ -21,8 +21,8 @@
 %define CTX_RCX     152
 
 ;offset of arch_context within thread_t struct
-;thread_t: tid(8) + process*(8) + state(4) + pad(4) + entry(8) + arg(8) = 40
-%define THREAD_CTX_OFFSET 40
+;thread_t: tid(8) + process*(8) + state(4) + pad(4) + obj*(8) + entry(8) + arg(8) = 48
+%define THREAD_CTX_OFFSET 48
 
 %macro isr_err_stub 1
 isr_stub_%+%1:
@@ -81,6 +81,14 @@ common_stub:
     ;[rsp+152] = RFLAGS
     ;[rsp+160] = RSP
     ;[rsp+168] = SS
+    
+    ;check if we came from user mode (CS RPL = 3)
+    ;if so then we need to swapgs to get kernel GS for percpu access
+    mov rax, [rsp + 144] ;get CS from stack
+    and rax, 3 ;check RPL bits
+    jz .skip_swapgs_in ;RPL=0 means kernel, skip
+    swapgs ;switch from user GS to kernel GS
+.skip_swapgs_in:
     
     ;get current thread to save context to
     call thread_current
@@ -212,6 +220,14 @@ common_stub:
     
     ;remove vector and error code
     add rsp, 16
+    
+    ;check if returning to user mode (CS RPL = 3)
+    ;if so, we need to swapgs back to user GS
+    ;stack layout now: [rsp+0]=RIP, [rsp+8]=CS, [rsp+16]=RFLAGS, [rsp+24]=RSP, [rsp+32]=SS
+    test qword [rsp + 8], 3 ;check RPL bits directly
+    jz .skip_swapgs_out ;RPL=0 means returning to kernel, skip
+    swapgs ;switch from kernel GS to user GS
+.skip_swapgs_out:
     
     iretq
 
