@@ -7,10 +7,11 @@ global _start
 %define SYS_getpid      1
 %define SYS_yield       2
 %define SYS_debug_write 3
+%define SYS_write       4
 
 _start:
-    ;write message to debug serial
-    mov rax, SYS_debug_write
+    ;write message to VT console
+    mov rax, SYS_write
     lea rdi, [rel msg_hello]
     mov rsi, msg_hello_len
     syscall
@@ -21,7 +22,7 @@ _start:
     ;result in rax
     
     ;write done message
-    mov rax, SYS_debug_write
+    mov rax, SYS_write
     lea rdi, [rel msg_done]
     mov rsi, msg_done_len
     syscall

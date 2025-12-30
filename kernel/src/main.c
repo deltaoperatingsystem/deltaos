@@ -25,6 +25,8 @@
 #include <kernel/elf64.h>
 
 extern void arch_enter_usermode(arch_context_t *ctx);
+    extern void percpu_set_kernel_stack(void *stack_top);
+
 
 //load and execute init from initrd
 static void spawn_init(void) {
@@ -93,7 +95,6 @@ static void spawn_init(void) {
     printf("[init] created thread TID %lu\n", thread->tid);
     
     //set up per-CPU kernel stack for syscalls
-    extern void percpu_set_kernel_stack(void *stack_top);
     percpu_set_kernel_stack((char*)thread->kernel_stack + thread->kernel_stack_size);
     
     //add init thread to scheduler
@@ -107,6 +108,9 @@ void kernel_main(void) {
     //initialize drivers
     fb_init();
     fb_init_backbuffer();
+    con_init();
+    vt_init();
+    keyboard_init();
     serial_init_object();
     rtc_init();
     

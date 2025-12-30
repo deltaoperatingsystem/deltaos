@@ -8,6 +8,7 @@
 #define SYS_getpid          1
 #define SYS_yield           2
 #define SYS_debug_write     3
+#define SYS_write           4   //write to VT console
 
 //capability syscalls
 #define SYS_handle_close    32

@@ -89,6 +89,11 @@ void gdt_init(void) {
     
     //index 5-6: TSS (selector 0x28) - spans 2 entries
     gdt_set_tss(5, (uint64)&tss, sizeof(tss_t) - 1);
+    
+    //allocate IST1 stack (used for timer/all interrupts to get consistent frame)
+    //using a static buffer for nowww
+    static uint8 ist1_stack[16384] __attribute__((aligned(16)));
+    tss.ist[0] = (uint64)&ist1_stack[sizeof(ist1_stack)];  //stack grows down
 
     //load GDT
     __asm__ volatile ("lgdt %0" : : "m"(gp));
@@ -113,7 +118,7 @@ void gdt_init(void) {
     //load TSS
     __asm__ volatile ("ltr %w0" : : "r"((uint16)0x28));
     
-    puts("[gdt] initialized with TSS\n");
+    puts("[gdt] initialized with TSS and IST1\n");
 }
 
 void tss_set_rsp0(uint64 rsp) {

@@ -90,12 +90,12 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip) {
     }
 }
 
-static void idt_setgate(uint8 vector, void *isr, uint8 flags) {
+static void idt_setgate(uint8 vector, void *isr, uint8 flags, uint8 ist) {
     struct idt_entry *gate = &idt[vector];
 
     gate->isr_low = (uint64)isr & 0xFFFF;
     gate->kernel_cs = GDT_KERNEL_CODE;
-    gate->ist = 0;
+    gate->ist = ist;  //IST index (1-7) or 0 for no IST
     gate->attributes = flags;
     gate->isr_mid = ((uint64)isr >> 16) & 0xFFFF;
     gate->isr_high = ((uint64)isr >> 32) & 0xFFFFFFFF;
@@ -107,9 +107,10 @@ void arch_interrupts_init(void) {
     idtr.base = (uintptr)&idt[0];
     idtr.limit = (uint16)sizeof(idt) - 1;
 
-    //install handlers for all 256 vectors
+    //install handlers for all 256 vectors using IST1
+    //IST ensures consistent stack frame (SS/RSP pushed) even for kernel-mode interrupts
     for (int vector = 0; vector < 256; vector++) {
-        idt_setgate(vector, isr_stub_table[vector], 0x8E);
+        idt_setgate(vector, isr_stub_table[vector], 0x8E, 1);
     }
 
     //remap PIC IRQ0-7 -> vectors 32-39, IRQ8-15 -> vectors 40-47
