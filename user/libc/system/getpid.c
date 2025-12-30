@@ -1,8 +1,6 @@
 #include <types.h>
-#include <system.h>
+#include <sys/syscall.h>
 
-// __asm__ volatile("mov $1, %%rax\n\tsyscall\n\t" ::: "rax","rcx","r11","memory");
-
-int64 getpid() {
-    return __syscall(1, 0, 0, 0, 0, 0, 0);
+int64 getpid(void) {
+    return syscall0(SYS_getpid);
 }

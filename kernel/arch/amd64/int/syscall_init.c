@@ -11,14 +11,17 @@
 #define EFER_SCE    (1ULL << 0)
 
 #define KERNEL_CS   0x08
-#define USER_SS     0x18
+#define SYSRET_BASE 0x10    //SYSRET uses: SS = base+8 (0x18) CS = base+16 (0x20)
 
 extern void syscall_entry_simple(void);
 
 void syscall_init(void) {
     percpu_init();
     
-    uint64 star = ((uint64)(USER_SS) << 48) | ((uint64)KERNEL_CS << 32);
+    //STAR MSR format:
+    //[63:48] = SYSRET CS/SS base (SS = base+8 CS = base+16 for 64-bit)
+    //[47:32] = SYSCALL CS/SS base (CS = base SS = base+8)
+    uint64 star = ((uint64)SYSRET_BASE << 48) | ((uint64)KERNEL_CS << 32);
     wrmsr(IA32_STAR, star);
     
     wrmsr(IA32_LSTAR, (uint64)&syscall_entry_simple);

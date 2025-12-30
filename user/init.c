@@ -1,18 +1,52 @@
 #include <system.h>
 #include <io.h>
 
-__attribute__((noreturn)) void _start(void) {
-    /* write hello */
+static void print_int(int n) {
+    char buf[16];
+    int i = 0;
+    
+    if (n == 0) {
+        puts("0");
+        return;
+    }
+    
+    char tmp[16];
+    int j = 0;
+    while (n > 0) {
+        tmp[j++] = '0' + (n % 10);
+        n /= 10;
+    }
+    while (j > 0) {
+        buf[i++] = tmp[--j];
+    }
+    buf[i] = '\0';
+    puts(buf);
+}
+
+int main(int argc, char *argv[]) {
     puts("[user] hello from userspace!\n");
 
-    /* getpid (result ignored) */
-    getpid();
+    puts("[user] argc = ");
+    print_int(argc);
+    puts("\n");
 
-    /* write done */
+    for (int a = 0; a < argc; a++) {
+        puts("[user] argv[");
+        print_int(a);
+        puts("] = ");
+        if (argv[a]) {
+            puts(argv[a]);
+        } else {
+            puts("(null)");
+        }
+        puts("\n");
+    }
+    
+    puts("[user] getpid() = ");
+    print_int((int)getpid());
+    puts("\n");
+    
     puts("[user] syscall test complete, exiting\n");
-
-    /* exit(0) */
-    exit(0);
-
-    for(;;) __asm__ volatile("hlt");
+    
+    return 0;
 }

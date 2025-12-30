@@ -1,7 +1,7 @@
-#include <system.h>
+#include <sys/syscall.h>
 #include <string.h>
 
 void puts(const char *str) {
-    unsigned long len = (unsigned long)strlen(str);
-    __syscall(4, (long)str, len, 0, 0, 0, 0);
+    size len = strlen(str);
+    syscall2(SYS_write, (long)str, (long)len);
 }

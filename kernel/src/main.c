@@ -12,6 +12,7 @@
 #include <lib/io.h>
 #include <boot/db.h>
 #include <mm/pmm.h>
+#include <mm/mm.h>
 #include <mm/kheap.h>
 #include <obj/handle.h>
 #include <obj/rights.h>
@@ -84,7 +85,49 @@ static void spawn_init(void) {
     mmu_map_range(proc->pagemap, user_stack_base - stack_size, stack_phys, 
                   stack_size / 4096, MMU_FLAG_WRITE | MMU_FLAG_USER);
     
-    uintptr user_stack_top = user_stack_base;
+    //set up argc/argv on user stack
+    //we need to write to the physical page since user pagemap isn't active
+    //stack layout (growing down):
+    //[argv strings]
+    //[padding for alignment]
+    //[NULL] <- argv terminator
+    //[argv[0] ptr]
+    //[argc] <- RSP points here on entry
+    
+    const char *argv0 = "/initrd/init";
+    size argv0_len = strlen(argv0) + 1;
+    
+    //calculate user stack pointer positions
+    uintptr sp = user_stack_base;
+    
+    //write argv[0] string at top of stack
+    sp -= argv0_len;
+    sp &= ~7ULL;  //align to 8 bytes
+    uintptr argv0_user_addr = sp;
+    
+    //write to physical memory (offset from stack_phys)
+    char *stack_virt = (char *)P2V(stack_phys);
+    size offset_from_base = user_stack_base - stack_size;
+    memcpy(stack_virt + (argv0_user_addr - offset_from_base), argv0, argv0_len);
+    
+    //now push the argv array and argc
+    //need: argc, argv[0], NULL -> 3 * 8 = 24 bytes
+    //for 16-byte alignment before call: (argc + argv_count + 1) should be even
+    //we have argc=1, so 1 + 1 + 1 = 3 pointers, need padding for 16-byte align
+    sp -= 8;  //NULL terminator for argv
+    uint64 *slot = (uint64 *)(stack_virt + (sp - offset_from_base));
+    *slot = 0;
+    
+    sp -= 8;  //argv[0]
+    slot = (uint64 *)(stack_virt + (sp - offset_from_base));
+    *slot = argv0_user_addr;
+    
+    sp -= 8;  //argc
+    slot = (uint64 *)(stack_virt + (sp - offset_from_base));
+    *slot = 1;  //argc = 1
+    
+    uintptr user_stack_top = sp;
+    printf("[init] stack at 0x%lx, argc=1, argv[0]=%s\n", user_stack_top, argv0);
     
     //create user thread
     thread_t *thread = thread_create_user(proc, (void*)info.entry, (void*)user_stack_top);
