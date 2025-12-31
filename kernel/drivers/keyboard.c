@@ -66,12 +66,17 @@ void keyboard_irq(void) {
         else mods |= VT_MOD_ALT;
         return;
     }
-    
-    // ignore key releases for non-modifiers
-    // if (released) return;
-    
+
     //get ASCII (will be extended to codepoint for UTF-8 later)
     char ascii = (mods & VT_MOD_SHIFT) ? scancodes_shift[code] : scancodes_normal[code];
+    
+    //push to keystate bitmap (only for valid ASCII)
+    if (ascii > 0) {
+        keystate[(unsigned char)ascii] = !released;
+    }
+
+    // ignore key releases for non-modifiers
+    if (released) return;
     
     //build VT event
     vt_event_t event = {
@@ -95,11 +100,6 @@ void keyboard_irq(void) {
             in_codes[head] = ascii;
             head = next;
         }
-    }
-
-    //push to keystate bitmap (only for valid ASCII)
-    if (ascii > 0) {
-        keystate[(unsigned char)ascii] = !released;
     }
 }
 
