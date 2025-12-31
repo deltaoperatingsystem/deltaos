@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
 
     if (pid == 1) {
         puts("attempting spawn()...\n");
-        __syscall3(SYS_SPAWN, (long)"/initrd/init", 1, (long)(char*[]){"/initrd/init", NULL});
+        spawn("/initrd/init", 1, (char*[]){"/initrd/init", NULL});
     }
     
     puts("[user] syscall test complete, exiting\n");

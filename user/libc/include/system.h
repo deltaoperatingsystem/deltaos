@@ -7,5 +7,6 @@
 void exit(int code);
 int64 getpid(void);
 void yield(void);
+int spawn(char *path, int argc, char **argv);
 
 #endif
