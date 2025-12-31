@@ -2,6 +2,7 @@
 #define ARCH_AMD64_CPU_H
 
 #include <arch/amd64/types.h>
+#include <arch/amd64/percpu.h>
 
 //kernel stack for ring transitions (wraps TSS RSP0)
 void arch_set_kernel_stack(void *stack_top);

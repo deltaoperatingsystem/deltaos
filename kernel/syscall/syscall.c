@@ -1,4 +1,3 @@
-#include <arch/amd64/percpu.h>
 #include <syscall/syscall.h>
 #include <drivers/serial.h>
 #include <drivers/vt/vt.h>
@@ -7,6 +6,7 @@
 #include <proc/thread.h>
 #include <proc/sched.h>
 #include <obj/handle.h>
+#include <arch/cpu.h>
 #include <mm/pmm.h>
 #include <lib/io.h>
 
