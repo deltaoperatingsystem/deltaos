@@ -2,6 +2,16 @@
 #include <io.h>
 #include <sys/syscall.h>
 
+void shell(void) {
+    int kbd = open("$devices/keyboard", "r");
+    while (true) {
+        char c;
+        if (read(kbd, &c, 1)) {
+            putc(c);
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
     puts("[user] hello from userspace!\n");
 
@@ -13,13 +23,8 @@ int main(int argc, char *argv[]) {
 
     int pid = (int)getpid();
     printf("[user] getpid() = %d\n", pid);
-
-    if (pid == 1) {
-        puts("attempting spawn()...\n");
-        spawn("/initrd/init", 1, (char*[]){"/initrd/init", NULL});
-    }
     
-    puts("[user] syscall test complete, exiting\n");
+    shell();
     
     return 0;
 }

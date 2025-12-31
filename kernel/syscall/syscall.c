@@ -10,41 +10,6 @@
 #include <mm/pmm.h>
 #include <lib/io.h>
 
-static int64 sys_exit(int64 status);
-static int64 sys_getpid(void);
-static int64 sys_yield(void);
-static int64 sys_debug_write(const char *buf, size count);
-static int64 sys_write(const char *buf, size count);
-static int64 sys_spawn(const char *path, int argc, char **argv);
-
-int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
-                       uint64 arg4, uint64 arg5, uint64 arg6) {
-    (void)arg3; (void)arg4; (void)arg5; (void)arg6;
-    
-    switch (num) {
-        case SYS_EXIT:
-            return sys_exit((int64)arg1);
-        
-        case SYS_GETPID:
-            return sys_getpid();
-        
-        case SYS_YIELD:
-            return sys_yield();
-        
-        case SYS_DEBUG_WRITE:
-            return sys_debug_write((const char *)arg1, (size)arg2);
-        
-        case SYS_WRITE:
-            return sys_write((const char *)arg1, (size)arg2);
-
-        case SYS_SPAWN:
-            return sys_spawn((const char *)arg1, (int)arg2, (char **)arg3);
-        
-        default:
-            return -1;
-    }
-}
-
 static int64 sys_exit(int64 status) {
     (void)status;
     thread_exit();
@@ -72,6 +37,9 @@ static int64 sys_debug_write(const char *buf, size count) {
     return (int64)count;
 }
 
+
+
+// TEMPORARY, shhould be replaced by an agnostic write system
 static int64 sys_write(const char *buf, size count) {
     if (!buf) return -1;
     
@@ -134,4 +102,38 @@ static int64 sys_spawn(const char *path, int argc, char **argv) {
 
     // add thread to scheduler
     sched_add(thread);
+}
+
+static int64 sys_open(const char *path, const char *perms) {
+    handle_rights_t rights;
+    while (*perms) {
+        switch (*perms++) {
+            case 'r': rights |= HANDLE_RIGHT_READ; break;
+            case 'w': rights |= HANDLE_RIGHT_WRITE; break;
+            default: break;
+        }
+    }
+    handle_t h = handle_open(path, rights);
+    return h;
+}
+
+static int64 sys_read(handle_t h, void *buffer, int n) {
+    return handle_read(h, buffer, n);
+}
+
+int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
+                       uint64 arg4, uint64 arg5, uint64 arg6) {
+    (void)arg3; (void)arg4; (void)arg5; (void)arg6;
+    
+    switch (num) {
+        case SYS_EXIT: return sys_exit((int64)arg1);
+        case SYS_GETPID: return sys_getpid();
+        case SYS_YIELD: return sys_yield();
+        case SYS_DEBUG_WRITE: return sys_debug_write((const char *)arg1, (size)arg2);
+        case SYS_WRITE: return sys_write((const char *)arg1, (size)arg2);
+        case SYS_SPAWN: return sys_spawn((const char *)arg1, (int)arg2, (char **)arg3);
+        case SYS_OPEN: return sys_open((const char *)arg1, (const char *)arg2);
+        case SYS_READ: return sys_read((handle_t)arg1, (void *)arg2, (int)arg3);
+        default: return -1;
+    }
 }

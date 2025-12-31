@@ -7,6 +7,8 @@
 #define SYS_DEBUG_WRITE     3
 #define SYS_WRITE           4
 #define SYS_SPAWN           5
+#define SYS_OPEN            6
+#define SYS_READ            7
 
 #define SYS_HANDLE_CLOSE    32
 #define SYS_HANDLE_DUP      33

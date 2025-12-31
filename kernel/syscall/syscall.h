@@ -10,6 +10,8 @@
 #define SYS_DEBUG_WRITE     3
 #define SYS_WRITE           4   //write to VT console
 #define SYS_SPAWN           5   // spawns a new process
+#define SYS_OPEN            6   // TEMPORARY!!!
+#define SYS_READ            7   // also TEMP
 
 //capability syscalls
 #define SYS_HANDLE_CLOSE    32
