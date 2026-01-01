@@ -3,6 +3,7 @@
 #include <string.h>
 #include <io.h>
 
+#include <math.h>
 void shell(void) {
     int kbd = open("$devices/keyboard", "r");
     char buffer[128];
@@ -17,6 +18,8 @@ void shell(void) {
                 char *cmd = strtok(buffer, " \t");
                 if (streq(cmd, "help")) {
                     puts("HELP MEEEE!!!\n");
+                } else if (streq(cmd, "test")) {
+                    printf("%f", atan(1.0));
                 }
                 l = 0;
             }
