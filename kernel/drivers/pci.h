@@ -31,18 +31,6 @@ typedef struct pci_device {
     struct pci_device *next;  //linked list
 } pci_device_t;
 
-//ioctl commands for PCI device objects
-#define PCI_IOCTL_GET_INFO     0x01  //get pci_device_t
-#define PCI_IOCTL_CONFIG_READ  0x02  //read config space
-#define PCI_IOCTL_CONFIG_WRITE 0x03  //write config space
-
-//ioctl argument structures
-typedef struct {
-    uint8  offset;
-    uint8  size;    //1, 2 or 4 bytes
-    uint32 value;   //out for read in for write
-} pci_config_arg_t;
-
 //initialize PCI subsystem so enumerate and register devices
 void pci_init(void);
 

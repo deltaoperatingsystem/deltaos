@@ -1,7 +1,6 @@
-#include <sys/syscall.h>
+#include <io.h>
 #include <types.h>
 #include <args.h>
-#include <io.h>
 
 void printf(const char *fmt, ...) {
     va_list args;

@@ -2,6 +2,7 @@
 #include <arch/cpu.h>
 #include <arch/timer.h>
 #include <arch/interrupts.h>
+#include <arch/mmu.h>
 #include <drivers/fb.h>
 #include <drivers/console.h>
 #include <drivers/keyboard.h>
@@ -17,16 +18,14 @@
 #include <obj/handle.h>
 #include <obj/rights.h>
 #include <proc/process.h>
+#include <proc/thread.h>
 #include <proc/sched.h>
 #include <fs/tmpfs.h>
 #include <fs/initrd.h>
-#include <lib/string.h>
-#include <proc/sched.h>
-#include <arch/mmu.h>
 #include <kernel/elf64.h>
 
 extern void arch_enter_usermode(arch_context_t *ctx);
-    extern void percpu_set_kernel_stack(void *stack_top);
+extern void percpu_set_kernel_stack(void *stack_top);
 
 
 //load and execute init from initrd

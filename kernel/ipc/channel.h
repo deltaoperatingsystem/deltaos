@@ -4,6 +4,7 @@
 #include <arch/types.h>
 #include <obj/object.h>
 #include <obj/rights.h>
+#include <proc/wait.h>
 
 /*
  *channels - fuchsia-style (zircon) IPC primitive
@@ -24,10 +25,15 @@ struct channel;
 
 //message structure (for sending/receiving)
 typedef struct channel_msg {
-    void *data; //message data (copied)
-    size data_len; //length of data
-    int32 *handles; //array of handles to transfer
-    uint32 handle_count; //number of handles
+    void *data;              //message data (copied)
+    size data_len;           //length of data
+    int32 *handles;          //array of handles to transfer (for userspace)
+    uint32 handle_count;     //number of handles
+    
+    //kernel-side: raw objects for kernel handlers (not for userspace)
+    struct object **objects; //transferred objects (with +1 ref)
+    handle_rights_t *rights; //rights for each object
+    uint32 object_count;
 } channel_msg_t;
 
 //internal message queue entry
@@ -45,6 +51,10 @@ typedef struct channel_endpoint {
     object_t obj; //kernel object (embedded)
     struct channel *channel; //the channel this belongs to
     int endpoint_id; //0 or 1
+    
+    //kernel-side handler (for driver/service endpoints)
+    void (*handler)(struct channel_endpoint *ep, struct channel_msg *msg, void *ctx);
+    void *handler_ctx;
 } channel_endpoint_t;
 
 //channel (connects two endpoints)
@@ -55,6 +65,9 @@ typedef struct channel {
     channel_msg_entry_t *queue[2]; //head of each queue
     channel_msg_entry_t *queue_tail[2]; //tail for appending
     uint32 queue_len[2]; //current queue length
+    
+    //wait queues (threads waiting for messages on each endpoint)
+    wait_queue_t waiters[2];
     
     //state
     int closed[2]; //1 if endpoint is closed

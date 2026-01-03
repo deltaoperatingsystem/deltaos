@@ -21,8 +21,8 @@ static object_ops_t thread_object_ops = {
     .read = NULL,
     .write = NULL,
     .close = thread_obj_close,
-    .ioctl = NULL,
-    .readdir = NULL
+    .readdir = NULL,
+    .lookup = NULL
 };
 
 //kernel trampoline - enables interrupts before calling thread entry

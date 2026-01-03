@@ -21,6 +21,17 @@ _start:
     /*align stack to 16-byte boundary*/
     and $-16, %rsp
 
+    /*save argc/argv across _io_init call*/
+    push %rsi
+    push %rdi
+
+    /*initialize I/O handles (stdout and stdin)*/
+    call _io_init
+
+    /*restore argc/argv*/
+    pop %rdi
+    pop %rsi
+
     /*call main(argc, argv)*/
     call main
 

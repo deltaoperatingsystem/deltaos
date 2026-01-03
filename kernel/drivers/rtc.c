@@ -72,8 +72,7 @@ static ssize rtc_obj_read(object_t *obj, void *buf, size len, size offset) {
 static object_ops_t rtc_object_ops = {
     .read = rtc_obj_read,
     .write = NULL,
-    .close = NULL,
-    .ioctl = NULL
+    .close = NULL
 };
 
 static object_t *rtc_object = NULL;

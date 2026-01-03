@@ -66,8 +66,7 @@ static ssize serial_obj_write(object_t *obj, const void *buf, size len, size off
 static object_ops_t serial_object_ops = {
     .read = NULL,
     .write = serial_obj_write,
-    .close = NULL,
-    .ioctl = NULL
+    .close = NULL
 };
 
 static object_t *serial_object = NULL;

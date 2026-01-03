@@ -1,5 +1,7 @@
-#include <sys/syscall.h>
+#include <io.h>
+#include <system.h>
 
 void putc(const char c) {
-    __syscall2(SYS_WRITE, (long)&c, 1);
+    if (__stdout == INVALID_HANDLE) return;
+    handle_write(__stdout, &c, 1);
 }

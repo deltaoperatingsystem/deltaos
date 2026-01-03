@@ -38,6 +38,9 @@ typedef struct thread {
     
     //scheduler queue link
     struct thread *sched_next;
+    
+    //wait queue link (for blocking)
+    struct thread *wait_next;
 } thread_t;
 
 //create a thread in a process

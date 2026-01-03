@@ -60,6 +60,9 @@ void sched_add(thread_t *thread) {
     if (!thread) return;
     if (thread == idle_thread) return; //don't add idle to queue
     
+    //save interrupt state and disable - we may be called from IRQ context
+    irq_state_t flags = arch_irq_save();
+    
     thread->sched_next = NULL;
     
     if (!run_queue_tail) {
@@ -71,6 +74,9 @@ void sched_add(thread_t *thread) {
     }
     
     thread->state = THREAD_STATE_READY;
+    
+    //restore interrupt state
+    arch_irq_restore(flags);
 }
 
 void sched_remove(thread_t *thread) {
@@ -148,6 +154,13 @@ static void schedule(void) {
     //set kernel stack for ring 3 -> ring 0 transitions
     void *kernel_stack_top = (char *)next->kernel_stack + next->kernel_stack_size;
     arch_set_kernel_stack(kernel_stack_top);
+    
+    //switch CPU context
+    if (current) {
+        arch_context_switch(&current->context, &next->context);
+    } else {
+        arch_context_load(&next->context);
+    }
 }
 
 void sched_yield(void) {
@@ -192,14 +205,64 @@ void sched_exit(void) {
     for(;;) arch_halt();
 }
 
-void sched_tick(void) {
+//ISR-safe preemption 
+//only updates scheduler state no context swithc
+//the ISR will restore the new thread's context via its normal iretq path
+static void sched_preempt(void) {
+    thread_t *current = thread_current();
+    
+    //only preempt if there's an actual runnable thread in the queue
+    //we can't switch to idle via ISR path because its context wasn't
+    //set up for iretq restoration (it was set up for cooperative switching)
+    if (!run_queue_head) return;  //nothing to preempt to
+    
+    thread_t *next = run_queue_head;
+    
+    //if current thread is still running, move to end of queue
+    if (current && current->state == THREAD_STATE_RUNNING && current != idle_thread) {
+        current->state = THREAD_STATE_READY;
+        sched_remove(current);
+        sched_add(current);
+    }
+    
+    if (next == current) return;  //same thread, nothing to do
+    
+    //update scheduler state - the ISR saved current's context already
+    //and will restore next's context via iretq
+    if (next != idle_thread) {
+        sched_remove(next);
+    }
+    next->state = THREAD_STATE_RUNNING;
+    thread_set_current(next);
+    process_set_current(next->process);
+    
+    //switch address space if needed
+    process_t *next_proc = next->process;
+    process_t *curr_proc = current ? current->process : NULL;
+    
+    if (next_proc && next_proc->pagemap) {
+        mmu_switch((pagemap_t *)next_proc->pagemap);
+    } else if (curr_proc && curr_proc->pagemap) {
+        mmu_switch(mmu_get_kernel_pagemap());
+    }
+    
+    //set kernel stack for ring 3 -> ring 0 transitions
+    void *kernel_stack_top = (char *)next->kernel_stack + next->kernel_stack_size;
+    arch_set_kernel_stack(kernel_stack_top);
+}
+
+void sched_tick(int from_usermode) {
     //reap dead threads
     reap_dead_threads();
     
     tick_count++;
     if (tick_count >= time_slice) {
         tick_count = 0;
-        schedule();
+        //only preempt when interrupted from usermode
+        //kernel-mode preemption is not safe (thread may be in syscall)
+        if (from_usermode) {
+            sched_preempt();  //ISR-safe: only updates state, lets ISR do context switch
+        }
     }
 }
 

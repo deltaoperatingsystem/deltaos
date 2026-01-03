@@ -1,10 +1,14 @@
 //this is an inherently amd64/x86 driver because it relies on port I/O
 
 #include <drivers/pci.h>
+#include <drivers/pci_protocol.h>
 #include <arch/io.h>
 #include <mm/kheap.h>
 #include <obj/object.h>
 #include <obj/namespace.h>
+#include <ipc/channel.h>
+#include <ipc/channel_server.h>
+#include <proc/process.h>
 #include <lib/io.h>
 #include <lib/string.h>
 
@@ -175,41 +179,147 @@ static void pci_probe_bars(pci_device_t *pdev) {
     }
 }
 
-//device object ioctl handler
-static int pci_dev_ioctl(object_t *obj, uint32 cmd, void *arg) {
-    pci_device_t *pdev = (pci_device_t *)obj->data;
-    if (!pdev) return -1;
-    
-    switch (cmd) {
-        case PCI_IOCTL_GET_INFO: {
-            if (!arg) return -1;
-            memcpy(arg, pdev, sizeof(pci_device_t));
-            return 0;
-        }
-        case PCI_IOCTL_CONFIG_READ: {
-            pci_config_arg_t *ca = (pci_config_arg_t *)arg;
-            if (!ca) return -1;
-            ca->value = pci_config_read(pdev->bus, pdev->dev, pdev->func, ca->offset, ca->size);
-            return 0;
-        }
-        case PCI_IOCTL_CONFIG_WRITE: {
-            pci_config_arg_t *ca = (pci_config_arg_t *)arg;
-            if (!ca) return -1;
-            pci_config_write(pdev->bus, pdev->dev, pdev->func, ca->offset, ca->size, ca->value);
-            return 0;
-        }
-        default:
-            return -1;
-    }
-}
-
 static object_ops_t pci_device_ops = {
     .read = NULL,
     .write = NULL,
     .close = NULL,
-    .ioctl = pci_dev_ioctl,
-    .readdir = NULL
+    .readdir = NULL,
+    .lookup = NULL
 };
+
+//PCI channel message handler
+static void pci_channel_handler(channel_endpoint_t *ep, channel_msg_t *msg, void *ctx) {
+    pci_device_t *pdev = (pci_device_t *)ctx;
+    if (!pdev || !msg || !msg->data || msg->data_len < sizeof(pci_msg_hdr_t)) {
+        if (msg->data) kfree(msg->data);
+        return;
+    }
+    
+    pci_msg_hdr_t *hdr = (pci_msg_hdr_t *)msg->data;
+    uint32 txn_id = hdr->txn_id;
+    
+    switch (hdr->type) {
+        case PCI_MSG_GET_INFO: {
+            pci_msg_info_resp_t resp = {0};
+            resp.hdr.type = PCI_MSG_GET_INFO | PCI_MSG_RESPONSE;
+            resp.hdr.txn_id = txn_id;
+            resp.hdr.status = 0;
+            resp.vendor_id = pdev->vendor_id;
+            resp.device_id = pdev->device_id;
+            resp.class_code = pdev->class_code;
+            resp.subclass = pdev->subclass;
+            resp.prog_if = pdev->prog_if;
+            resp.header_type = pdev->header_type;
+            resp.int_line = pdev->int_line;
+            resp.int_pin = pdev->int_pin;
+            resp.bus = pdev->bus;
+            resp.dev = pdev->dev;
+            resp.func = pdev->func;
+            
+            channel_msg_t reply = {
+                .data = &resp,
+                .data_len = sizeof(resp),
+                .handles = NULL,
+                .handle_count = 0
+            };
+            channel_reply(ep, &reply);
+            break;
+        }
+        
+        case PCI_MSG_CONFIG_READ: {
+            if (msg->data_len < sizeof(pci_msg_config_read_req_t)) break;
+            pci_msg_config_read_req_t *req = (pci_msg_config_read_req_t *)msg->data;
+            
+            pci_msg_config_read_resp_t resp = {0};
+            resp.hdr.type = PCI_MSG_CONFIG_READ | PCI_MSG_RESPONSE;
+            resp.hdr.txn_id = txn_id;
+            resp.hdr.status = 0;
+            resp.value = pci_config_read(pdev->bus, pdev->dev, pdev->func, 
+                                         req->offset, req->size);
+            
+            channel_msg_t reply = {
+                .data = &resp,
+                .data_len = sizeof(resp),
+                .handles = NULL,
+                .handle_count = 0
+            };
+            channel_reply(ep, &reply);
+            break;
+        }
+        
+        case PCI_MSG_CONFIG_WRITE: {
+            if (msg->data_len < sizeof(pci_msg_config_write_req_t)) break;
+            pci_msg_config_write_req_t *req = (pci_msg_config_write_req_t *)msg->data;
+            
+            pci_config_write(pdev->bus, pdev->dev, pdev->func,
+                            req->offset, req->size, req->value);
+            
+            pci_msg_hdr_t resp = {
+                .type = PCI_MSG_CONFIG_WRITE | PCI_MSG_RESPONSE,
+                .txn_id = txn_id,
+                .status = 0
+            };
+            
+            channel_msg_t reply = {
+                .data = &resp,
+                .data_len = sizeof(resp),
+                .handles = NULL,
+                .handle_count = 0
+            };
+            channel_reply(ep, &reply);
+            break;
+        }
+        
+        case PCI_MSG_GET_BAR: {
+            if (msg->data_len < sizeof(pci_msg_get_bar_req_t)) break;
+            pci_msg_get_bar_req_t *req = (pci_msg_get_bar_req_t *)msg->data;
+            
+            pci_msg_get_bar_resp_t resp = {0};
+            resp.hdr.type = PCI_MSG_GET_BAR | PCI_MSG_RESPONSE;
+            resp.hdr.txn_id = txn_id;
+            
+            if (req->bar_index < 6) {
+                resp.hdr.status = 0;
+                resp.addr = pdev->bar[req->bar_index].addr;
+                resp.size = pdev->bar[req->bar_index].size;
+                resp.is_io = pdev->bar[req->bar_index].is_io;
+                resp.is_64bit = pdev->bar[req->bar_index].is_64bit;
+            } else {
+                resp.hdr.status = -1;  //invalid BAR index
+            }
+            
+            channel_msg_t reply = {
+                .data = &resp,
+                .data_len = sizeof(resp),
+                .handles = NULL,
+                .handle_count = 0
+            };
+            channel_reply(ep, &reply);
+            break;
+        }
+        
+        default:
+            //unknown message type - send error response
+            {
+                pci_msg_hdr_t resp = {
+                    .type = hdr->type | PCI_MSG_RESPONSE,
+                    .txn_id = txn_id,
+                    .status = -1
+                };
+                channel_msg_t reply = {
+                    .data = &resp,
+                    .data_len = sizeof(resp),
+                    .handles = NULL,
+                    .handle_count = 0
+                };
+                channel_reply(ep, &reply);
+            }
+            break;
+    }
+    
+    //free the request message
+    kfree(msg->data);
+}
 
 //add device to list and register in namespace
 static void pci_register_device(pci_device_t *pdev) {
@@ -218,15 +328,38 @@ static void pci_register_device(pci_device_t *pdev) {
     device_list = pdev;
     device_count++;
     
-//create object and register in namespace
+    //create object and register in namespace
     object_t *obj = object_create(OBJECT_DEVICE, &pci_device_ops, pdev);
     if (obj) {
-        char name[32];
+        char name[48];
         //format: $devices/pci/BB:DD.F
         snprintf(name, sizeof(name), "$devices/pci/%02X:%02X.%X", 
                  pdev->bus, pdev->dev, pdev->func);
         ns_register(name, obj);
         object_deref(obj);  //namespace holds the ref now
+    }
+    
+    //create a channel for this device
+    process_t *kproc = process_get_kernel();
+    if (kproc) {
+        int32 client_ep, server_ep;
+        if (channel_create(kproc, HANDLE_RIGHTS_DEFAULT, &client_ep, &server_ep) == 0) {
+            //get the server endpoint object and register handler
+            channel_endpoint_t *server = channel_get_endpoint(kproc, server_ep);
+            if (server) {
+                channel_set_handler(server, pci_channel_handler, pdev);
+            }
+            
+            //register the client endpoint in namespace
+            object_t *client_obj = process_get_handle(kproc, client_ep);
+            if (client_obj) {
+                char chan_name[48];
+                snprintf(chan_name, sizeof(chan_name), "$devices/pci/%02X:%02X.%X/channel",
+                         pdev->bus, pdev->dev, pdev->func);
+                object_ref(client_obj);  //ns_register doesn't add ref
+                ns_register(chan_name, client_obj);
+            }
+        }
     }
     
     //log discovery

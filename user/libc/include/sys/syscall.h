@@ -5,16 +5,16 @@
 #define SYS_GETPID          1
 #define SYS_YIELD           2
 #define SYS_DEBUG_WRITE     3
-#define SYS_WRITE           4
-#define SYS_SPAWN           5
-#define SYS_OPEN            6
-#define SYS_READ            7
+#define SYS_SPAWN           4
+#define SYS_GET_OBJ         5
+#define SYS_HANDLE_READ     6
+#define SYS_HANDLE_WRITE    7
 
 #define SYS_HANDLE_CLOSE    32
 #define SYS_HANDLE_DUP      33
 #define SYS_CHANNEL_CREATE  34
-#define SYS_CHANNEL_READ    35
-#define SYS_CHANNEL_WRITE   36
+#define SYS_CHANNEL_SEND    35
+#define SYS_CHANNEL_RECV    36
 #define SYS_VMO_CREATE      37
 #define SYS_VMO_READ        38
 #define SYS_VMO_WRITE       39

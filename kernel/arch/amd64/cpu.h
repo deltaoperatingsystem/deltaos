@@ -44,4 +44,17 @@ static inline uint64 arch_rdtsc(void) {
     return ((uint64)hi << 32) | lo;
 }
 
+//interrupt state save/restore (for nested critical sections)
+typedef uint64 irq_state_t;
+
+static inline irq_state_t arch_irq_save(void) {
+    irq_state_t flags;
+    __asm__ volatile ("pushfq; pop %0; cli" : "=r"(flags) :: "memory");
+    return flags;
+}
+
+static inline void arch_irq_restore(irq_state_t flags) {
+    __asm__ volatile ("push %0; popfq" :: "r"(flags) : "memory");
+}
+
 #endif

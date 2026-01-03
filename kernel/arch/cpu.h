@@ -30,6 +30,11 @@
  * arch_rmb() - read memory barrier
  * arch_wmb() - write memory barrier
  *
+ * interrupt state (for nested critical sections):
+ *
+ * irq_state_t arch_irq_save() - disable interrupts and return previous state
+ * arch_irq_restore(irq_state_t) - restore interrupt state
+ *
  * optional (arch-specific):
  *
  * arch_rdtsc() - read time-stamp counter (x86/amd64)
