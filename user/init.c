@@ -1,28 +1,67 @@
-#include <sys/syscall.h>
 #include <system.h>
-#include <string.h>
 #include <io.h>
+#include <string.h>
 
-#include <math.h>
+//keyboard event structure (matches kernel kbd_event_t)
+typedef struct {
+    uint8  keycode;
+    uint8  mods;
+    uint8  pressed;
+    uint8  _pad;
+    uint32 codepoint;
+} kbd_event_t;
+
+static int32 kbd_channel = INVALID_HANDLE;
+
 void shell(void) {
-    int kbd = open("$devices/keyboard", "r");
+    //open keyboard channel
+    kbd_channel = get_obj(INVALID_HANDLE, "$devices/keyboard/channel", RIGHT_READ | RIGHT_WRITE);
+    if (kbd_channel == INVALID_HANDLE) {
+        puts("[shell] failed to get keyboard channel\n");
+        return;
+    }
+    
+    puts("[shell] ready. Type something:\n");
+    
     char buffer[128];
-    size l = 0;
+    int l = 0;
+    
     while (true) {
-        char c;
-        if (read(kbd, &c, 1)) {
-            buffer[l++] = c;
-            putc(c);
-            if (c == '\n') {
-                buffer[l] = '\0';
-                char *cmd = strtok(buffer, " \t");
+        //blocking recv - waits until key is pressed
+        kbd_event_t event;
+        int len = channel_recv(kbd_channel, &event, sizeof(event));
+        
+        if (len <= 0) {
+            yield();  //fallback if recv fails
+            continue;
+        }
+        
+        char c = (char)event.codepoint;
+        if (c == 0) continue;  //non-printable
+        
+        putc(c);
+        buffer[l++] = c;
+        
+        if (c == '\n' || l >= 126) {
+            buffer[l] = '\0';
+            char *cmd = strtok(buffer, " \t\n");
+            if (cmd) {
                 if (streq(cmd, "help")) {
-                    puts("HELP MEEEE!!!\n");
-                } else if (streq(cmd, "test")) {
-                    printf("%f", atan(1.0));
+                    puts("Available commands: help, echo, exit\n");
+                } else if (streq(cmd, "echo")) {
+                    char *arg = strtok(0, "\n");
+                    if (arg) puts(arg);
+                    puts("\n");
+                } else if (streq(cmd, "exit")) {
+                    puts("Goodbye!\n");
+                    exit(0);
+                } else {
+                    puts("Unknown command: ");
+                    puts(cmd);
+                    puts("\n");
                 }
-                l = 0;
             }
+            l = 0;
         }
     }
 }

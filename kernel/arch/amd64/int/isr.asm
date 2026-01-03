@@ -90,6 +90,13 @@ common_stub:
     swapgs ;switch from user GS to kernel GS
 .skip_swapgs_in:
     
+    ;only save to thread context if we came from usermode
+    ;if interrupted in kernel (e.x during syscall) don't touch thread->context
+    ;this prevents clobbering the usermode context that syscall needs to return to
+    mov rax, [rsp + 144] ;get CS again
+    and rax, 3
+    jz .skip_save  ;kernel mode - don't save to thread context
+    
     ;get current thread to save context to
     call thread_current
     test rax, rax
@@ -149,10 +156,16 @@ common_stub:
     mov rdx, [rsp + 136] ;RIP
     call interrupt_handler
     
-    ;get (POSSSIBLYYY new) current thread to restore from
+    ;check if we came from kernel mode - if so, skip restore from context
+    ;the stack's CS tells us where we ACTUALLY came from and we must return there
+    mov rax, [rsp + 144] ;get original CS from stack's iret frame
+    and rax, 3
+    jz .restore_from_stack  ;kernel mode - use stack-based restore
+    
+    ;get (POSSIBLY new) current thread to restore from
     call thread_current
     test rax, rax
-    jz .restore_from_stack  ;no thread\ restore from stack as-is
+    jz .restore_from_stack  ;no thread - restore from stack as-is
     
     lea rbx, [rax + THREAD_CTX_OFFSET]
     

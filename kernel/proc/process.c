@@ -21,8 +21,8 @@ static object_ops_t process_object_ops = {
     .read = NULL,
     .write = NULL,
     .close = process_obj_close,
-    .ioctl = NULL,
-    .readdir = NULL
+    .readdir = NULL,
+    .lookup = NULL
 };
 
 process_t *process_create(const char *name) {

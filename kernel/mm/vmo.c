@@ -47,8 +47,8 @@ static object_ops_t vmo_ops = {
     .read = vmo_obj_read,
     .write = vmo_obj_write,
     .close = vmo_obj_close,
-    .ioctl = NULL,
-    .readdir = NULL
+    .readdir = NULL,
+    .lookup = NULL
 };
 
 int32 vmo_create(process_t *proc, size size, uint32 flags, handle_rights_t rights) {

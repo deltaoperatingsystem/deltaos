@@ -54,6 +54,7 @@ run_qemu() {
         -drive "file=$DISK_IMG,format=raw"
         -net none
         -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0
+	-enable-kvm
     )
 
     #handle writable variables if available

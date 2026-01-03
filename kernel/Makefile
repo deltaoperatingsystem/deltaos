@@ -8,8 +8,8 @@ LD := ld
 
 CFLAGS := -Ilib -I. -DARCH_$(shell echo $(ARCH) | tr a-z A-Z) -std=c11 -ffreestanding -fno-stack-protector -fno-pic -m64 -mcmodel=kernel \
           -mno-red-zone \
+          -mgeneral-regs-only \
           -Wall -Wextra -O2 -g
-#		  -mno-sse -mno-sse2 -mno-mmx 
 
 NASMFLAGS := -f elf64 -g
 

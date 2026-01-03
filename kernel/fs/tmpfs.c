@@ -172,8 +172,8 @@ static object_ops_t tmpfs_file_ops = {
     .read = tmpfs_file_read,
     .write = tmpfs_file_write,
     .close = NULL,
-    .ioctl = NULL,
-    .readdir = NULL
+    .readdir = NULL,
+    .lookup = NULL
 };
 
 //directory object readdir
@@ -195,12 +195,32 @@ static int tmpfs_dir_readdir(object_t *obj, void *buf, uint32 count, uint32 *ind
     return filled;
 }
 
+//forward declaration for recursive reference
+static object_ops_t tmpfs_dir_ops;
+
+//directory lookup - find child by name
+static object_t *tmpfs_dir_lookup(object_t *obj, const char *name) {
+    tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
+    if (!node || node->type != FS_TYPE_DIR) return NULL;
+    
+    tmpfs_node_t *child = find_child(node, name);
+    if (!child) return NULL;
+    
+    //create object for the child
+    if (child->type == FS_TYPE_FILE) {
+        return object_create(OBJECT_FILE, &tmpfs_file_ops, child);
+    } else if (child->type == FS_TYPE_DIR) {
+        return object_create(OBJECT_DIR, &tmpfs_dir_ops, child);
+    }
+    return NULL;
+}
+
 static object_ops_t tmpfs_dir_ops = {
     .read = NULL,
     .write = NULL,
     .close = NULL,
-    .ioctl = NULL,
-    .readdir = tmpfs_dir_readdir
+    .readdir = tmpfs_dir_readdir,
+    .lookup = tmpfs_dir_lookup
 };
 
 //filesystem ops
@@ -327,7 +347,8 @@ static object_ops_t tmpfs_root_ops = {
     .read = tmpfs_root_read,
     .write = NULL,
     .close = NULL,
-    .ioctl = NULL
+    .readdir = NULL,
+    .lookup = NULL
 };
 
 static object_t *tmpfs_root_obj = NULL;

@@ -8,22 +8,29 @@
 #define SYS_GETPID          1
 #define SYS_YIELD           2
 #define SYS_DEBUG_WRITE     3
-#define SYS_WRITE           4   //write to VT console
-#define SYS_SPAWN           5   // spawns a new process
-#define SYS_OPEN            6   // TEMPORARY!!!
-#define SYS_READ            7   // also TEMP
+#define SYS_SPAWN           4   //spawns a new process
+#define SYS_GET_OBJ         5   //get object from namespace
+#define SYS_HANDLE_READ     6   //read from handle
+#define SYS_HANDLE_WRITE    7   //write to handle
 
 //capability syscalls
 #define SYS_HANDLE_CLOSE    32
 #define SYS_HANDLE_DUP      33
 #define SYS_CHANNEL_CREATE  34
-#define SYS_CHANNEL_READ    35
-#define SYS_CHANNEL_WRITE   36
+#define SYS_CHANNEL_SEND    35
+#define SYS_CHANNEL_RECV    36
 #define SYS_VMO_CREATE      37
 #define SYS_VMO_READ        38
 #define SYS_VMO_WRITE       39
+#define SYS_CHANNEL_RECV_MSG 40  //receive with handles
 
 #define SYS_MAX             64
+
+//result struct for channel_recv_msg
+typedef struct {
+    size data_len;       //actual bytes of data received
+    uint32 handle_count; //number of handles received
+} channel_recv_result_t;
 
 int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
                        uint64 arg4, uint64 arg5, uint64 arg6);

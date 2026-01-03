@@ -30,8 +30,7 @@ static ssize console_obj_write(object_t *obj, const void *buf, size len, size of
 static object_ops_t console_object_ops = {
     .read = NULL,
     .write = console_obj_write,
-    .close = NULL,
-    .ioctl = NULL
+    .close = NULL
 };
 
 static object_t *console_object = NULL;

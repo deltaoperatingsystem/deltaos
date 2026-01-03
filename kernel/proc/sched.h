@@ -16,7 +16,7 @@ void sched_remove(thread_t *thread);
 void sched_yield(void);
 
 //called from timer interrupt for preemptive scheduling
-void sched_tick(void);
+void sched_tick(int from_usermode);
 
 //start the scheduler (never returns - idle thread runs when no work)
 void sched_start(void);

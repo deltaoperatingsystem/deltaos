@@ -112,14 +112,14 @@ static ssize vt_obj_write(object_t *obj, const void *buf, size len, size offset)
     (void)offset;
     vt_t *vt = (vt_t *)obj->data;
     vt_write(vt, buf, len);
+    vt_flush(vt);  //flush to screen immediately
     return len;
 }
 
 static object_ops_t vt_object_ops = {
     .read = vt_obj_read,
     .write = vt_obj_write,
-    .close = NULL,
-    .ioctl = NULL
+    .close = NULL
 };
 
 void vt_init(void) {

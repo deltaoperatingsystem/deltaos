@@ -1,11 +1,16 @@
 #include <arch/types.h>
 #include <arch/io.h>
-#include <arch/timer.h>
 #include <arch/interrupts.h>
 #include <arch/cpu.h>
 #include <obj/object.h>
 #include <obj/namespace.h>
-#include <drivers/vt/vt.h>
+#include <obj/rights.h>
+#include <ipc/channel.h>
+#include <proc/process.h>
+#include <proc/wait.h>
+#include <mm/kheap.h>
+#include <lib/string.h>
+#include <drivers/keyboard_protocol.h>
 
 #define KBD_STATUS      0x64
 #define KBD_SC          0x60
@@ -34,13 +39,56 @@ static const char scancodes_shift[128] = {
     'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', 0, '*', 0, ' ', 0,
 };
 
-//legacy buffer for get_key() compatibility
-static char in_codes[256];
-static volatile uint8 head = 0;
-static volatile uint8 tail = 0;
+//channel endpoint for pushing events
+static channel_endpoint_t *kbd_channel_ep = NULL;
 
-// keystate bitmap
-static bool keystate[128] = {0};
+//push event to channel
+static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
+    if (!kbd_channel_ep) return;
+    
+    //allocate event on heap (channel takes ownership)
+    kbd_event_t *event = kmalloc(sizeof(kbd_event_t));
+    if (!event) return;
+    
+    event->keycode = keycode;
+    event->mods = mods;
+    event->pressed = pressed;
+    event->_pad = 0;
+    event->codepoint = codepoint;
+    
+    //send to channel (non-blocking - if queue ful event is lost)
+    channel_t *ch = kbd_channel_ep->channel;
+    int peer_id = 1 - kbd_channel_ep->endpoint_id;
+    
+    //check if queue has space
+    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
+        kfree(event);  //queue full so drop event
+        return;
+    }
+    
+    //allocate queue entry
+    channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
+    if (!entry) {
+        kfree(event);
+        return;
+    }
+    
+    entry->data = event;
+    entry->data_len = sizeof(kbd_event_t);
+    entry->next = NULL;
+    
+    //enqueue
+    if (ch->queue_tail[peer_id]) {
+        ch->queue_tail[peer_id]->next = entry;
+    } else {
+        ch->queue[peer_id] = entry;
+    }
+    ch->queue_tail[peer_id] = entry;
+    ch->queue_len[peer_id]++;
+    
+    //wake any thread waiting for a message
+    thread_wake_one(&ch->waiters[peer_id]);
+}
 
 void keyboard_irq(void) {
     uint8 status = inb(KBD_STATUS);
@@ -52,94 +100,32 @@ void keyboard_irq(void) {
     
     //update modifiers
     if (code == SC_SHIFT_L || code == SC_SHIFT_R) {
-        if (released) mods &= ~VT_MOD_SHIFT;
-        else mods |= VT_MOD_SHIFT;
+        if (released) mods &= ~KBD_MOD_SHIFT;
+        else mods |= KBD_MOD_SHIFT;
         return;
     }
     if (code == SC_CTRL) {
-        if (released) mods &= ~VT_MOD_CTRL;
-        else mods |= VT_MOD_CTRL;
+        if (released) mods &= ~KBD_MOD_CTRL;
+        else mods |= KBD_MOD_CTRL;
         return;
     }
     if (code == SC_ALT) {
-        if (released) mods &= ~VT_MOD_ALT;
-        else mods |= VT_MOD_ALT;
+        if (released) mods &= ~KBD_MOD_ALT;
+        else mods |= KBD_MOD_ALT;
         return;
     }
 
-    //get ASCII (will be extended to codepoint for UTF-8 later)
-    char ascii = (mods & VT_MOD_SHIFT) ? scancodes_shift[code] : scancodes_normal[code];
+    //get ASCII
+    char ascii = (mods & KBD_MOD_SHIFT) ? scancodes_shift[code] : scancodes_normal[code];
     
-    //push to keystate bitmap (only for valid ASCII)
-    if (ascii > 0) {
-        keystate[(unsigned char)ascii] = !released;
-    }
-
-    // ignore key releases for non-modifiers
+    //ignore key releases for non-modifiers (only send press events)
     if (released) return;
     
-    //build VT event
-    vt_event_t event = {
-        .type = VT_EVENT_KEY,
-        .mods = mods,
-        .keycode = code,
-        .codepoint = (uint32)ascii,  //ASCII is valid unicode codepoint for 0-127
-        .pressed = !released
-    };
-    
-    //push to active VT
-    vt_t *vt = vt_get_active();
-    if (vt) {
-        vt_push_event(vt, &event);
-    }
-    
-    //also push to legacy buffer for get_key() compat
+    //push to channel (for userspace/consumers)
     if (ascii) {
-        uint8 next = (head + 1) % 256;
-        if (next != tail) {
-            in_codes[head] = ascii;
-            head = next;
-        }
+        kbd_push_event(code, 1, (uint32)(unsigned char)ascii);
     }
 }
-
-bool get_key(char *c) {
-    if (head == tail) return false;
-    *c = in_codes[tail];
-    tail = (tail + 1) % 256;
-    return true;
-}
-
-bool get_keystate(char c) {
-    return keystate[(unsigned char)c];
-}
-
-void keyboard_wait(void) {
-    while (head == tail) arch_halt();
-}
-
-//object ops for keyboard - read returns buffered keys
-static ssize keyboard_obj_read(object_t *obj, void *buf, size len, size offset) {
-    (void)obj;
-    (void)offset;
-    
-    char *out = buf;
-    size count = 0;
-    while (count < len && head != tail) {
-        out[count++] = in_codes[tail];
-        tail = (tail + 1) % 256;
-    }
-    return (ssize)count;  //0 if no keys available
-}
-
-static object_ops_t keyboard_object_ops = {
-    .read = keyboard_obj_read,
-    .write = NULL,
-    .close = NULL,
-    .ioctl = NULL
-};
-
-static object_t *keyboard_object = NULL;
 
 void keyboard_init(void) {
     //flush any pending scancodes
@@ -149,8 +135,20 @@ void keyboard_init(void) {
     
     pic_clear_mask(0x1);
     
-    keyboard_object = object_create(OBJECT_DEVICE, &keyboard_object_ops, NULL);
-    if (keyboard_object) {
-        ns_register("$devices/keyboard", keyboard_object);
+    //create channel for keyboard events
+    process_t *kproc = process_get_kernel();
+    if (kproc) {
+        int32 client_ep, server_ep;
+        if (channel_create(kproc, HANDLE_RIGHTS_DEFAULT, &client_ep, &server_ep) == 0) {
+            //server endpoint is where we push events FROM
+            kbd_channel_ep = channel_get_endpoint(kproc, server_ep);
+            
+            //client endpoint is what userspace opens to receive events
+            object_t *client_obj = process_get_handle(kproc, client_ep);
+            if (client_obj) {
+                object_ref(client_obj);
+                ns_register("$devices/keyboard/channel", client_obj);
+            }
+        }
     }
 }
