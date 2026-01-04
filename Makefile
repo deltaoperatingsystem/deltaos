@@ -23,6 +23,7 @@ initrd: tools user
 clean:
 	@$(MAKE) --no-print-directory -C kernel clean
 	@$(MAKE) --no-print-directory -C bootloader clean
+	@$(MAKE) --no-print-directory -C user clean
 	@$(MAKE) --no-print-directory -C tools/darc clean
 	@rm -f initrd.da
 

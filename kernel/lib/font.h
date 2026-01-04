@@ -1,7 +1,7 @@
 #ifndef _FONT_H
 #define _FONT_H
 
-#include <arch/types.h>
+typedef unsigned char uint8;
 
 //8x16 font (ASCII glyphs)
 //each char is 16 bytes (16 rows, 8 bits each)
