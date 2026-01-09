@@ -27,6 +27,11 @@ int handle_read(int32 h, void *buf, int len);
 int handle_write(int32 h, const void *buf, int len);
 int handle_close(int32 h);
 
+#define HANDLE_SEEK_SET     0
+#define HANDLE_SEEK_OFF     1
+#define HANDLE_SEEK_END     2
+int handle_seek(int32 h, size offset, int mode);
+
 //channel IPC
 int channel_create(int32 *ep0, int32 *ep1);
 int channel_send(int32 ep, const void *data, int len);

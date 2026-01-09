@@ -3,6 +3,8 @@
 #include <lib/io.h>
 #include <mm/mm.h>
 #include <mm/kheap.h>
+#include <obj/object.h>
+#include <obj/namespace.h>
 
 static uint32 *framebuffer = NULL;  //VRAM (slow, uncached)
 static uint32 *backbuffer = NULL;   //RAM (fast, cached)
@@ -10,6 +12,37 @@ static uint32 fb_w = 0;
 static uint32 fb_h = 0;
 static uint32 fb_pitch = 0;
 static size fb_size = 0;
+
+static ssize fb_obj_read(object_t *obj, void *buf, size len, size offset) {
+    (void)obj;
+
+    size i;
+    for (i = 0; i < len; i++) {
+        ((uint32*)buf)[i] = framebuffer[i + offset];
+    }
+
+    return i;
+}
+
+static ssize fb_obj_write(object_t *obj, const void *buf, size len, size offset) {
+    (void)obj;
+
+    size i;
+    for (i = 0; i < len; i++) {
+        backbuffer[i + offset] = ((uint32*)buf)[i];
+    }
+
+    if (offset == 0) fb_flip(); // TODO: "dirty rectangles" tracking (only flip modified regions)
+
+    return i;
+}
+
+static object_ops_t fb_object_ops = {
+    .read = fb_obj_read,
+    .write = fb_obj_write
+};
+
+static object_t *fb_object = NULL;
 
 void fb_init(void) {
     struct db_tag_framebuffer *fb = db_get_framebuffer();
@@ -24,6 +57,9 @@ void fb_init(void) {
     fb_h = fb->height;
     fb_pitch = fb->pitch;
     fb_size = fb_h * fb_pitch;
+
+    fb_object = object_create(OBJECT_DEVICE, &fb_object_ops, NULL);
+    if (fb_object) ns_register("$devices/fb", fb_object);
     
     printf("[fb] initialised: %dx%d@0x%X\n", fb_w, fb_h, fb->address);
 }

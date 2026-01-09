@@ -12,6 +12,7 @@
 #define SYS_GET_OBJ         5   //get object from namespace
 #define SYS_HANDLE_READ     6   //read from handle
 #define SYS_HANDLE_WRITE    7   //write to handle
+#define SYS_HANDLE_SEEK     8   //seek to an offset in a handle
 
 //capability syscalls
 #define SYS_HANDLE_CLOSE    32

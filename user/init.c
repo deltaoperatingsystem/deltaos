@@ -25,7 +25,8 @@ void shell(void) {
     
     char buffer[128];
     int l = 0;
-    
+
+    puts("> ");
     while (true) {
         //blocking recv - waits until key is pressed
         kbd_event_t event;
@@ -62,6 +63,7 @@ void shell(void) {
                 }
             }
             l = 0;
+            puts("> ");
         }
     }
 }

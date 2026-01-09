@@ -152,6 +152,9 @@ static int64 sys_handle_write(handle_t h, const void *buf, size len) {
     return handle_write(h, buf, len);
 }
 
+static int64 sys_handle_seek(handle_t h, size offset, int mode) {
+    return handle_seek(h, offset, mode);
+}
 
 //close a handle
 static int64 sys_handle_close(handle_t h) {
@@ -292,6 +295,7 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
         case SYS_GET_OBJ: return sys_get_obj((handle_t)arg1, (const char *)arg2, (handle_rights_t)arg3);
         case SYS_HANDLE_READ: return sys_handle_read((handle_t)arg1, (void *)arg2, (size)arg3);
         case SYS_HANDLE_WRITE: return sys_handle_write((handle_t)arg1, (const void *)arg2, (size)arg3);
+        case SYS_HANDLE_SEEK: return sys_handle_seek((handle_t)arg1, (size)arg2, (int)arg3);
         case SYS_HANDLE_CLOSE: return sys_handle_close((handle_t)arg1);
         case SYS_CHANNEL_CREATE: return sys_channel_create((int32 *)arg1, (int32 *)arg2);
         case SYS_CHANNEL_SEND: return sys_channel_send((handle_t)arg1, (const void *)arg2, (size)arg3);
