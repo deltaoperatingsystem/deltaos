@@ -9,6 +9,7 @@
 #define SYS_GET_OBJ         5
 #define SYS_HANDLE_READ     6
 #define SYS_HANDLE_WRITE    7
+#define SYS_HANDLE_SEEK     8
 
 #define SYS_HANDLE_CLOSE    32
 #define SYS_HANDLE_DUP      33

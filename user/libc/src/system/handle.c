@@ -18,3 +18,7 @@ int handle_read(int32 h, void *buf, int len) {
 int handle_write(int32 h, const void *buf, int len) {
     return __syscall3(SYS_HANDLE_WRITE, (long)h, (long)buf, (long)len);
 }
+
+int handle_seek(int32 h, size offset, int mode) {
+    return __syscall3(SYS_HANDLE_SEEK, (long)h, (long)offset, (long)mode);
+}
