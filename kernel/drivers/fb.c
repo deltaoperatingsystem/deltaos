@@ -15,26 +15,31 @@ static size fb_size = 0;
 
 static ssize fb_obj_read(object_t *obj, void *buf, size len, size offset) {
     (void)obj;
-
-    size i;
-    for (i = 0; i < len; i++) {
-        ((uint32*)buf)[i] = framebuffer[i + offset];
-    }
-
-    return i;
+    
+    //bounds check
+    if (offset >= fb_size) return 0;
+    if (offset + len > fb_size) len = fb_size - offset;
+    
+    //read from frontbuffer (VRAM)
+    memcpy(buf, (uint8*)framebuffer + offset, len);
+    return len;
 }
 
 static ssize fb_obj_write(object_t *obj, const void *buf, size len, size offset) {
     (void)obj;
-
-    size i;
-    for (i = 0; i < len; i++) {
-        backbuffer[i + offset] = ((uint32*)buf)[i];
-    }
-
-    if (offset == 0) fb_flip(); // TODO: "dirty rectangles" tracking (only flip modified regions)
-
-    return i;
+    
+    //bounds check
+    if (offset >= fb_size) return 0;
+    if (offset + len > fb_size) len = fb_size - offset;
+    
+    //write to backbuffer
+    uint8 *target = backbuffer ? (uint8*)backbuffer : (uint8*)framebuffer;
+    memcpy(target + offset, buf, len);
+    
+    //auto-flip when writing from start (full frame write)
+    if (offset == 0 && backbuffer) fb_flip();
+    
+    return len;
 }
 
 static object_ops_t fb_object_ops = {
