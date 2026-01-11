@@ -26,6 +26,7 @@ int32 get_obj(int32 parent, const char *path, uint32 rights);
 int handle_read(int32 h, void *buf, int len);
 int handle_write(int32 h, const void *buf, int len);
 int handle_close(int32 h);
+int32 handle_dup(int32 h, uint32 new_rights);
 
 #define HANDLE_SEEK_SET     0
 #define HANDLE_SEEK_OFF     1
@@ -36,5 +37,12 @@ int handle_seek(int32 h, size offset, int mode);
 int channel_create(int32 *ep0, int32 *ep1);
 int channel_send(int32 ep, const void *data, int len);
 int channel_recv(int32 ep, void *buf, int buflen);
+
+//virtual memory objects
+int32 vmo_create(uint64 size, uint32 flags, uint32 rights);
+int vmo_read(int32 h, void *buf, uint64 len, uint64 offset);
+int vmo_write(int32 h, const void *buf, uint64 len, uint64 offset);
+void *vmo_map(int32 h, void *vaddr_hint, uint64 offset, uint64 len, uint32 flags);
+int vmo_unmap(void *vaddr, uint64 len);
 
 #endif

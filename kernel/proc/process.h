@@ -132,6 +132,29 @@ proc_vma_t *process_vma_find(process_t *proc, uintptr addr);
 uintptr process_setup_user_stack(uintptr stack_phys, uintptr stack_base,
                                   size stack_size, int argc, char *argv[]);
 
+//aux vector entry types (for dynamic linker)
+#define AT_NULL     0   //end of aux vector
+#define AT_PHDR     3   //program headers address
+#define AT_PHENT    4   //size of program header entry
+#define AT_PHNUM    5   //number of program headers
+#define AT_PAGESZ   6   //system page size
+#define AT_BASE     7   //interpreter base address
+#define AT_ENTRY    9   //program entry point
+#define AT_RANDOM   25  //address of random bytes
+
+//aux vector entry
+typedef struct {
+    uint64 a_type;
+    uint64 a_val;
+} auxv_entry_t;
+
+//setup user stack with argc/argv and aux vector (for dynamic executables)
+//interp_base: where interpreter was loaded (0 if no interpreter)
+uintptr process_setup_user_stack_dynamic(uintptr stack_phys, uintptr stack_base,
+                                          size stack_size, int argc, char *argv[],
+                                          uint64 phdr_addr, uint16 phdr_count, uint16 phdr_size,
+                                          uint64 entry_point, uint64 interp_base);
+
 #endif
 
 

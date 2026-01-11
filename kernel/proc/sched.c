@@ -292,6 +292,20 @@ void sched_start(void) {
     //check if this is a usermode thread (cs has RPL=3)
     if ((first->context.cs & 3) == 3) {
         //enter usermode for the first time
+        printf("[sched] entering usermode: rip=0x%lX, rsp=0x%lX\n", 
+               first->context.rip, first->context.rsp);
+        printf("[sched] pagemap=0x%lX, cs=0x%lX, ss=0x%lX\n",
+               first->process->pagemap ? ((pagemap_t*)first->process->pagemap)->top_level : 0,
+               first->context.cs, first->context.ss);
+        
+        //verify the entry point is mapped
+        uintptr phys = mmu_virt_to_phys((pagemap_t*)first->process->pagemap, first->context.rip);
+        printf("[sched] virt 0x%lX -> phys 0x%lX\n", first->context.rip, phys);
+        
+        //verify stack is mapped
+        uintptr stack_phys = mmu_virt_to_phys((pagemap_t*)first->process->pagemap, first->context.rsp);
+        printf("[sched] stack 0x%lX -> phys 0x%lX\n", first->context.rsp, stack_phys);
+        
         arch_enter_usermode(&first->context);
     } else {
         //kernel thread so just jump to entry point

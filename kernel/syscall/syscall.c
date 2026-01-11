@@ -6,6 +6,7 @@
 #include <proc/sched.h>
 #include <obj/handle.h>
 #include <ipc/channel.h>
+#include <mm/vmo.h>
 #include <arch/cpu.h>
 #include <mm/pmm.h>
 #include <mm/kheap.h>
@@ -163,6 +164,59 @@ static int64 sys_handle_close(handle_t h) {
     return process_close_handle(proc, h);
 }
 
+//duplicate a handle with same or reduced rights
+static int64 sys_handle_dup(handle_t h, handle_rights_t new_rights) {
+    process_t *proc = process_current();
+    if (!proc) return -1;
+    return process_duplicate_handle(proc, h, new_rights);
+}
+
+//create a virtual memory object
+static int64 sys_vmo_create(size size, uint32 flags, handle_rights_t rights) {
+    if (size == 0) return -1;
+    process_t *proc = process_current();
+    if (!proc) return -1;
+    return vmo_create(proc, size, flags, rights);
+}
+
+//read from a VMO
+static int64 sys_vmo_read(handle_t h, void *buf, size len, size offset) {
+    if (!buf || len == 0) return -1;
+    process_t *proc = process_current();
+    if (!proc) return -1;
+    return vmo_read(proc, h, buf, len, offset);
+}
+
+//write to a VMO
+static int64 sys_vmo_write(handle_t h, const void *buf, size len, size offset) {
+    if (!buf || len == 0) return -1;
+    process_t *proc = process_current();
+    if (!proc) return -1;
+    return vmo_write(proc, h, buf, len, offset);
+}
+
+//map a VMO into the process address space
+//returns mapped virtual address or 0 on failure
+static int64 sys_vmo_map(handle_t h, uintptr vaddr_hint, size offset, size len, uint32 flags) {
+    process_t *proc = process_current();
+    if (!proc) return 0;
+    
+    //convert flags to rights (rn flags just indicate read/write intent)
+    handle_rights_t map_rights = 0;
+    if (flags & 1) map_rights |= HANDLE_RIGHT_READ;
+    if (flags & 2) map_rights |= HANDLE_RIGHT_WRITE;
+    if (flags & 4) map_rights |= HANDLE_RIGHT_EXECUTE;
+    
+    void *result = vmo_map(proc, h, (void *)vaddr_hint, offset, len, map_rights);
+    return (int64)(uintptr)result;
+}
+
+//unmap memory from process address space
+static int64 sys_vmo_unmap(uintptr vaddr, size len) {
+    process_t *proc = process_current();
+    if (!proc) return -1;
+    return vmo_unmap(proc, (void *)vaddr, len);
+}
 
 //create a channel pair
 //returns two endpoint handles in ep0_out and ep1_out
@@ -297,12 +351,18 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
         case SYS_HANDLE_WRITE: return sys_handle_write((handle_t)arg1, (const void *)arg2, (size)arg3);
         case SYS_HANDLE_SEEK: return sys_handle_seek((handle_t)arg1, (size)arg2, (int)arg3);
         case SYS_HANDLE_CLOSE: return sys_handle_close((handle_t)arg1);
+        case SYS_HANDLE_DUP: return sys_handle_dup((handle_t)arg1, (handle_rights_t)arg2);
         case SYS_CHANNEL_CREATE: return sys_channel_create((int32 *)arg1, (int32 *)arg2);
         case SYS_CHANNEL_SEND: return sys_channel_send((handle_t)arg1, (const void *)arg2, (size)arg3);
         case SYS_CHANNEL_RECV: return sys_channel_recv((handle_t)arg1, (void *)arg2, (size)arg3);
+        case SYS_VMO_CREATE: return sys_vmo_create((size)arg1, (uint32)arg2, (handle_rights_t)arg3);
+        case SYS_VMO_READ: return sys_vmo_read((handle_t)arg1, (void *)arg2, (size)arg3, (size)arg4);
+        case SYS_VMO_WRITE: return sys_vmo_write((handle_t)arg1, (const void *)arg2, (size)arg3, (size)arg4);
         case SYS_CHANNEL_RECV_MSG: return sys_channel_recv_msg((handle_t)arg1, (void *)arg2, (size)arg3,
                                                                (int32 *)arg4, (uint32)arg5,
                                                                (channel_recv_result_t *)arg6);
+        case SYS_VMO_MAP: return sys_vmo_map((handle_t)arg1, (uintptr)arg2, (size)arg3, (size)arg4, (uint32)arg5);
+        case SYS_VMO_UNMAP: return sys_vmo_unmap((uintptr)arg1, (size)arg2);
         default: return -1;
     }
 }

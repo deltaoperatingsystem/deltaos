@@ -105,6 +105,12 @@ typedef struct {
     //for user loads (segment tracking)
     elf_segment_t segments[ELF_MAX_SEGMENTS];
     uint32 segment_count;
+    
+    //for dynamic linking
+    char   interp_path[128];    //PT_INTERP path (empty if no interpreter)
+    uint64 phdr_addr;           //address of program headers in memory
+    uint16 phdr_count;          //number of program headers
+    uint16 phdr_size;           //size of each program header
 } elf_load_info_t;
 
 //error codes
@@ -125,7 +131,9 @@ int elf_load(const void *data, size len, elf_load_info_t *info);
 
 //load an ELF64 executable into a user address space
 //allocates pages and maps them with user permissions
-int elf_load_user(const void *data, size len, pagemap_t *pagemap, elf_load_info_t *info);
+//also registers segments in process VMA list for proper address space tracking
+struct process;
+int elf_load_user(const void *data, size len, struct process *proc, elf_load_info_t *info);
 
 //free memory from a loaded ELF
 void elf_unload(elf_load_info_t *info);
