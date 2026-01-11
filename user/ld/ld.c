@@ -216,7 +216,7 @@ uint64_t ld_main(uint64_t *sp) {
     
     //open file
     int64_t fh = syscall3(SYS_GET_OBJ, (uint64_t)-1, (uint64_t)path, HANDLE_RIGHT_READ);
-    if (fh < 0) die_msg("failed to open library");
+    if (fh < 0) { outs("ld.so: failed to open library "); outs(needed - pi - 1); outn(); die(); }
     
     //allocate buffer via VMO (let kernel pick address)
     uint64_t buf_size = LD_BUFFER_SIZE;

@@ -16,7 +16,6 @@ user:
 
 initrd: tools user
 	@mkdir -p initrd
-	@cp user/init.bin initrd/init
 	@echo "===> Creating initrd.da"
 	@./tools/darc/darc create initrd.da initrd
 

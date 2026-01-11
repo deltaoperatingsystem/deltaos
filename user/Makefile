@@ -9,43 +9,45 @@ CFLAGS := -ffreestanding -fno-builtin -fno-stack-protector -m64 -c -O2 -Ilibc/in
 ASFLAGS := -m64 -c
 LDFLAGS := -nostdlib
 
-# C runtime object - must be linked first
 CRT0 := libc/src/crt0.o
 
-# Auto-detect libc sources and objects (recursively)
 LIBC_SRCS := $(shell find libc -name '*.c')
 LIBC_OBJS := $(LIBC_SRCS:.c=.o)
 
-all: init.bin ld libc.so
+SRC_SRCS := $(shell find src -name '*.c' 2>/dev/null)
+SRC_OBJS := $(SRC_SRCS:.c=.o)
 
-# Compile crt0.S
+TOPS := $(sort $(foreach f,$(SRC_SRCS),$(firstword $(subst /, ,$(patsubst src/%,%,$(dir $(f)))))))
+USER_BINS := $(patsubst %,../initrd/%,$(TOPS))
+
+all: init.bin ld libc.so $(USER_BINS)
+
 libc/src/crt0.o: libc/src/crt0.S
 	$(AS) $(ASFLAGS) -o $@ $<
 
-# Pattern rule for compiling libc sources
 libc/%.o: libc/%.c
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -o $@ $<
 
-#static library (still useful for static linking)
 libc.a: $(LIBC_OBJS)
 	$(AR) rcs $@ $^
 
-#shared library
 libc.so: $(LIBC_OBJS)
 	$(LD) -nostdlib -shared -o $@ $^
 	mkdir -p ../initrd/system/libraries
 	cp libc.so ../initrd/system/libraries/
 
-init.o: init.c
+src/%.o: src/%.c
 	$(CC) $(CFLAGS) -o $@ $<
 
-#link dynamically with the interpreter
-init.bin: $(CRT0) init.o libc.so
-	$(LD) $(LDFLAGS) -dynamic-linker /system/libraries/ld.so -L. -o $@ $(CRT0) init.o -lc
-	@echo "Init linked dynamically with interpreter /system/libraries/ld.so"
+define LINK_USER
+../initrd/$(1): $(CRT0) $(filter src/$(1)/%,$(SRC_OBJS)) libc.so
+	mkdir -p ../initrd
+	$(LD) $(LDFLAGS) -dynamic-linker /system/libraries/ld.so -L. -o $$@ $(CRT0) $(filter src/$(1)/%,$(SRC_OBJS)) -lc
+endef
 
-#build ld.so
+$(foreach t,$(TOPS),$(eval $(call LINK_USER,$t)))
+
 ld:
 	$(MAKE) -C ld
 	mkdir -p ../initrd/system/libraries
@@ -54,4 +56,5 @@ ld:
 clean:
 	rm -f *.o *.bin libc.a libc.so
 	find libc -name '*.o' -delete
+	find src -name '*.o' -delete
 	$(MAKE) -C ld clean
