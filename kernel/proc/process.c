@@ -391,3 +391,78 @@ uintptr process_setup_user_stack(uintptr stack_phys, uintptr stack_base,
     
     return sp;
 }
+
+uintptr process_setup_user_stack_dynamic(uintptr stack_phys, uintptr stack_base,
+                                          size stack_size, int argc, char *argv[],
+                                          uint64 phdr_addr, uint16 phdr_count, uint16 phdr_size,
+                                          uint64 entry_point, uint64 interp_base) {
+    //write to physical memory since user pagemap isnt active
+    char *stack_virt = (char *)P2V(stack_phys);
+    uintptr offset_from_base = stack_base - stack_size;
+    uintptr sp = stack_base;
+    
+    uintptr argv_addrs[64];
+    if (argc > 64) argc = 64;
+    
+    //write argv strings at top of stack
+    for (int i = argc - 1; i >= 0; i--) {
+        size len = strlen(argv[i]) + 1;
+        sp -= len;
+        sp &= ~7ULL;
+        argv_addrs[i] = sp;
+        memcpy(stack_virt + (sp - offset_from_base), argv[i], len);
+    }
+    
+    //16 random bytes for AT_RANDOM
+    sp -= 16;
+    sp &= ~15ULL;
+    uintptr random_addr = sp;
+    //simple pseudo-random (good enough for now)
+    uint64 *rand_ptr = (uint64 *)(stack_virt + (sp - offset_from_base));
+    rand_ptr[0] = 0xDEADBEEFCAFEBABE;
+    rand_ptr[1] = 0x1234567890ABCDEF;
+    
+    //aux vector (pushed in reverse: AT_NULL first then others)
+    //we'll build the aux entries and push them
+    auxv_entry_t auxv[16];
+    int auxc = 0;
+    
+    auxv[auxc++] = (auxv_entry_t){AT_PAGESZ, 4096};
+    auxv[auxc++] = (auxv_entry_t){AT_PHDR, phdr_addr};
+    auxv[auxc++] = (auxv_entry_t){AT_PHENT, phdr_size};
+    auxv[auxc++] = (auxv_entry_t){AT_PHNUM, phdr_count};
+    auxv[auxc++] = (auxv_entry_t){AT_ENTRY, entry_point};
+    auxv[auxc++] = (auxv_entry_t){AT_RANDOM, random_addr};
+    if (interp_base) {
+        auxv[auxc++] = (auxv_entry_t){AT_BASE, interp_base};
+    }
+    auxv[auxc++] = (auxv_entry_t){AT_NULL, 0};
+    
+    //push aux vector (reverse order so AT_NULL is at highest address)
+    for (int i = auxc - 1; i >= 0; i--) {
+        sp -= 16;
+        uint64 *aux = (uint64 *)(stack_virt + (sp - offset_from_base));
+        aux[0] = auxv[i].a_type;
+        aux[1] = auxv[i].a_val;
+    }
+    
+    //push NULL for envp
+    sp -= 8;
+    *(uint64 *)(stack_virt + (sp - offset_from_base)) = 0;
+    
+    //push NULL for argv terminator
+    sp -= 8;
+    *(uint64 *)(stack_virt + (sp - offset_from_base)) = 0;
+    
+    //push argv pointers
+    for (int i = argc - 1; i >= 0; i--) {
+        sp -= 8;
+        *(uint64 *)(stack_virt + (sp - offset_from_base)) = argv_addrs[i];
+    }
+    
+    //push argc
+    sp -= 8;
+    *(uint64 *)(stack_virt + (sp - offset_from_base)) = (uint64)argc;
+    
+    return sp;
+}

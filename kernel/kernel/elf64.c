@@ -3,6 +3,8 @@
 #include <mm/mm.h>
 #include <mm/vmm.h>
 #include <string.h>
+#include <drivers/serial.h>
+#include <proc/process.h>
 
 int elf_validate(const void *data, size len) {
     if (len < sizeof(Elf64_Ehdr)) {
@@ -130,14 +132,16 @@ int elf_load(const void *data, size len, elf_load_info_t *info) {
     return ELF_OK;
 }
 
-int elf_load_user(const void *data, size len, pagemap_t *pagemap, elf_load_info_t *info) {
+int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *info) {
     if (!elf_validate(data, len)) {
         return ELF_ERR_INVALID;
     }
     
-    if (!pagemap || !info) {
+    if (!proc || !proc->pagemap || !info) {
         return ELF_ERR_INVALID;
     }
+    
+    pagemap_t *pagemap = proc->pagemap;
     
     const Elf64_Ehdr *ehdr = (const Elf64_Ehdr *)data;
     const uint8 *base = (const uint8 *)data;
@@ -171,6 +175,25 @@ int elf_load_user(const void *data, size len, pagemap_t *pagemap, elf_load_info_
     info->virt_base = min_vaddr;
     info->virt_end = max_vaddr;
     info->entry = ehdr->e_entry;
+    
+    //save program header info for aux vector
+    info->phdr_count = ehdr->e_phnum;
+    info->phdr_size = ehdr->e_phentsize;
+    
+    //look for PT_INTERP and PT_PHDR
+    for (uint16 i = 0; i < ehdr->e_phnum; i++) {
+        const Elf64_Phdr *phdr = (const Elf64_Phdr *)(base + ehdr->e_phoff + (i * ehdr->e_phentsize));
+        
+        if (phdr->p_type == PT_INTERP) {
+            //extract interpreter path
+            if (phdr->p_filesz > 0 && phdr->p_filesz < sizeof(info->interp_path)) {
+                memcpy(info->interp_path, base + phdr->p_offset, phdr->p_filesz);
+                info->interp_path[phdr->p_filesz] = '\0';
+            }
+        } else if (phdr->p_type == PT_PHDR) {
+            info->phdr_addr = phdr->p_vaddr;
+        }
+    }
     
     //load each segment
     for (uint16 i = 0; i < ehdr->e_phnum; i++) {
@@ -209,6 +232,9 @@ int elf_load_user(const void *data, size len, pagemap_t *pagemap, elf_load_info_
         
         //map into user address space
         vmm_map(pagemap, seg_vaddr, (uintptr)phys, seg_pages, mmu_flags);
+        
+        //register in VMA list so allocator knows this region is occupied
+        process_vma_add(proc, seg_vaddr, seg_size, mmu_flags, NULL, 0);
         
         //track segment for cleanup
         elf_segment_t *seg = &info->segments[info->segment_count++];

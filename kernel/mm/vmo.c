@@ -156,8 +156,10 @@ void *vmo_map(process_t *proc, int32 handle, void *vaddr_hint,
     if (map_rights & HANDLE_RIGHT_WRITE) flags |= MMU_FLAG_WRITE;
     if (map_rights & HANDLE_RIGHT_EXECUTE) flags |= MMU_FLAG_EXEC;
     
-    //get physical address of VMO pages using HHDM offset
-    uint64 phys = V2P((uintptr)vmo->pages + offset);
+    //get physical address of VMO pages - must use page table lookup because
+    //kernel heap addresses (0xFFFF9...) are not in HHDM range (0xFFFF8...)
+    pagemap_t *kmap = mmu_get_kernel_pagemap();
+    uint64 phys = mmu_virt_to_phys(kmap, (uintptr)vmo->pages + offset);
     
     //choose virtual address - use hint if provided or allocate from VMA
     uintptr vaddr;

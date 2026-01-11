@@ -24,6 +24,8 @@
 #define SYS_VMO_READ        38
 #define SYS_VMO_WRITE       39
 #define SYS_CHANNEL_RECV_MSG 40  //receive with handles
+#define SYS_VMO_MAP         41  //map VMO into address space
+#define SYS_VMO_UNMAP       42  //unmap from address space
 
 #define SYS_MAX             64
 
