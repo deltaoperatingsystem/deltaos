@@ -20,7 +20,7 @@ SRC_OBJS := $(SRC_SRCS:.c=.o)
 TOPS := $(sort $(foreach f,$(SRC_SRCS),$(firstword $(subst /, ,$(patsubst src/%,%,$(dir $(f)))))))
 USER_BINS := $(patsubst %,../initrd/%,$(TOPS))
 
-all: init.bin ld libc.so $(USER_BINS)
+all: ld libc.so $(USER_BINS)
 
 libc/src/crt0.o: libc/src/crt0.S
 	$(AS) $(ASFLAGS) -o $@ $<
