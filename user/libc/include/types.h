@@ -62,4 +62,12 @@ typedef uint64 uintmax;
 #define SIZE_MAX    UINT64_MAX
 #define SSIZE_MAX   INT64_MAX
 
+typedef struct stat {
+    uint32 type;
+    size   size;
+    uint64 ctime;
+    uint64 mtime;
+    uint64 atime;
+} stat_t;
+
 #endif

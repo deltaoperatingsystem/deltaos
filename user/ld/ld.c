@@ -1,103 +1,45 @@
-//currently it just oads libc.so and applies PLT relocations
- 
-
-typedef unsigned long uint64_t;
-typedef long int64_t;
-typedef unsigned int uint32_t;
-typedef unsigned short uint16_t;
-typedef unsigned char uint8_t;
-
-#define SYS_EXIT        1
-#define SYS_DEBUG_WRITE 3
-#define SYS_GET_OBJ     5
-#define SYS_HANDLE_READ 6
-#define SYS_HANDLE_CLOSE 32
-#define SYS_VMO_CREATE  37
-#define SYS_VMO_MAP     41
-
-#define HANDLE_RIGHT_READ 0x01
-
-#define AT_NULL  0
-#define AT_PHDR  3
-#define AT_PHENT 4
-#define AT_PHNUM 5
-#define AT_ENTRY 9
-
-#define PT_LOAD    1
-#define PT_DYNAMIC 2
-
-#define DT_NULL     0
-#define DT_NEEDED   1
-#define DT_PLTRELSZ 2
-#define DT_HASH     4
-#define DT_STRTAB   5
-#define DT_SYMTAB   6
-#define DT_RELA     7
-#define DT_RELASZ   8
-#define DT_RELAENT  9
-#define DT_JMPREL   23
-
-#define R_X86_64_64        1
-#define R_X86_64_GLOB_DAT  6
-#define R_X86_64_JUMP_SLOT 7
-#define R_X86_64_RELATIVE  8
-
-#define LD_BUFFER_SIZE   0x8000
-#define LD_MAX_PHNUM     32
-
-typedef struct { 
-    uint64_t a_type, a_val; 
-} auxv_t;
-
-typedef struct {
-    uint32_t p_type, p_flags;
-    uint64_t p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_align;
-} Elf64_Phdr;
-
-typedef struct { 
-    int64_t d_tag; uint64_t d_val; 
-} Elf64_Dyn;
-
-typedef struct { 
-    uint32_t st_name; 
-    uint8_t st_info, st_other; 
-    uint16_t st_shndx; 
-    uint64_t st_value, st_size; 
-} Elf64_Sym;
-
-typedef struct { 
-    uint64_t r_offset, r_info; 
-    int64_t r_addend; 
-} Elf64_Rela;
-
-typedef struct { 
-    uint8_t e_ident[16]; 
-    uint16_t e_type, e_machine; 
-    uint32_t e_version; 
-    uint64_t e_entry, e_phoff, e_shoff; 
-    uint32_t e_flags; 
-    uint16_t e_ehsize, e_phentsize, e_phnum, e_shentsize, e_shnum, e_shstrndx; 
-} Elf64_Ehdr;
+#include "ld.h"
 
 extern uint64_t __ld_saved_sp;
+extern void _ld_runtime_resolve_asm(void);
 
 static inline int64_t syscall1(uint64_t n, uint64_t a1) {
-    int64_t r; __asm__ volatile("syscall":"=a"(r):"a"(n),"D"(a1):"rcx","r11","memory"); return r;
+    int64_t r;
+    __asm__ volatile("syscall":"=a"(r):"a"(n),"D"(a1):"rcx","r11","memory");
+    return r;
 }
-static inline int64_t syscall3(uint64_t n, uint64_t a1, uint64_t a2, uint64_t a3) {
-    int64_t r; __asm__ volatile("syscall":"=a"(r):"a"(n),"D"(a1),"S"(a2),"d"(a3):"rcx","r11","memory"); return r;
-}
-static inline int64_t syscall5(uint64_t n, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
-    int64_t r; register uint64_t r10 __asm__("r10")=a4; register uint64_t r8 __asm__("r8")=a5;
-    __asm__ volatile("syscall":"=a"(r):"a"(n),"D"(a1),"S"(a2),"d"(a3),"r"(r10),"r"(r8):"rcx","r11","memory"); return r;
+static inline int64_t syscall2(uint64_t n, uint64_t a1, uint64_t a2) {
+    int64_t r;
+    __asm__ volatile("syscall":"=a"(r):"a"(n),"D"(a1),"S"(a2):"rcx","r11","memory");
+    return r;
 }
 
-//write single character
+static inline int64_t syscall3(uint64_t n, uint64_t a1, uint64_t a2, uint64_t a3) {
+    int64_t r;
+    __asm__ volatile("syscall":"=a"(r):"a"(n),"D"(a1),"S"(a2),"d"(a3):"rcx","r11","memory");
+    return r;
+}
+
+static inline int64_t syscall5(uint64_t n, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
+    int64_t r;
+    register uint64_t r10 __asm__("r10") = a4;
+    register uint64_t r8 __asm__("r8") = a5;
+    __asm__ volatile("syscall":"=a"(r):"a"(n),"D"(a1),"S"(a2),"d"(a3),"r"(r10),"r"(r8):"rcx","r11","memory");
+    return r;
+}
+
 static void outc(char c) {
     syscall3(SYS_DEBUG_WRITE, (uint64_t)&c, 1, 0);
 }
 
-//write hex value
+static void outs(const char *s) {
+    while (*s) outc(*s++);
+}
+
+static void outn(void) {
+    outc('\n'); 
+}
+
 static void outx(uint64_t v) {
     for (int i = 15; i >= 0; i--) {
         int d = (v >> (i * 4)) & 0xF;
@@ -105,17 +47,9 @@ static void outx(uint64_t v) {
     }
 }
 
-//write newline
-static void outn(void) { outc('\n'); }
-
-//write string
-static void outs(const char *s) {
-    while (*s) outc(*s++);
-}
-
 static void die(void) {
     syscall1(SYS_EXIT, 255);
-    for (;;) {}  //should never reach
+    for (;;) {}
 }
 
 static void die_msg(const char *msg) {
@@ -125,7 +59,14 @@ static void die_msg(const char *msg) {
     die();
 }
 
-static int seq(const char *a, const char *b) {
+static void die_err(int err) {
+    outs("ld.so: error ");
+    outc('0' + (-err));
+    outn();
+    die();
+}
+
+static int streq(const char *a, const char *b) {
     while (*a && *b && *a == *b) { a++; b++; }
     return *a == *b;
 }
@@ -141,104 +82,222 @@ static uint32_t elfhash(const char *n) {
     return h;
 }
 
-static uint64_t sym_lookup(const char *name, uint64_t base, Elf64_Sym *sym, char *str, uint32_t *hash) {
-    if (!hash || hash[0] == 0 || hash[1] == 0) return 0;  //validate hash table
-    uint32_t nb = hash[0];
-    uint32_t *bkt = &hash[2];
-    uint32_t *chn = &hash[2 + nb];
-    uint32_t h = elfhash(name);
-    for (uint32_t i = bkt[h % nb]; i; i = chn[i]) {
-        if (seq(name, str + sym[i].st_name) && sym[i].st_value) {
-            return base + sym[i].st_value;
+//growable bump allocator - allocates new pages as needed
+#define LD_HEAP_CHUNK 0x10000  //64KB per chunk
+
+static uint8_t *ld_heap_ptr = 0;
+static uint8_t *ld_heap_end = 0;
+
+static int ld_heap_grow(uint64_t min_size) {
+    //allocate at least one chunk or more if needed
+    uint64_t alloc_size = LD_HEAP_CHUNK;
+    if (min_size > alloc_size) {
+        alloc_size = (min_size + 0xFFF) & ~0xFFFULL;  //page align
+    }
+    
+    int64_t vmo = syscall3(SYS_VMO_CREATE, alloc_size, 0, 0x3F);
+    if (vmo < 0) return -1;
+    
+    int64_t addr = syscall5(SYS_VMO_MAP, vmo, 0, 0, alloc_size, 0x3);
+    if (addr <= 0) return -1;
+    
+    ld_heap_ptr = (uint8_t *)addr;
+    ld_heap_end = ld_heap_ptr + alloc_size;
+    return 0;
+}
+
+static void *ld_alloc(uint64_t size) {
+    //align to 8 bytes
+    size = (size + 7) & ~7ULL;
+    
+    //grow heap if needed
+    if (!ld_heap_ptr || ld_heap_ptr + size > ld_heap_end) {
+        if (ld_heap_grow(size) < 0) return 0;
+    }
+    
+    void *p = ld_heap_ptr;
+    ld_heap_ptr += size;
+    return p;
+}
+
+//library list
+typedef struct lib_node {
+    lib_handle_t lib;
+    struct lib_node *next;
+} lib_node_t;
+
+static lib_node_t *g_lib_list = 0;
+static int g_lib_count = 0;
+static lib_node_t g_exe_node; //persistent node for main exe
+
+//copy string
+static void ld_strcpy(char *dst, const char *src, int max) {
+    int i = 0;
+    while (src[i] && i < max - 1) {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = 0;
+}
+
+//check if library is already loaded
+static lib_handle_t *ld_find_lib(const char *name) {
+    for (lib_node_t *n = g_lib_list; n; n = n->next) {
+        if (streq(n->lib.name, name)) {
+            return &n->lib;
         }
     }
     return 0;
 }
 
-uint64_t ld_main(uint64_t *sp) {
-    //parse auxv
-    int i = 1;
-    while (sp[i]) i++;  i++;
-    while (sp[i]) i++;  i++;
-    auxv_t *av = (auxv_t *)&sp[i];
+//add a library to the list
+static lib_handle_t *ld_add_lib(void) {
+    lib_node_t *node = (lib_node_t *)ld_alloc(sizeof(lib_node_t));
+    if (!node) return 0;
     
-    uint64_t entry = 0, phdr = 0;
-    uint16_t phnum = 0, phent = 0;
-    for (i = 0; av[i].a_type; i++) {
-        if (av[i].a_type == AT_ENTRY) entry = av[i].a_val;
-        else if (av[i].a_type == AT_PHDR) phdr = av[i].a_val;
-        else if (av[i].a_type == AT_PHNUM) phnum = av[i].a_val;
-        else if (av[i].a_type == AT_PHENT) phent = av[i].a_val;
+    node->next = 0;
+    
+    //add to end of list
+    if (!g_lib_list) {
+        g_lib_list = node;
+    } else {
+        lib_node_t *tail = g_lib_list;
+        while (tail->next) tail = tail->next;
+        tail->next = node;
     }
+    g_lib_count++;
+    return &node->lib;
+}
+
+//parse auxv
+static int elf_parse_auxv(uint64_t *sp, elf_info_t *info) {
+    //skip argc
+    int i = 1;
+    //skip argv
+    while (sp[i]) i++;
+    i++;
+    //skip envp
+    while (sp[i]) i++;
+    i++;
+    
+    //parse auxv
+    auxv_t *av = (auxv_t *)&sp[i];
+    info->entry = 0;
+    info->phdr = 0;
+    info->phnum = 0;
+    info->phent = 0;
+    
+    for (i = 0; av[i].a_type != AT_NULL; i++) {
+        switch (av[i].a_type) {
+            case AT_ENTRY: info->entry = av[i].a_val; break;
+            case AT_PHDR:  info->phdr = av[i].a_val; break;
+            case AT_PHNUM: info->phnum = (uint16_t)av[i].a_val; break;
+            case AT_PHENT: info->phent = (uint16_t)av[i].a_val; break;
+        }
+    }
+    
+    if (!info->phdr || !info->phnum) return LD_ERR_NO_AUXV;
+    return LD_OK;
+}
+
+//find PT_DYNAMIC and parse it
+static int elf_find_dynamic(elf_info_t *info) {
+    info->dynamic = 0;
+    info->strtab = 0;
+    info->symtab = 0;
+    info->jmprel = 0;
+    info->pltrelsz = 0;
+    info->pltgot = 0;
     
     //find PT_DYNAMIC
-    Elf64_Dyn *dyn = 0;
-    for (i = 0; i < phnum; i++) {
-        Elf64_Phdr *p = (Elf64_Phdr *)(phdr + i * phent);
-        if (p->p_type == PT_DYNAMIC) { dyn = (Elf64_Dyn *)p->p_vaddr; break; }
-    }
-    if (!dyn) return entry;
-    
-    //parse dynamic
-    char *strtab = 0;
-    Elf64_Sym *symtab = 0;
-    Elf64_Rela *jmprel = 0;
-    uint64_t pltsz = 0;
-    
-    for (Elf64_Dyn *d = dyn; d->d_tag; d++) {
-        if (d->d_tag == DT_STRTAB) strtab = (char *)d->d_val;
-        else if (d->d_tag == DT_SYMTAB) symtab = (Elf64_Sym *)d->d_val;
-        else if (d->d_tag == DT_JMPREL) jmprel = (Elf64_Rela *)d->d_val;
-        else if (d->d_tag == DT_PLTRELSZ) pltsz = d->d_val;
+    for (int i = 0; i < info->phnum; i++) {
+        Elf64_Phdr *p = (Elf64_Phdr *)(info->phdr + i * info->phent);
+        if (p->p_type == PT_DYNAMIC) {
+            info->dynamic = (Elf64_Dyn *)p->p_vaddr;
+            break;
+        }
     }
     
-    if (!strtab || !jmprel) {
-        return entry;
+    if (!info->dynamic) return LD_ERR_NO_DYN;
+    
+    //parse dynamic section
+    for (Elf64_Dyn *d = info->dynamic; d->d_tag != DT_NULL; d++) {
+        switch (d->d_tag) {
+            case DT_STRTAB:   info->strtab = (char *)d->d_val; break;
+            case DT_SYMTAB:   info->symtab = (Elf64_Sym *)d->d_val; break;
+            case DT_JMPREL:   info->jmprel = (Elf64_Rela *)d->d_val; break;
+            case DT_PLTRELSZ: info->pltrelsz = d->d_val; break;
+            case DT_PLTGOT:   info->pltgot = (uint64_t *)d->d_val; break;
+            case DT_RELA:     info->rela = (Elf64_Rela *)d->d_val; break;
+            case DT_RELASZ:   info->relasz = d->d_val; break;
+            case DT_HASH:     info->hashtab = (uint32_t *)d->d_val; break;
+            case DT_INIT_ARRAY:   info->init_array = (void (**)(void))d->d_val; break;
+            case DT_INIT_ARRAYSZ: info->init_arraysz = d->d_val; break;
+        }
     }
     
-    //find NEEDED
-    //TODO:support multiple DT_NEEDED entries (dependency walk loop)
-    const char *needed = 0;
-    for (Elf64_Dyn *d = dyn; d->d_tag; d++) {
-        if (d->d_tag == DT_NEEDED && strtab) { needed = strtab + d->d_val; break; }
-    }
+    return LD_OK;
+}
+
+//load a library (forward declaration for recursion)
+static int ld_load_library(const char *name, lib_handle_t *lib);
+
+//load a library and its dependencies recursively
+static int ld_load_library(const char *name, lib_handle_t *lib) {
+    //calculate name length
+    int name_len = 0;
+    while (name[name_len]) name_len++;
     
-    if (!needed) return entry;
+    //dynamically allocate name
+    lib->name = (char *)ld_alloc(name_len + 1);
+    if (!lib->name) return LD_ERR_VMO;
+    ld_strcpy(lib->name, name, name_len + 1);
     
-    //build path on stack
+    //build full path with bounds check
     const char *prefix = "$files/initrd/system/libraries/";
-    char path[64];
+    char path[128];
     int pi = 0;
-    while (*prefix) path[pi++] = *prefix++;
-    while (*needed && pi < (int)sizeof(path) - 1) path[pi++] = *needed++;
-    if (pi >= (int)sizeof(path) - 1) die_msg("library path too long");
+    
+    const char *p = prefix;
+    while (*p && pi < (int)sizeof(path) - 1) path[pi++] = *p++;
+    
+    const char *n = name;
+    while (*n && pi < (int)sizeof(path) - 1) path[pi++] = *n++;
+    
+    //check if name was truncated
+    if (*n != '\0') return LD_ERR_OPEN;
     path[pi] = 0;
+    
+    //stat file to get size
+    stat_t st;
+    if (syscall2(SYS_STAT, (uint64_t)path, (uint64_t)&st) < 0) return LD_ERR_OPEN;
+    if (st.type != FS_TYPE_FILE) return LD_ERR_OPEN;
+    
+    //allocate exact read buffer via bump allocator
+    uint64_t buf_size = st.size;
+    uint8_t *buf = (uint8_t *)ld_alloc(buf_size);
+    if (!buf) return LD_ERR_VMO;
     
     //open file
     int64_t fh = syscall3(SYS_GET_OBJ, (uint64_t)-1, (uint64_t)path, HANDLE_RIGHT_READ);
-    if (fh < 0) { outs("ld.so: failed to open library "); outs(needed - pi - 1); outn(); die(); }
+    if (fh < 0) return LD_ERR_OPEN;
     
-    //allocate buffer via VMO (let kernel pick address)
-    uint64_t buf_size = LD_BUFFER_SIZE;
-    int64_t buf_vmo = syscall3(SYS_VMO_CREATE, buf_size, 0, 0x3F);
-    if (buf_vmo < 0) die_msg("failed to create buffer VMO");
-    int64_t buf_addr = syscall5(SYS_VMO_MAP, buf_vmo, 0, 0, buf_size, 0x3);
-    if (buf_addr < 0) die_msg("failed to map buffer VMO");
-    
-    int64_t rd = syscall3(SYS_HANDLE_READ, fh, buf_addr, buf_size);
+    //read library
+    int64_t rd = syscall3(SYS_HANDLE_READ, fh, (uint64_t)buf, buf_size);
     syscall1(SYS_HANDLE_CLOSE, fh);
-    if (rd <= 0) die_msg("failed to read library");
+    if (rd < (int64_t)buf_size) return LD_ERR_READ;
     
     //validate ELF header
-    Elf64_Ehdr *eh = (Elf64_Ehdr *)buf_addr;
-    if (eh->e_ident[0] != 0x7F || eh->e_ident[1] != 'E' || 
-        eh->e_ident[2] != 'L' || eh->e_ident[3] != 'F') die_msg("invalid ELF magic");
-    if (eh->e_phnum > LD_MAX_PHNUM) die_msg("too many program headers");
-    if (eh->e_phentsize != sizeof(Elf64_Phdr)) die_msg("invalid phentsize");
+    Elf64_Ehdr *eh = (Elf64_Ehdr *)buf;
+    if (eh->e_ident[0] != 0x7F || eh->e_ident[1] != 'E' ||
+        eh->e_ident[2] != 'L' || eh->e_ident[3] != 'F') return LD_ERR_ELF;
+    if (eh->e_phnum > LD_MAX_PHNUM) return LD_ERR_ELF;
+    if (eh->e_phentsize != sizeof(Elf64_Phdr)) return LD_ERR_ELF;
     
-    Elf64_Phdr *ph = (Elf64_Phdr *)(buf_addr + eh->e_phoff);
+    //calculate library size from segments
+    Elf64_Phdr *ph = (Elf64_Phdr *)(buf + eh->e_phoff);
     uint64_t minv = ~0ULL, maxv = 0;
-    for (i = 0; i < eh->e_phnum; i++) {
+    for (int i = 0; i < eh->e_phnum; i++) {
         if (ph[i].p_type == PT_LOAD && ph[i].p_memsz) {
             if (ph[i].p_vaddr < minv) minv = ph[i].p_vaddr;
             if (ph[i].p_vaddr + ph[i].p_memsz > maxv) maxv = ph[i].p_vaddr + ph[i].p_memsz;
@@ -246,106 +305,383 @@ uint64_t ld_main(uint64_t *sp) {
     }
     uint64_t libsz = ((maxv - minv) + 0xFFF) & ~0xFFFULL;
     
-    //map library (let kernel pick address)
+    //map library VMO
     int64_t lib_vmo = syscall3(SYS_VMO_CREATE, libsz, 0, 0x3F);
-    if (lib_vmo < 0) die_msg("failed to create library VMO");
-    int64_t libbase = syscall5(SYS_VMO_MAP, lib_vmo, 0, 0, libsz, 0x7);
-    if (libbase < 0) die_msg("failed to map library VMO");
+    if (lib_vmo < 0) return LD_ERR_VMO;
+    
+    int64_t base = syscall5(SYS_VMO_MAP, lib_vmo, 0, 0, libsz, 0x7);
+    if (base < 0) return LD_ERR_VMO;
+    
+    lib->base = (uint64_t)base;
     
     //copy segments
-    for (i = 0; i < eh->e_phnum; i++) {
+    for (int i = 0; i < eh->e_phnum; i++) {
         if (ph[i].p_type == PT_LOAD && ph[i].p_filesz) {
-            uint8_t *dst = (uint8_t *)(libbase + ph[i].p_vaddr);
-            uint8_t *src = (uint8_t *)(buf_addr + ph[i].p_offset);
+            uint8_t *dst = (uint8_t *)(lib->base + ph[i].p_vaddr);
+            uint8_t *src = buf + ph[i].p_offset;
             for (uint64_t j = 0; j < ph[i].p_filesz; j++) dst[j] = src[j];
             for (uint64_t j = ph[i].p_filesz; j < ph[i].p_memsz; j++) dst[j] = 0;
         }
     }
     
-    //find lib dynamic
+    //find PT_DYNAMIC in library
     Elf64_Dyn *libdyn = 0;
-    for (i = 0; i < eh->e_phnum; i++) {
-        if (ph[i].p_type == PT_DYNAMIC) { libdyn = (Elf64_Dyn *)(libbase + ph[i].p_vaddr); break; }
+    for (int i = 0; i < eh->e_phnum; i++) {
+        if (ph[i].p_type == PT_DYNAMIC) {
+            libdyn = (Elf64_Dyn *)(lib->base + ph[i].p_vaddr);
+            break;
+        }
     }
     
-    //parse lib symbols
-    char *libstr = 0;
-    Elf64_Sym *libsym = 0;
-    uint32_t *libhash = 0;
-    for (Elf64_Dyn *d = libdyn; d && d->d_tag; d++) {
-        if (d->d_tag == DT_STRTAB) libstr = (char *)(libbase + d->d_val);
-        else if (d->d_tag == DT_SYMTAB) libsym = (Elf64_Sym *)(libbase + d->d_val);
-        else if (d->d_tag == DT_HASH) libhash = (uint32_t *)(libbase + d->d_val);
+    //parse library dynamic section
+    lib->symtab = 0;
+    lib->strtab = 0;
+    lib->hashtab = 0;
+    lib->rela = 0;
+    lib->relasz = 0;
+    lib->jmprel = 0;
+    lib->pltrelsz = 0;
+    lib->pltgot = 0;
+    lib->symtab_count = 0;
+    lib->strtab_size = 0;
+    lib->init_array = 0;
+    lib->init_arraysz = 0;
+    lib->fini_array = 0;
+    lib->fini_arraysz = 0;
+    lib->init_func = 0;
+    lib->fini_func = 0;
+    
+    for (Elf64_Dyn *d = libdyn; d && d->d_tag != DT_NULL; d++) {
+        switch (d->d_tag) {
+            case DT_STRTAB:   lib->strtab = (char *)(lib->base + d->d_val); break;
+            case DT_SYMTAB:   lib->symtab = (Elf64_Sym *)(lib->base + d->d_val); break;
+            case DT_HASH:     lib->hashtab = (uint32_t *)(lib->base + d->d_val); break;
+            case DT_RELA:     lib->rela = (Elf64_Rela *)(lib->base + d->d_val); break;
+            case DT_RELASZ:   lib->relasz = d->d_val; break;
+            case DT_JMPREL:   lib->jmprel = (Elf64_Rela *)(lib->base + d->d_val); break;
+            case DT_PLTRELSZ: lib->pltrelsz = d->d_val; break;
+            case DT_PLTGOT:   lib->pltgot = (uint64_t *)(lib->base + d->d_val); break;
+            case DT_INIT:     lib->init_func = (void (*)(void))(lib->base + d->d_val); break;
+            case DT_FINI:     lib->fini_func = (void (*)(void))(lib->base + d->d_val); break;
+            case DT_INIT_ARRAY:   lib->init_array = (void (**)(void))(lib->base + d->d_val); break;
+            case DT_INIT_ARRAYSZ: lib->init_arraysz = d->d_val; break;
+            case DT_FINI_ARRAY:   lib->fini_array = (void (**)(void))(lib->base + d->d_val); break;
+            case DT_FINI_ARRAYSZ: lib->fini_arraysz = d->d_val; break;
+        }
     }
     
-    if (!libsym || !libstr || !libhash) die_msg("missing symbol tables in library");
+    //extract symbol count from hash table (nchain = hash[1])
+    if (lib->hashtab) {
+        uint32_t nchain = lib->hashtab[1];
+        //sanity check: nchain shouldn't be absurdly large
+        if (nchain > 0x100000) return LD_ERR_ELF;  //1M symbols max
+        lib->symtab_count = nchain;
+    }
     
-    //apply relocations to executable (eager binding)
-    //TODO: lazy binding via PLT[0] resolver
-    uint64_t nr = pltsz / 24;
+    if (!lib->symtab || !lib->strtab || !lib->hashtab) return LD_ERR_NO_SYM;
     
-    for (uint64_t j = 0; j < nr; j++) {
-        Elf64_Rela *r = &jmprel[j];
-        uint32_t typ = r->r_info & 0xFFFFFFFF;
+    //store library size for relocation bounds checking
+    lib->size = libsz;
+    
+    //store dynamic pointer for later use
+    lib->dynamic = libdyn;
+    
+    //recursively load dependencies (DT_NEEDED)
+    if (libdyn && lib->strtab) {
+        for (Elf64_Dyn *d = libdyn; d->d_tag != DT_NULL; d++) {
+            if (d->d_tag == DT_NEEDED) {
+                const char *dep_name = lib->strtab + d->d_val;
+                
+                //check if already loaded
+                if (ld_find_lib(dep_name)) continue;
+                
+                //allocate new library entry
+                lib_handle_t *dep = ld_add_lib();
+                if (!dep) return LD_ERR_VMO;  //out of memory
+                
+                int err = ld_load_library(dep_name, dep);
+                if (err < 0) return err;
+            }
+        }
+    }
+    
+    return LD_OK;
+}
+
+//symbol lookup
+static uint64_t ld_sym_lookup(const char *name, lib_handle_t *lib) {
+    if (!lib->hashtab || lib->hashtab[0] == 0) return 0;
+    
+    uint32_t nbucket = lib->hashtab[0];
+    uint32_t nchain = lib->hashtab[1];
+    uint32_t *buckets = &lib->hashtab[2];
+    uint32_t *chains = &lib->hashtab[2 + nbucket];
+    
+    uint32_t h = elfhash(name);
+    
+    for (uint32_t i = buckets[h % nbucket]; i != 0 && i < nchain; i = chains[i]) {
+        //bounds check
+        if (i >= lib->symtab_count) return 0;
+        
+        Elf64_Sym *sym = &lib->symtab[i];
+        if (streq(name, lib->strtab + sym->st_name) && sym->st_shndx != 0) {
+            return lib->base + sym->st_value;
+        }
+    }
+    return 0;
+}
+
+//lookup symbol in all loaded objects (executable first, then libraries)
+static uint64_t ld_sym_glob_lookup(const char *name) {
+    for (lib_node_t *n = g_lib_list; n; n = n->next) {
+        uint64_t addr = ld_sym_lookup(name, &n->lib);
+        if (addr) return addr;
+    }
+    return 0;
+}
+
+//C handler for lazy binding
+//csalled by _ld_runtime_resolve_asm
+uint64_t ld_runtime_resolve(lib_handle_t *lib, uint64_t reloc_index) {
+    if (!lib) die_msg("lazy resolution failed: lib is NULL");
+    
+    //find the relocation entry
+    if (!lib->jmprel) die_msg("lazy resolution failed: no jmprel");
+    Elf64_Rela *reloc = &lib->jmprel[reloc_index];
+    
+    uint32_t sidx = reloc->r_info >> 32;
+    if (sidx >= lib->symtab_count) die_msg("lazy resolution failed: invalid symbol index");
+    
+    const char *name = lib->strtab + lib->symtab[sidx].st_name;
+    
+    //lookup symbol globally
+    uint64_t addr = ld_sym_glob_lookup(name);
+    if (!addr) {
+        outs("ld.so: lazy resolution failed for symbol: ");
+        outs(name);
+        outn();
+        die();
+    }
+    
+    //update GOT entry
+    *(uint64_t *)(lib->base + reloc->r_offset) = addr;
+    
+    return addr;
+}
+
+//apply relocations
+static int ld_apply_relocs(Elf64_Rela *relocs, uint64_t size, 
+                           Elf64_Sym *symtab, char *strtab, 
+                           uint64_t target_base, int lazy) {
+    uint64_t count = size / sizeof(Elf64_Rela);
+    
+    for (uint64_t i = 0; i < count; i++) {
+        Elf64_Rela *r = &relocs[i];
+        uint32_t type = r->r_info & 0xFFFFFFFF;
         uint32_t sidx = r->r_info >> 32;
         
-        if (typ == R_X86_64_JUMP_SLOT) {
-            const char *sn = strtab + symtab[sidx].st_name;
-            uint64_t sa = sym_lookup(sn, libbase, libsym, libstr, libhash);
-            if (sa) {
-                *(uint64_t *)r->r_offset = sa;
-            }
-        }
-    }
-    
-    //parse lib dynamic for RELA
-    Elf64_Rela *lib_jmprel = 0;
-    uint64_t lib_pltsz = 0;
-    Elf64_Rela *lib_rela = 0;
-    uint64_t lib_relasz = 0;
-    
-    for (Elf64_Dyn *d = libdyn; d && d->d_tag; d++) {
-        if (d->d_tag == DT_JMPREL) lib_jmprel = (Elf64_Rela *)(libbase + d->d_val);
-        else if (d->d_tag == DT_PLTRELSZ) lib_pltsz = d->d_val;
-        else if (d->d_tag == DT_RELA) lib_rela = (Elf64_Rela *)(libbase + d->d_val);
-        else if (d->d_tag == DT_RELASZ) lib_relasz = d->d_val;
-    }
-    
-    //apply internal RELA relocations to libc.so
-    if (lib_rela) {
-        uint64_t nr_rela = lib_relasz / 24;
-        for (uint64_t j = 0; j < nr_rela; j++) {
-            Elf64_Rela *r = &lib_rela[j];
-            uint32_t typ = r->r_info & 0xFFFFFFFF;
-            uint32_t sidx = r->r_info >> 32;
-            uint64_t *ptr = (uint64_t *)(libbase + r->r_offset);
+        if (type == R_X86_64_JUMP_SLOT) {
+            if (lazy) continue; //skip for lazy binding
             
-            if (typ == R_X86_64_GLOB_DAT || typ == R_X86_64_64) {
-                const char *sn = libstr + libsym[sidx].st_name;
-                uint64_t sa = sym_lookup(sn, libbase, libsym, libstr, libhash);
-                if (sa) *ptr = sa + r->r_addend;
-            } else if (typ == R_X86_64_RELATIVE) {
-                *ptr = libbase + r->r_addend;
+            const char *name = strtab + symtab[sidx].st_name;
+            uint64_t addr = ld_sym_glob_lookup(name);
+            if (addr) {
+                *(uint64_t *)(target_base + r->r_offset) = addr;
+            }
+        }
+    }
+    return LD_OK;
+}
+
+static int ld_apply_lib_relocs(lib_handle_t *lib, int lazy) {
+    //apply RELA relocations
+    if (lib->rela) {
+        uint64_t count = lib->relasz / sizeof(Elf64_Rela);
+        for (uint64_t i = 0; i < count; i++) {
+            Elf64_Rela *r = &lib->rela[i];
+            uint32_t type = r->r_info & 0xFFFFFFFF;
+            uint32_t sidx = r->r_info >> 32;
+            uint64_t *ptr = (uint64_t *)(lib->base + r->r_offset);
+            
+            //bounds check symbol index
+            if (sidx >= lib->symtab_count && type != R_X86_64_RELATIVE) continue;
+            
+            if (type == R_X86_64_GLOB_DAT || type == R_X86_64_64) {
+                const char *name = lib->strtab + lib->symtab[sidx].st_name;
+                uint64_t addr = ld_sym_glob_lookup(name);
+                if (addr) *ptr = addr + r->r_addend;
+            } else if (type == R_X86_64_RELATIVE) {
+                *ptr = lib->base + r->r_addend;
             }
         }
     }
     
-    //apply internal PLT relocations to libc.so
-    if (lib_jmprel) {
-        uint64_t nlr = lib_pltsz / 24;
-        for (uint64_t j = 0; j < nlr; j++) {
-            Elf64_Rela *r = &lib_jmprel[j];
-            uint32_t typ = r->r_info & 0xFFFFFFFF;
+    //apply PLT relocations
+    if (lib->jmprel) {
+        uint64_t count = lib->pltrelsz / sizeof(Elf64_Rela);
+        for (uint64_t i = 0; i < count; i++) {
+            Elf64_Rela *r = &lib->jmprel[i];
+            uint32_t type = r->r_info & 0xFFFFFFFF;
             uint32_t sidx = r->r_info >> 32;
-            if (typ == R_X86_64_JUMP_SLOT) {
-                const char *sn = libstr + libsym[sidx].st_name;
-                uint64_t sa = sym_lookup(sn, libbase, libsym, libstr, libhash);
-                if (sa) {
-                    *(uint64_t *)(libbase + r->r_offset) = sa;
+            
+            //bounds check
+            if (sidx >= lib->symtab_count) continue;
+            
+            if (type == R_X86_64_JUMP_SLOT) {
+                if (lazy) {
+                    //rebase the GOT entry so it points to the PLT stub within the library
+                    //iitial value is an offset from 0 (or from link address)
+                    uint64_t *ptr = (uint64_t *)(lib->base + r->r_offset);
+                    *ptr += lib->base;
+                    continue; //skip resolution for now
+                }
+                
+                const char *name = lib->strtab + lib->symtab[sidx].st_name;
+                uint64_t addr = ld_sym_glob_lookup(name);
+                if (addr) {
+                    *(uint64_t *)(lib->base + r->r_offset) = addr;
                 }
             }
         }
     }
     
-    return entry;
+    return LD_OK;
+}
+
+//call library constructors (init arrays)
+static void ld_call_init(lib_handle_t *lib) {
+    //call legacy DT_INIT first
+    if (lib->init_func) {
+        lib->init_func();
+    }
+    
+    //call DT_INIT_ARRAY entries
+    if (lib->init_array && lib->init_arraysz > 0) {
+        uint64_t count = lib->init_arraysz / sizeof(void *);
+        for (uint64_t i = 0; i < count; i++) {
+            if (lib->init_array[i]) {
+                lib->init_array[i]();
+            }
+        }
+    }
+}
+
+//call library destructors (fini arrays) - called at exit
+//for now this is not hooked up since we don't have atexit
+static void ld_call_fini(lib_handle_t *lib) {
+    //call DT_FINI_ARRAY entries in reverse order
+    if (lib->fini_array && lib->fini_arraysz > 0) {
+        uint64_t count = lib->fini_arraysz / sizeof(void *);
+        for (uint64_t i = count; i > 0; i--) {
+            if (lib->fini_array[i - 1]) {
+                lib->fini_array[i - 1]();
+            }
+        }
+    }
+    
+    //call legacy DT_FINI last
+    if (lib->fini_func) {
+        lib->fini_func();
+    }
+}
+
+//setup lazy binding hooks in GOT
+static void ld_setup_lazy_binding(void *lib_ptr, uint64_t *pltgot) {
+    if (!pltgot) return;
+    
+    //GOT[1] = identifier (lib_handle_t* or 0 for exe)
+    //GOT[2] = trampoline address
+    pltgot[1] = (uint64_t)lib_ptr;
+    pltgot[2] = (uint64_t)_ld_runtime_resolve_asm;
+}
+
+uint64_t ld_main(uint64_t *sp) {
+    elf_info_t info;
+    int err;
+    
+    //zero out info struct (it's on the stack)
+    uint8_t *infop = (uint8_t *)&info;
+    for (int i = 0; i < sizeof(elf_info_t); i++) infop[i] = 0;
+    
+    //parse auxv
+    err = elf_parse_auxv(sp, &info);
+    if (err < 0) return 0;
+    
+    //calculate executable base address
+    uint64_t exe_base = 0;
+    if (info.phdr) {
+        //find the first LOAD segment or PT_PHDR to determine base
+        for (int i = 0; i < info.phnum; i++) {
+            Elf64_Phdr *p = (Elf64_Phdr *)(info.phdr + i * info.phent);
+            if (p->p_type == PT_PHDR) {
+                exe_base = info.phdr - p->p_vaddr;
+                break;
+            } else if (p->p_type == PT_LOAD && exe_base == 0) {
+                //fallback: many PIE binaries have phdr at offset 0x40
+                if (p->p_offset == 0) exe_base = info.phdr - 0x40;
+            }
+        }
+    }
+
+    //find dynamic section
+    err = elf_find_dynamic(&info);
+    if (err < 0) return info.entry + exe_base;
+    
+    //adjust pointers in info by base if it's a PIE relative address
+    if (exe_base) {
+        if (info.strtab && (uint64_t)info.strtab < exe_base) info.strtab += exe_base;
+        if (info.symtab && (uint64_t)info.symtab < exe_base) info.symtab = (Elf64_Sym *)((uint64_t)info.symtab + exe_base);
+        if (info.jmprel && (uint64_t)info.jmprel < exe_base) info.jmprel = (Elf64_Rela *)((uint64_t)info.jmprel + exe_base);
+        if (info.pltgot && (uint64_t)info.pltgot < exe_base) info.pltgot = (uint64_t *)((uint64_t)info.pltgot + exe_base);
+        if (info.hashtab && (uint64_t)info.hashtab < exe_base) info.hashtab = (uint32_t *)((uint64_t)info.hashtab + exe_base);
+        if (info.rela && (uint64_t)info.rela < exe_base) info.rela = (Elf64_Rela *)((uint64_t)info.rela + exe_base);
+    }
+    
+    if (!info.strtab) return info.entry + exe_base;
+    
+    //populate persistent exe node
+    g_exe_node.lib.name = "init";
+    g_exe_node.lib.base = exe_base;
+    g_exe_node.lib.dynamic = info.dynamic;
+    g_exe_node.lib.symtab = info.symtab;
+    g_exe_node.lib.strtab = info.strtab;
+    g_exe_node.lib.hashtab = info.hashtab;
+    g_exe_node.lib.rela = info.rela;
+    g_exe_node.lib.relasz = info.relasz;
+    g_exe_node.lib.jmprel = info.jmprel;
+    g_exe_node.lib.pltrelsz = info.pltrelsz;
+    g_exe_node.lib.pltgot = info.pltgot;
+    g_exe_node.lib.init_array = info.init_array;
+    g_exe_node.lib.init_arraysz = info.init_arraysz;
+    g_exe_node.lib.symtab_count = info.hashtab ? info.hashtab[1] : 0;
+    g_exe_node.next = 0;
+    
+    //add EXE as first node in library list
+    g_lib_list = &g_exe_node;
+    g_lib_count = 1;
+
+    //load dependencies
+    for (Elf64_Dyn *d = info.dynamic; d->d_tag != DT_NULL; d++) {
+        if (d->d_tag == DT_NEEDED) {
+            const char *name = info.strtab + d->d_val;
+            if (ld_find_lib(name)) continue;
+            lib_handle_t *lib = ld_add_lib();
+            if (!lib) die_msg("out of memory");
+            err = ld_load_library(name, lib);
+            if (err < 0) die_err(err);
+        }
+    }
+    
+    //setup and apply relocations for ALL objects (EXE + LIBS)
+    for (lib_node_t *n = g_lib_list; n; n = n->next) {
+        ld_setup_lazy_binding(&n->lib, n->lib.pltgot);
+        ld_apply_lib_relocs(&n->lib, 1);  //lazy=1
+    }
+    
+    //call constructors for all objects (dependencies first so load order works)
+    for (lib_node_t *n = g_lib_list; n; n = n->next) {
+        ld_call_init(&n->lib);
+    }
+    
+    return info.entry + exe_base;
 }

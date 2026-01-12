@@ -5,6 +5,7 @@
 #include <proc/thread.h>
 #include <proc/sched.h>
 #include <obj/handle.h>
+#include <obj/namespace.h>
 #include <ipc/channel.h>
 #include <mm/vmo.h>
 #include <arch/cpu.h>
@@ -338,6 +339,27 @@ static int64 sys_channel_recv_msg(handle_t ep, void *data_buf, size data_len,
     return 0;
 }
 
+//register a handle in the namespace
+//allows userspace services to publish their objects for other processes to find
+static int64 sys_ns_register(const char *path, handle_t h) {
+    if (!path) return -1;
+    
+    process_t *proc = process_current();
+    if (!proc) return -1;
+    
+    //get the object from the handle
+    object_t *obj = process_get_handle(proc, h);
+    if (!obj) return -2;  //invalid handle
+    
+    //register in namespace (ns_register adds a reference)
+    int result = ns_register(path, obj);
+    return result;
+}
+
+static int64 sys_stat(const char *path, stat_t *st) {
+    return handle_stat(path, st);
+}
+
 int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
                        uint64 arg4, uint64 arg5, uint64 arg6) {
     switch (num) {
@@ -363,6 +385,8 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
                                                                (channel_recv_result_t *)arg6);
         case SYS_VMO_MAP: return sys_vmo_map((handle_t)arg1, (uintptr)arg2, (size)arg3, (size)arg4, (uint32)arg5);
         case SYS_VMO_UNMAP: return sys_vmo_unmap((uintptr)arg1, (size)arg2);
+        case SYS_NS_REGISTER: return sys_ns_register((const char *)arg1, (handle_t)arg2);
+        case SYS_STAT: return sys_stat((const char *)arg1, (stat_t *)arg2);
         default: return -1;
     }
 }

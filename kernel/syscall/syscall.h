@@ -26,6 +26,8 @@
 #define SYS_CHANNEL_RECV_MSG 40  //receive with handles
 #define SYS_VMO_MAP         41  //map VMO into address space
 #define SYS_VMO_UNMAP       42  //unmap from address space
+#define SYS_NS_REGISTER     43  //register handle in namespace
+#define SYS_STAT            44  //get file status by path
 
 #define SYS_MAX             64
 

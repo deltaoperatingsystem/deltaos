@@ -21,6 +21,8 @@
 #define SYS_VMO_WRITE       39
 #define SYS_VMO_MAP         41
 #define SYS_VMO_UNMAP       42
+#define SYS_NS_REGISTER     43
+#define SYS_STAT            44
 
 /* 
  *System V AMD64 syscall ABI:

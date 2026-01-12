@@ -45,4 +45,10 @@ int vmo_write(int32 h, const void *buf, uint64 len, uint64 offset);
 void *vmo_map(int32 h, void *vaddr_hint, uint64 offset, uint64 len, uint32 flags);
 int vmo_unmap(void *vaddr, uint64 len);
 
+//namespace operations
+int ns_register(const char *path, int32 h);
+
+//metadata
+int stat(const char *path, stat_t *st);
+
 #endif
