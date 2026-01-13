@@ -28,6 +28,7 @@
 #define SYS_VMO_UNMAP       42  //unmap from address space
 #define SYS_NS_REGISTER     43  //register handle in namespace
 #define SYS_STAT            44  //get file status by path
+#define SYS_CHANNEL_TRY_RECV 45  //non-blocking channel receive
 
 #define SYS_MAX             64
 
@@ -35,6 +36,7 @@
 typedef struct {
     size data_len;       //actual bytes of data received
     uint32 handle_count; //number of handles received
+    uint32 sender_pid;   //PID of the process that sent this message (0 if kernel)
 } channel_recv_result_t;
 
 int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,

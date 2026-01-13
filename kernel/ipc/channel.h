@@ -29,6 +29,7 @@ typedef struct channel_msg {
     size data_len;           //length of data
     int32 *handles;          //array of handles to transfer (for userspace)
     uint32 handle_count;     //number of handles
+    uint32 sender_pid;       //PID of the process that sent this message (0 if kernel)
     
     //kernel-side: raw objects for kernel handlers (not for userspace)
     struct object **objects; //transferred objects (with +1 ref)
@@ -43,6 +44,7 @@ typedef struct channel_msg_entry {
     object_t **objects; //transferred objects (already removed from sender)
     handle_rights_t *rights; //rights for each transferred object
     uint32 object_count;
+    uint32 sender_pid; //PID of the sending process
     struct channel_msg_entry *next;
 } channel_msg_entry_t;
 
@@ -89,6 +91,9 @@ int channel_send(struct process *proc, int32 endpoint_handle, channel_msg_t *msg
 //handles in the message are added to receiver's handle table
 //caller must free msg->data after use
 int channel_recv(struct process *proc, int32 endpoint_handle, channel_msg_t *msg);
+
+//non-blocking version of channel_recv
+int channel_try_recv(struct process *proc, int32 endpoint_handle, channel_msg_t *msg);
 
 //close a channel endpoint
 //the peer endpoint will receive a "peer closed" signal

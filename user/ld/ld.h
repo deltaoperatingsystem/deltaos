@@ -60,6 +60,9 @@ typedef struct stat {
 #define DT_FINI_ARRAY    26
 #define DT_INIT_ARRAYSZ  27
 #define DT_FINI_ARRAYSZ  28
+#define DT_RUNPATH       29
+#define DT_RPATH         15
+#define DT_GNU_HASH      0x6ffffef5
 
 //relocation types
 #define R_X86_64_64        1
@@ -124,6 +127,8 @@ typedef struct {
     Elf64_Rela *rela;    //DT_RELA
     uint64_t relasz;     //DT_RELASZ
     uint32_t *hashtab;   //DT_HASH
+    uint32_t *gnu_hashtab; //DT_GNU_HASH (preferred)
+    char *runpath;       //DT_RUNPATH or DT_RPATH
     void (**init_array)(void);
     uint64_t init_arraysz;
 } elf_info_t;
@@ -151,6 +156,7 @@ typedef struct {
     void (*init_func)(void);    //DT_INIT (legacy)
     void (*fini_func)(void);    //DT_FINI (legacy)
     uint64_t *pltgot;           //DT_PLTGOT
+    uint32_t *gnu_hashtab;      //DT_GNU_HASH (preferred, faster)
 } lib_handle_t;
 
 #endif

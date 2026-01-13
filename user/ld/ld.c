@@ -82,6 +82,13 @@ static uint32_t elfhash(const char *n) {
     return h;
 }
 
+//GNU hash function (djb2 variant)
+static uint32_t gnu_hash(const char *n) {
+    uint32_t h = 5381;
+    for (; *n; n++) h = (h << 5) + h + (uint8_t)*n;
+    return h;
+}
+
 //growable bump allocator - allocates new pages as needed
 #define LD_HEAP_CHUNK 0x10000  //64KB per chunk
 
@@ -129,6 +136,14 @@ typedef struct lib_node {
 static lib_node_t *g_lib_list = 0;
 static int g_lib_count = 0;
 static lib_node_t g_exe_node; //persistent node for main exe
+
+//library search paths
+static const char *ld_default_paths[] = {
+    "$files/initrd/system/libraries/",
+    "$files/initrd/lib/",
+    0
+};
+static char *ld_runpath = 0;  //from DT_RUNPATH or DT_RPATH
 
 //copy string
 static void ld_strcpy(char *dst, const char *src, int max) {
@@ -208,6 +223,8 @@ static int elf_find_dynamic(elf_info_t *info) {
     info->jmprel = 0;
     info->pltrelsz = 0;
     info->pltgot = 0;
+    info->gnu_hashtab = 0;
+    info->runpath = 0;
     
     //find PT_DYNAMIC
     for (int i = 0; i < info->phnum; i++) {
@@ -231,6 +248,9 @@ static int elf_find_dynamic(elf_info_t *info) {
             case DT_RELA:     info->rela = (Elf64_Rela *)d->d_val; break;
             case DT_RELASZ:   info->relasz = d->d_val; break;
             case DT_HASH:     info->hashtab = (uint32_t *)d->d_val; break;
+            case DT_GNU_HASH: info->gnu_hashtab = (uint32_t *)d->d_val; break;
+            case DT_RUNPATH:  info->runpath = (char *)d->d_val; break;  //preferred
+            case DT_RPATH:    if (!info->runpath) info->runpath = (char *)d->d_val; break;
             case DT_INIT_ARRAY:   info->init_array = (void (**)(void))d->d_val; break;
             case DT_INIT_ARRAYSZ: info->init_arraysz = d->d_val; break;
         }
@@ -253,25 +273,39 @@ static int ld_load_library(const char *name, lib_handle_t *lib) {
     if (!lib->name) return LD_ERR_VMO;
     ld_strcpy(lib->name, name, name_len + 1);
     
-    //build full path with bounds check
-    const char *prefix = "$files/initrd/system/libraries/";
+    //try to find library in search paths
     char path[128];
-    int pi = 0;
-    
-    const char *p = prefix;
-    while (*p && pi < (int)sizeof(path) - 1) path[pi++] = *p++;
-    
-    const char *n = name;
-    while (*n && pi < (int)sizeof(path) - 1) path[pi++] = *n++;
-    
-    //check if name was truncated
-    if (*n != '\0') return LD_ERR_OPEN;
-    path[pi] = 0;
-    
-    //stat file to get size
     stat_t st;
-    if (syscall2(SYS_STAT, (uint64_t)path, (uint64_t)&st) < 0) return LD_ERR_OPEN;
-    if (st.type != FS_TYPE_FILE) return LD_ERR_OPEN;
+    int found = 0;
+    
+    //build path helper
+    #define TRY_PATH(prefix) do { \
+        int pi = 0; \
+        const char *p = (prefix); \
+        while (*p && pi < (int)sizeof(path) - 1) path[pi++] = *p++; \
+        const char *n = name; \
+        while (*n && pi < (int)sizeof(path) - 1) path[pi++] = *n++; \
+        if (*n == '\0') { \
+            path[pi] = 0; \
+            if (syscall2(SYS_STAT, (uint64_t)path, (uint64_t)&st) >= 0 && st.type == FS_TYPE_FILE) { \
+                found = 1; \
+            } \
+        } \
+    } while(0)
+    
+    //try runpath first (from executable's DT_RUNPATH/DT_RPATH)
+    if (!found && ld_runpath) {
+        TRY_PATH(ld_runpath);
+    }
+    
+    //try default paths
+    for (int i = 0; !found && ld_default_paths[i]; i++) {
+        TRY_PATH(ld_default_paths[i]);
+    }
+    
+    #undef TRY_PATH
+    
+    if (!found) return LD_ERR_OPEN;
     
     //allocate exact read buffer via bump allocator
     uint64_t buf_size = st.size;
@@ -350,6 +384,7 @@ static int ld_load_library(const char *name, lib_handle_t *lib) {
     lib->fini_arraysz = 0;
     lib->init_func = 0;
     lib->fini_func = 0;
+    lib->gnu_hashtab = 0;
     
     for (Elf64_Dyn *d = libdyn; d && d->d_tag != DT_NULL; d++) {
         switch (d->d_tag) {
@@ -367,6 +402,7 @@ static int ld_load_library(const char *name, lib_handle_t *lib) {
             case DT_INIT_ARRAYSZ: lib->init_arraysz = d->d_val; break;
             case DT_FINI_ARRAY:   lib->fini_array = (void (**)(void))(lib->base + d->d_val); break;
             case DT_FINI_ARRAYSZ: lib->fini_arraysz = d->d_val; break;
+            case DT_GNU_HASH:     lib->gnu_hashtab = (uint32_t *)(lib->base + d->d_val); break;
         }
     }
     
@@ -378,7 +414,8 @@ static int ld_load_library(const char *name, lib_handle_t *lib) {
         lib->symtab_count = nchain;
     }
     
-    if (!lib->symtab || !lib->strtab || !lib->hashtab) return LD_ERR_NO_SYM;
+    //need either ELF hash or GNU hash
+    if (!lib->symtab || !lib->strtab || (!lib->hashtab && !lib->gnu_hashtab)) return LD_ERR_NO_SYM;
     
     //store library size for relocation bounds checking
     lib->size = libsz;
@@ -408,8 +445,64 @@ static int ld_load_library(const char *name, lib_handle_t *lib) {
     return LD_OK;
 }
 
-//symbol lookup
+//GNU hash symbol lookup (faster than ELF hash)
+static uint64_t ld_gnu_sym_lookup(const char *name, lib_handle_t *lib) {
+    uint32_t *gnu = lib->gnu_hashtab;
+    if (!gnu) return 0;
+    
+    //parse GNU hash header
+    uint32_t nbuckets = gnu[0];
+    uint32_t symoffset = gnu[1];  //first symbol index in chain
+    uint32_t bloom_size = gnu[2];
+    uint32_t bloom_shift = gnu[3];
+    
+    if (nbuckets == 0) return 0;
+    
+    uint32_t h = gnu_hash(name);
+    
+    //bloom filter check (quick rejection)
+    uint64_t *bloom = (uint64_t *)&gnu[4];
+    uint64_t mask = ((uint64_t)1 << (h & 63)) | ((uint64_t)1 << ((h >> bloom_shift) & 63));
+    uint64_t word = bloom[(h / 64) % bloom_size];
+    if ((word & mask) != mask) return 0;  //definitely not present
+    
+    //bucket lookup
+    uint32_t *buckets = (uint32_t *)&bloom[bloom_size];
+    uint32_t *chains = &buckets[nbuckets];
+    
+    uint32_t idx = buckets[h % nbuckets];
+    if (idx == 0) return 0;  //empty bucket
+    
+    //walk the chain
+    uint32_t h1 = h | 1;  //set LSB for comparison (chains store hash with LSB as end marker)
+    for (;;) {
+        uint32_t chain_idx = idx - symoffset;
+        uint32_t chain_hash = chains[chain_idx];
+        
+        //compare hash (ignore LSB which is end-of-chain marker)
+        if ((chain_hash | 1) == h1) {
+            //hash matches, verify name
+            Elf64_Sym *sym = &lib->symtab[idx];
+            if (streq(name, lib->strtab + sym->st_name) && sym->st_shndx != 0) {
+                return lib->base + sym->st_value;
+            }
+        }
+        
+        //check end of chain (LSB set)
+        if (chain_hash & 1) break;
+        idx++;
+    }
+    return 0;
+}
+
+//symbol lookup (prefers GNU hash and falls back to ELF hash)
 static uint64_t ld_sym_lookup(const char *name, lib_handle_t *lib) {
+    //try GNU hash first (faster)
+    if (lib->gnu_hashtab) {
+        return ld_gnu_sym_lookup(name, lib);
+    }
+    
+    //fall back to ELF hash
     if (!lib->hashtab || lib->hashtab[0] == 0) return 0;
     
     uint32_t nbucket = lib->hashtab[0];
@@ -485,9 +578,13 @@ static int ld_apply_relocs(Elf64_Rela *relocs, uint64_t size,
             
             const char *name = strtab + symtab[sidx].st_name;
             uint64_t addr = ld_sym_glob_lookup(name);
-            if (addr) {
-                *(uint64_t *)(target_base + r->r_offset) = addr;
+            if (!addr) {
+                outs("ld.so: undefined symbol: ");
+                outs(name);
+                outn();
+                die();
             }
+            *(uint64_t *)(target_base + r->r_offset) = addr;
         }
     }
     return LD_OK;
@@ -509,7 +606,13 @@ static int ld_apply_lib_relocs(lib_handle_t *lib, int lazy) {
             if (type == R_X86_64_GLOB_DAT || type == R_X86_64_64) {
                 const char *name = lib->strtab + lib->symtab[sidx].st_name;
                 uint64_t addr = ld_sym_glob_lookup(name);
-                if (addr) *ptr = addr + r->r_addend;
+                if (!addr) {
+                    outs("ld.so: undefined symbol: ");
+                    outs(name);
+                    outn();
+                    die();
+                }
+                *ptr = addr + r->r_addend;
             } else if (type == R_X86_64_RELATIVE) {
                 *ptr = lib->base + r->r_addend;
             }
@@ -530,7 +633,7 @@ static int ld_apply_lib_relocs(lib_handle_t *lib, int lazy) {
             if (type == R_X86_64_JUMP_SLOT) {
                 if (lazy) {
                     //rebase the GOT entry so it points to the PLT stub within the library
-                    //iitial value is an offset from 0 (or from link address)
+                    //initial value is an offset from 0 (or from link address)
                     uint64_t *ptr = (uint64_t *)(lib->base + r->r_offset);
                     *ptr += lib->base;
                     continue; //skip resolution for now
@@ -538,9 +641,13 @@ static int ld_apply_lib_relocs(lib_handle_t *lib, int lazy) {
                 
                 const char *name = lib->strtab + lib->symtab[sidx].st_name;
                 uint64_t addr = ld_sym_glob_lookup(name);
-                if (addr) {
-                    *(uint64_t *)(lib->base + r->r_offset) = addr;
+                if (!addr) {
+                    outs("ld.so: undefined symbol: ");
+                    outs(name);
+                    outn();
+                    die();
                 }
+                *(uint64_t *)(lib->base + r->r_offset) = addr;
             }
         }
     }
@@ -634,10 +741,17 @@ uint64_t ld_main(uint64_t *sp) {
         if (info.jmprel && (uint64_t)info.jmprel < exe_base) info.jmprel = (Elf64_Rela *)((uint64_t)info.jmprel + exe_base);
         if (info.pltgot && (uint64_t)info.pltgot < exe_base) info.pltgot = (uint64_t *)((uint64_t)info.pltgot + exe_base);
         if (info.hashtab && (uint64_t)info.hashtab < exe_base) info.hashtab = (uint32_t *)((uint64_t)info.hashtab + exe_base);
+        if (info.gnu_hashtab && (uint64_t)info.gnu_hashtab < exe_base) info.gnu_hashtab = (uint32_t *)((uint64_t)info.gnu_hashtab + exe_base);
         if (info.rela && (uint64_t)info.rela < exe_base) info.rela = (Elf64_Rela *)((uint64_t)info.rela + exe_base);
+        //note: info.runpath is an offset into strtab, not a pointer so no base adjustment needed
     }
     
     if (!info.strtab) return info.entry + exe_base;
+    
+    //set global runpath for library loading (runpath is offset into strtab)
+    if (info.runpath && info.strtab) {
+        ld_runpath = info.strtab + (uint64_t)info.runpath;
+    }
     
     //populate persistent exe node
     g_exe_node.lib.name = "init";
@@ -646,6 +760,7 @@ uint64_t ld_main(uint64_t *sp) {
     g_exe_node.lib.symtab = info.symtab;
     g_exe_node.lib.strtab = info.strtab;
     g_exe_node.lib.hashtab = info.hashtab;
+    g_exe_node.lib.gnu_hashtab = info.gnu_hashtab;
     g_exe_node.lib.rela = info.rela;
     g_exe_node.lib.relasz = info.relasz;
     g_exe_node.lib.jmprel = info.jmprel;

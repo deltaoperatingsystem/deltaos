@@ -37,6 +37,18 @@ int handle_seek(int32 h, size offset, int mode);
 int channel_create(int32 *ep0, int32 *ep1);
 int channel_send(int32 ep, const void *data, int len);
 int channel_recv(int32 ep, void *buf, int buflen);
+int channel_try_recv(int32 ep, void *buf, int buflen);
+
+//extended channel recv with sender info
+typedef struct {
+    uint64 data_len;     //actual bytes of data received
+    uint32 handle_count; //number of handles received
+    uint32 sender_pid;   //PID of the process that sent this message (0 if kernel)
+} channel_recv_result_t;
+
+int channel_recv_msg(int32 ep, void *data_buf, int data_len,
+                     int32 *handles_buf, uint32 handles_len,
+                     channel_recv_result_t *result);
 
 //virtual memory objects
 int32 vmo_create(uint64 size, uint32 flags, uint32 rights);

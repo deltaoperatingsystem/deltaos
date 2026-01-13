@@ -6,6 +6,7 @@
 #include <drivers/fb.h>
 #include <drivers/console.h>
 #include <drivers/keyboard.h>
+#include <drivers/mouse.h>
 #include <drivers/rtc.h>
 #include <drivers/serial.h>
 #include <drivers/vt/vt.h>
@@ -219,6 +220,7 @@ void kernel_main(void) {
     con_init();
     vt_init();
     keyboard_init();
+    mouse_init();
     serial_init_object();
     rtc_init();
     

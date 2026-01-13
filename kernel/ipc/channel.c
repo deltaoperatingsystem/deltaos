@@ -146,6 +146,9 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
         entry->data_len = msg->data_len;
     }
     
+    //record sender PID
+    entry->sender_pid = proc->pid;
+    
     //transfer handles (MOVE semantics)
     if (msg->handle_count > 0 && msg->handles) {
         entry->objects = kzalloc(msg->handle_count * sizeof(object_t *));
@@ -224,6 +227,7 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
             
             handler_msg.data = e->data;
             handler_msg.data_len = e->data_len;
+            handler_msg.sender_pid = e->sender_pid;
             handler_msg.handles = NULL;  //not used for kernel handlers
             handler_msg.handle_count = 0;
             
@@ -275,6 +279,88 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     //copy data to caller
     msg->data = entry->data;  //caller takes ownership
     msg->data_len = entry->data_len;
+    msg->sender_pid = entry->sender_pid;
+    entry->data = NULL;  //don't free it
+    
+    //grant handles to receiver
+    if (entry->object_count > 0) {
+        msg->handles = kzalloc(entry->object_count * sizeof(int32));
+        if (!msg->handles) {
+            //cleanup objects
+            for (uint32 i = 0; i < entry->object_count; i++) {
+                if (entry->objects[i]) object_deref(entry->objects[i]);
+            }
+            kfree(entry->objects);
+            kfree(entry->rights);
+            kfree(entry);
+            return -1;
+        }
+        msg->handle_count = entry->object_count;
+        
+        for (uint32 i = 0; i < entry->object_count; i++) {
+            int h = process_grant_handle(proc, entry->objects[i], entry->rights[i]);
+            if (h < 0) {
+                //partial failure close already-granted handles
+                for (uint32 j = 0; j < i; j++) {
+                    process_close_handle(proc, msg->handles[j]);
+                }
+                //deref remaining objects
+                for (uint32 j = i; j < entry->object_count; j++) {
+                    if (entry->objects[j]) object_deref(entry->objects[j]);
+                }
+                kfree(msg->handles);
+                msg->handles = NULL;
+                msg->handle_count = 0;
+                kfree(entry->objects);
+                kfree(entry->rights);
+                kfree(entry);
+                return -1;
+            }
+            msg->handles[i] = h;
+            object_deref(entry->objects[i]);  //grant added ref sp we remove ours
+        }
+        
+        kfree(entry->objects);
+        kfree(entry->rights);
+    } else {
+        msg->handles = NULL;
+        msg->handle_count = 0;
+    }
+    
+    kfree(entry);
+    return 0;
+}
+
+int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
+    if (!proc || !msg) return -1;
+    
+    channel_endpoint_t *ep = channel_get_endpoint(proc, endpoint_handle);
+    if (!ep) return -1;
+    
+    channel_t *ch = ep->channel;
+    int my_id = ep->endpoint_id;
+    
+    //check if queue is empty
+    if (!ch->queue[my_id]) {
+        //check if peer closed
+        if (ch->closed[1 - my_id]) {
+            return -2;  //peer closed, no more messages
+        }
+        return -3;  //queue empty (non-blocking)
+    }
+    
+    //dequeue message
+    channel_msg_entry_t *entry = ch->queue[my_id];
+    ch->queue[my_id] = entry->next;
+    if (!ch->queue[my_id]) {
+        ch->queue_tail[my_id] = NULL;
+    }
+    ch->queue_len[my_id]--;
+    
+    //copy data to caller
+    msg->data = entry->data;  //caller takes ownership
+    msg->data_len = entry->data_len;
+    msg->sender_pid = entry->sender_pid;
     entry->data = NULL;  //don't free it
     
     //grant handles to receiver

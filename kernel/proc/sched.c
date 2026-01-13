@@ -119,6 +119,12 @@ static void schedule(void) {
         return;
     }
     
+    //don't switch to idle if current thread is still runnable
+    //this happens during yield when there's only one user thread
+    if (next == idle_thread && current && current->state == THREAD_STATE_RUNNING) {
+        return;
+    }
+    
     if (current && current->state == THREAD_STATE_RUNNING && current != idle_thread) {
         //move current to end of queue
         current->state = THREAD_STATE_READY;

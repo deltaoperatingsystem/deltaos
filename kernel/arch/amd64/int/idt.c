@@ -2,6 +2,7 @@
 #include <arch/amd64/interrupts.h>
 #include <arch/amd64/timer.h>
 #include <drivers/keyboard.h>
+#include <drivers/mouse.h>
 #include <lib/io.h>
 
 struct idt_entry {
@@ -83,6 +84,9 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip) {
                 break;
             case 1:
                 keyboard_irq();
+                break;
+            case 12:
+                mouse_irq();
                 break;
             default:
                 printf("Unhandled IRQ: 0x%X\n", irq + 32);

@@ -21,7 +21,7 @@ void shell(void) {
         return;
     }
     
-    puts("[shell] ready. Type something:\n");
+    puts("[shell] ready. Type 'help' for commands:\n");
     
     char buffer[128];
     int l = 0;

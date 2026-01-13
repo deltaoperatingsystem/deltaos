@@ -23,6 +23,8 @@
 #define SYS_VMO_UNMAP       42
 #define SYS_NS_REGISTER     43
 #define SYS_STAT            44
+#define SYS_CHANNEL_TRY_RECV 45
+#define SYS_CHANNEL_RECV_MSG 40
 
 /* 
  *System V AMD64 syscall ABI:

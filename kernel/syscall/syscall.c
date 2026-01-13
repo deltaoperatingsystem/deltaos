@@ -331,6 +331,7 @@ static int64 sys_channel_recv_msg(handle_t ep, void *data_buf, size data_len,
     //fill result
     result_out->data_len = msg.data_len;
     result_out->handle_count = msg.handle_count;
+    result_out->sender_pid = msg.sender_pid;
     
     //cleanup
     if (msg.data) kfree(msg.data);
@@ -360,6 +361,35 @@ static int64 sys_stat(const char *path, stat_t *st) {
     return handle_stat(path, st);
 }
 
+static int64 sys_channel_try_recv(handle_t ep, void *buf, size buflen) {
+    if (!buf && buflen > 0) return -1;
+    
+    process_t *proc = process_current();
+    if (!proc) return -1;
+    
+    channel_msg_t msg;
+    memset(&msg, 0, sizeof(msg));
+    int result = channel_try_recv(proc, ep, &msg);
+    if (result != 0) return result;
+    
+    //copy data to userspace
+    size to_copy = msg.data_len < buflen ? msg.data_len : buflen;
+    if (to_copy > 0 && msg.data) {
+        memcpy(buf, msg.data, to_copy);
+    }
+    
+    //free the message data
+    if (msg.data) kfree(msg.data);
+    
+    //close any transferred handles (this syscall ignores them)
+    for (uint32 i = 0; i < msg.handle_count; i++) {
+        process_close_handle(proc, msg.handles[i]);
+    }
+    if (msg.handles) kfree(msg.handles);
+    
+    return (int64)msg.data_len;
+}
+
 int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
                        uint64 arg4, uint64 arg5, uint64 arg6) {
     switch (num) {
@@ -377,12 +407,13 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
         case SYS_CHANNEL_CREATE: return sys_channel_create((int32 *)arg1, (int32 *)arg2);
         case SYS_CHANNEL_SEND: return sys_channel_send((handle_t)arg1, (const void *)arg2, (size)arg3);
         case SYS_CHANNEL_RECV: return sys_channel_recv((handle_t)arg1, (void *)arg2, (size)arg3);
+        case SYS_CHANNEL_TRY_RECV: return sys_channel_try_recv((handle_t)arg1, (void *)arg2, (size)arg3);
         case SYS_VMO_CREATE: return sys_vmo_create((size)arg1, (uint32)arg2, (handle_rights_t)arg3);
         case SYS_VMO_READ: return sys_vmo_read((handle_t)arg1, (void *)arg2, (size)arg3, (size)arg4);
         case SYS_VMO_WRITE: return sys_vmo_write((handle_t)arg1, (const void *)arg2, (size)arg3, (size)arg4);
         case SYS_CHANNEL_RECV_MSG: return sys_channel_recv_msg((handle_t)arg1, (void *)arg2, (size)arg3,
-                                                               (int32 *)arg4, (uint32)arg5,
-                                                               (channel_recv_result_t *)arg6);
+                                                                (int32 *)arg4, (uint32)arg5,
+                                                                (channel_recv_result_t *)arg6);
         case SYS_VMO_MAP: return sys_vmo_map((handle_t)arg1, (uintptr)arg2, (size)arg3, (size)arg4, (uint32)arg5);
         case SYS_VMO_UNMAP: return sys_vmo_unmap((uintptr)arg1, (size)arg2);
         case SYS_NS_REGISTER: return sys_ns_register((const char *)arg1, (handle_t)arg2);
