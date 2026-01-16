@@ -29,6 +29,7 @@
 #define SYS_NS_REGISTER     43  //register handle in namespace
 #define SYS_STAT            44  //get file status by path
 #define SYS_CHANNEL_TRY_RECV 45  //non-blocking channel receive
+#define SYS_WAIT            46  //wait for process to exit
 
 #define SYS_MAX             64
 

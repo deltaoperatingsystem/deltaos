@@ -20,28 +20,28 @@
 %define CTX_R11     144
 %define CTX_RCX     152
 
-;offset of arch_context within thread_t struct
-;thread_t: tid(8) + process*(8) + state(4) + pad(4) + obj*(8) + entry(8) + arg(8) = 48
+%define KERNEL_DS   0x10
 %define THREAD_CTX_OFFSET 48
 
 %macro isr_err_stub 1
 isr_stub_%+%1:
-    push qword %1       ;push vector (error code already on stack from CPU)
+    push qword %1
     jmp common_stub
 %endmacro
 
 %macro isr_no_err_stub 1
 isr_stub_%+%1:
-    push qword 0        ;push dummy error code
-    push qword %1       ;push vector
+    push qword 0
+    push qword %1
     jmp common_stub
 %endmacro
 
 extern interrupt_handler
 extern thread_current
+extern arch_return_to_usermode
 
 common_stub:
-    ;save ALL general purpose registers
+    ;save ALL registers to stack
     push rax
     push rbx
     push rcx
@@ -58,163 +58,95 @@ common_stub:
     push r14
     push r15
     
-    ;stack layout now (15 regs = 120 bytes):
-    ;[rsp+0]   = r15
-    ;[rsp+8]   = r14
-    ;[rsp+16]  = r13
-    ;[rsp+24]  = r12
-    ;[rsp+32]  = r11
-    ;[rsp+40]  = r10
-    ;[rsp+48]  = r9
-    ;[rsp+56]  = r8
-    ;[rsp+64]  = rbp
-    ;[rsp+72]  = rdi
-    ;[rsp+80]  = rsi
-    ;[rsp+88]  = rdx
-    ;[rsp+96]  = rcx
-    ;[rsp+104] = rbx
-    ;[rsp+112] = rax
-    ;[rsp+120] = vector
-    ;[rsp+128] = error code
-    ;[rsp+136] = RIP   (iret frame)
-    ;[rsp+144] = CS
-    ;[rsp+152] = RFLAGS
-    ;[rsp+160] = RSP
-    ;[rsp+168] = SS
-    
-    ;check if we came from user mode (CS RPL = 3)
-    ;if so then we need to swapgs to get kernel GS for percpu access
-    mov rax, [rsp + 144] ;get CS from stack
-    and rax, 3 ;check RPL bits
-    jz .skip_swapgs_in ;RPL=0 means kernel, skip
-    swapgs ;switch from user GS to kernel GS
-.skip_swapgs_in:
-    
-    ;only save to thread context if we came from usermode
-    ;if interrupted in kernel (e.x during syscall) don't touch thread->context
-    ;this prevents clobbering the usermode context that syscall needs to return to
-    mov rax, [rsp + 144] ;get CS again
+    ;switch GS if coming from usermode
+    mov rax, [rsp + 144] ;CS
     and rax, 3
-    jz .skip_save  ;kernel mode - don't save to thread context
-    
-    ;get current thread to save context to
+    jz .skip_swapgs
+    swapgs
+.skip_swapgs:
+
+    ;only save to thread context if we came from usermode
+    ;if interrupted in kernel, don't touch thread->context to avoid clobbering
+    test qword [rsp + 144], 3
+    jz .skip_save
+
+    ;get current thread to save state
     call thread_current
     test rax, rax
-    jz .skip_save           ;no current thread skip save
+    jz .skip_save
     
-    ;rax = thread_t*, get context pointer
-    lea rbx, [rax + THREAD_CTX_OFFSET]
+    mov r8, rax
+    add r8, THREAD_CTX_OFFSET ;r8 = context_t*
     
-    ;save GPRs from stack to context
-    mov rcx, [rsp + 0]      ;r15
-    mov [rbx + CTX_R15], rcx
-    mov rcx, [rsp + 8]      ;r14
-    mov [rbx + CTX_R14], rcx
-    mov rcx, [rsp + 16]    ;r13
-    mov [rbx + CTX_R13], rcx
-    mov rcx, [rsp + 24]     ;r12
-    mov [rbx + CTX_R12], rcx
-    mov rcx, [rsp + 32]     ;r11
-    mov [rbx + CTX_R11], rcx
-    mov rcx, [rsp + 40]     ;r10
-    mov [rbx + CTX_R10], rcx
-    mov rcx, [rsp + 48]     ;r9
-    mov [rbx + CTX_R9], rcx
-    mov rcx, [rsp + 56]     ;r8
-    mov [rbx + CTX_R8], rcx
-    mov rcx, [rsp + 64]     ;rbp
-    mov [rbx + CTX_RBP], rcx
-    mov rcx, [rsp + 72]     ;rdi
-    mov [rbx + CTX_RDI], rcx
-    mov rcx, [rsp + 80]     ;rsi
-    mov [rbx + CTX_RSI], rcx
-    mov rcx, [rsp + 88]     ;rdx
-    mov [rbx + CTX_RDX], rcx
-    mov rcx, [rsp + 96]     ;rcx
-    mov [rbx + CTX_RCX], rcx
-    mov rcx, [rsp + 104]    ;rbx
-    mov [rbx + CTX_RBX], rcx
-    mov rcx, [rsp + 112]    ;rax
-    mov [rbx + CTX_RAX], rcx
+    ;save registers from stack into thread context
+    mov rax, [rsp + 112] ;rax
+    mov [r8 + CTX_RAX], rax
+    mov rax, [rsp + 104] ;rbx
+    mov [r8 + CTX_RBX], rax
+    mov rax, [rsp + 96]  ;rcx
+    mov [r8 + CTX_RCX], rax
+    mov rax, [rsp + 88]  ;rdx
+    mov [r8 + CTX_RDX], rax
+    mov rax, [rsp + 80]  ;rsi
+    mov [r8 + CTX_RSI], rax
+    mov rax, [rsp + 72]  ;rdi
+    mov [r8 + CTX_RDI], rax
+    mov rax, [rsp + 64]  ;rbp
+    mov [r8 + CTX_RBP], rax
+    mov rax, [rsp + 56]  ;r8
+    mov [r8 + CTX_R8], rax
+    mov rax, [rsp + 48]  ;r9
+    mov [r8 + CTX_R9], rax
+    mov rax, [rsp + 40]  ;r10
+    mov [r8 + CTX_R10], rax
+    mov rax, [rsp + 32]  ;r11
+    mov [r8 + CTX_R11], rax
+    mov rax, [rsp + 24]  ;r12
+    mov [r8 + CTX_R12], rax
+    mov rax, [rsp + 16]  ;r13
+    mov [r8 + CTX_R13], rax
+    mov rax, [rsp + 8]   ;r14
+    mov [r8 + CTX_R14], rax
+    mov rax, [rsp + 0]   ;r15
+    mov [r8 + CTX_R15], rax
     
-    ;save iret frame
-    mov rcx, [rsp + 136]    ;RIP
-    mov [rbx + CTX_RIP], rcx
-    mov rcx, [rsp + 144]    ;CS
-    mov [rbx + CTX_CS], rcx
-    mov rcx, [rsp + 152]    ;RFLAGS
-    mov [rbx + CTX_RFLAGS], rcx
-    mov rcx, [rsp + 160]    ;RSP
-    mov [rbx + CTX_RSP], rcx
-    mov rcx, [rsp + 168]    ;SS
-    mov [rbx + CTX_SS], rcx
+    ;save shared interrupt frame fields
+    mov rax, [rsp + 136] ;RIP
+    mov [r8 + CTX_RIP], rax
+    mov rax, [rsp + 144] ;CS
+    mov [r8 + CTX_CS], rax
+    mov rax, [rsp + 152] ;RFLAGS
+    mov [r8 + CTX_RFLAGS], rax
+    
+    ;user mode: RSP/SS were pushed by CPU
+    mov rax, [rsp + 160] ;RSP
+    mov [r8 + CTX_RSP], rax
+    mov rax, [rsp + 168] ;SS
+    mov [r8 + CTX_SS], rax
 
 .skip_save:
-    ;call interrupt handler
+    ;call C interrupt handler
     mov rdi, [rsp + 120] ;vector
     mov rsi, [rsp + 128] ;error code
     mov rdx, [rsp + 136] ;RIP
+    mov rcx, rsp         ;pointer to registers (regs_t *)
     call interrupt_handler
     
-    ;check if we came from kernel mode - if so, skip restore from context
-    ;the stack's CS tells us where we ACTUALLY came from and we must return there
-    mov rax, [rsp + 144] ;get original CS from stack's iret frame
-    and rax, 3
-    jz .restore_from_stack  ;kernel mode - use stack-based restore
+    ;check where we came from
+    test qword [rsp + 144], 3
+    jz .manual_restore ;kernel mode - restore from stack and iretq
     
-    ;get (POSSIBLY new) current thread to restore from
+    ;restore from potentially new current thread (usermode return)
     call thread_current
     test rax, rax
-    jz .restore_from_stack  ;no thread - restore from stack as-is
+    jz .manual_restore ;should never happen
     
-    lea rbx, [rax + THREAD_CTX_OFFSET]
-    
-    ;restore iret frame from context to stack
-    mov rcx, [rbx + CTX_SS]
-    mov [rsp + 168], rcx
-    mov rcx, [rbx + CTX_RSP]
-    mov [rsp + 160], rcx
-    mov rcx, [rbx + CTX_RFLAGS]
-    mov [rsp + 152], rcx
-    mov rcx, [rbx + CTX_CS]
-    mov [rsp + 144], rcx
-    mov rcx, [rbx + CTX_RIP]
-    mov [rsp + 136], rcx
-    
-    ;restore GPRs from context to stack
-    mov rcx, [rbx + CTX_RAX]
-    mov [rsp + 112], rcx
-    mov rcx, [rbx + CTX_RBX]
-    mov [rsp + 104], rcx
-    mov rcx, [rbx + CTX_RCX]
-    mov [rsp + 96], rcx
-    mov rcx, [rbx + CTX_RDX]
-    mov [rsp + 88], rcx
-    mov rcx, [rbx + CTX_RSI]
-    mov [rsp + 80], rcx
-    mov rcx, [rbx + CTX_RDI]
-    mov [rsp + 72], rcx
-    mov rcx, [rbx + CTX_RBP]
-    mov [rsp + 64], rcx
-    mov rcx, [rbx + CTX_R8]
-    mov [rsp + 56], rcx
-    mov rcx, [rbx + CTX_R9]
-    mov [rsp + 48], rcx
-    mov rcx, [rbx + CTX_R10]
-    mov [rsp + 40], rcx
-    mov rcx, [rbx + CTX_R11]
-    mov [rsp + 32], rcx
-    mov rcx, [rbx + CTX_R12]
-    mov [rsp + 24], rcx
-    mov rcx, [rbx + CTX_R13]
-    mov [rsp + 16], rcx
-    mov rcx, [rbx + CTX_R14]
-    mov [rsp + 8], rcx
-    mov rcx, [rbx + CTX_R15]
-    mov [rsp + 0], rcx
+    mov rdi, rax
+    add rdi, THREAD_CTX_OFFSET
+    jmp arch_return_to_usermode
 
-.restore_from_stack:
-    ;restore all GPRs
+.manual_restore:
+    ;fallback manual restore from stack
     pop r15
     pop r14
     pop r13
@@ -230,18 +162,11 @@ common_stub:
     pop rcx
     pop rbx
     pop rax
-    
-    ;remove vector and error code
-    add rsp, 16
-    
-    ;check if returning to user mode (CS RPL = 3)
-    ;if so, we need to swapgs back to user GS
-    ;stack layout now: [rsp+0]=RIP, [rsp+8]=CS, [rsp+16]=RFLAGS, [rsp+24]=RSP, [rsp+32]=SS
-    test qword [rsp + 8], 3 ;check RPL bits directly
-    jz .skip_swapgs_out ;RPL=0 means returning to kernel, skip
-    swapgs ;switch from kernel GS to user GS
+    add rsp, 16 ;vector and err
+    test qword [rsp + 8], 3 ;CS
+    jz .skip_swapgs_out
+    swapgs
 .skip_swapgs_out:
-    
     iretq
 
 ;CPU exceptions (0-31)
@@ -278,7 +203,7 @@ isr_no_err_stub 29
 isr_err_stub    30
 isr_no_err_stub 31
 
-;IRQs and software interrupts (32-255)
+;IRQs (32-255)
 %assign i 32
 %rep 224
     isr_no_err_stub i

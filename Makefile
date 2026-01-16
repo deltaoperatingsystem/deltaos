@@ -24,9 +24,8 @@ clean:
 	@$(MAKE) --no-print-directory -C bootloader clean
 	@$(MAKE) --no-print-directory -C user clean
 	@$(MAKE) --no-print-directory -C tools/darc clean
-	@$(MAKE) --no-print-directory -C user clean
 	@rm -f initrd.da
-	@rm -rf initrd/system
+	@rm -rf initrd/system initrd/init initrd/wm initrd/data.txt
 
 run: all
 	@./run.sh

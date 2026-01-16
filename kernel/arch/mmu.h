@@ -21,11 +21,14 @@
 /*
  * required MI functions - each arch must implement:
  *
+ * mmu_init() - initialize MMU for current kernel
  * mmu_map_range(map, virt, phys, pages, flags) - map range of pages
  * mmu_unmap_range(map, virt, pages) - unmap range of pages
  * mmu_virt_to_phys(map, virt) - translate virtual address to physical physical
  * mmu_switch(map) - switch to a different address space
  * mmu_get_kernel_pagemap() - get the kernel's initial pagemap
+ * mmu_pagemap_create() - create a new address space (pagemap)
+ * mmu_pagemap_destroy(map) - destroy an address space
  *
  * required types:
  * pagemap_t - structure representing an address space (page tables)

@@ -5,6 +5,7 @@
 #include <arch/interrupts.h>
 #include <mm/kheap.h>
 #include <lib/string.h>
+#include <lib/io.h>
 
 #define KERNEL_STACK_SIZE 16384  //16KB
 
@@ -86,13 +87,15 @@ thread_t *thread_create(process_t *proc, void (*entry)(void *), void *arg) {
 void thread_destroy(thread_t *thread) {
     if (!thread) return;
     
+    process_t *proc = thread->process;
+    
     //remove from process thread list
-    if (thread->process) {
-        thread_t **tp = &thread->process->threads;
+    if (proc) {
+        thread_t **tp = &proc->threads;
         while (*tp) {
             if (*tp == thread) {
                 *tp = thread->next;
-                thread->process->thread_count--;
+                proc->thread_count--;
                 break;
             }
             tp = &(*tp)->next;
@@ -107,6 +110,11 @@ void thread_destroy(thread_t *thread) {
     
     kfree(thread->kernel_stack);
     kfree(thread);
+    
+    //if this was the last thread, destroy the process too
+    if (proc && proc->thread_count == 0 && proc->pid != 0) {
+        process_destroy(proc);
+    }
 }
 
 object_t *thread_get_object(thread_t *thread) {
@@ -120,6 +128,19 @@ thread_t *thread_current(void) {
 
 void thread_set_current(thread_t *thread) {
     current_thread = thread;
+}
+
+static void user_thread_trampoline(void *thread_ptr) {
+    thread_t *thread = (thread_t *)thread_ptr;
+    
+    //enable interrupts (arch_context_switch doesn't restore IF)
+    arch_interrupts_enable();
+    
+    //transition to usermode
+    arch_enter_usermode(&thread->user_context);
+    
+    //never reached
+    thread_exit();
 }
 
 thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
@@ -139,11 +160,11 @@ thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
         return NULL;
     }
     
-    //usermode threads don't use entry/arg - context set directly
+    //usermode threads use their own user_context for iretq
     thread->entry = NULL;
     thread->arg = NULL;
     
-    //allocate kernel stack (for syscalls/interrupts)
+    //allocate kernel stack (for syscalls/interrupts/trampoline)
     thread->kernel_stack = kmalloc(KERNEL_STACK_SIZE);
     if (!thread->kernel_stack) {
         object_deref(thread->obj);
@@ -152,8 +173,12 @@ thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
     }
     thread->kernel_stack_size = KERNEL_STACK_SIZE;
     
-    //setup usermode context
-    arch_context_init_user(&thread->context, user_stack, entry, NULL);
+    //setup usermode state in user_context
+    arch_context_init_user(&thread->user_context, user_stack, entry, NULL);
+    
+    //setup initial KERNEL context to run the trampoline
+    void *stack_top = (char *)thread->kernel_stack + KERNEL_STACK_SIZE;
+    arch_context_init(&thread->context, stack_top, user_thread_trampoline, thread);
     
     //link into process thread list
     thread->next = proc->threads;

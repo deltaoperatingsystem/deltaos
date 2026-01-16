@@ -13,6 +13,9 @@
 //extended kernel object types
 #include <obj/kobject.h>
 
+#define OBJECT_FLAG_NONE      0x00
+#define OBJECT_FLAG_ALLOCATED 0x01
+
 struct object;
 
 //polymorphic operations for objects

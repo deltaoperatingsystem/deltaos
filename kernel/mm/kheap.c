@@ -2,6 +2,7 @@
 #include <mm/vmm.h>
 #include <mm/pmm.h>
 #include <mm/mm.h>
+#include <arch/cpu.h>
 #include <lib/io.h>
 #include <lib/string.h>
 
@@ -14,7 +15,7 @@ static bool kheap_ready = false;
 
 //when pages are freed we record the virtual address range as a hole so it
 //can be reused by future allocations this prevents unbounded virtual address space
-#define VHOLE_MAX_COUNT 256
+#define VHOLE_MAX_COUNT 4096
 
 typedef struct {
     uintptr addr;
@@ -26,11 +27,18 @@ static vhole_t vholes[VHOLE_MAX_COUNT];
 
 //find and reclaim a virtual hole of the exact size needed
 static void *backing_alloc(size pages) {
-    //try to find an exact-fit hole
+    //try to find a hole that fits
     for (int i = 0; i < VHOLE_MAX_COUNT; i++) {
-        if (vholes[i].in_use && vholes[i].pages == pages) {
+        if (vholes[i].in_use && vholes[i].pages >= pages) {
             uintptr vaddr = vholes[i].addr;
-            vholes[i].in_use = false;
+            
+            if (vholes[i].pages == pages) {
+                vholes[i].in_use = false;
+            } else {
+                //split the hole
+                vholes[i].addr += pages * PAGE_SIZE;
+                vholes[i].pages -= pages;
+            }
 
             void *paddr = pmm_alloc(pages);
             if (!paddr) return NULL;
@@ -52,12 +60,16 @@ static void *backing_alloc(size pages) {
     void *vaddr = (void *)heap_virt_cursor;
     vmm_kernel_map(heap_virt_cursor, (uintptr)paddr, pages, MMU_FLAG_PRESENT | MMU_FLAG_WRITE);
     heap_virt_cursor += pages * PAGE_SIZE;
-
+    
+    // printf("[kheap] alloc virt=0x%lx phys=0x%lx pages=%zu\n", (uintptr)vaddr, (uintptr)paddr, pages);
     return vaddr;
 }
 
 //free backing pages and record the virtual range as a hole for reuse
 static void backing_free(void *virt, size pages) {
+    if ((uintptr)virt < KHEAP_VIRT_START || (uintptr)virt >= KHEAP_VIRT_END) {
+        return;
+    }
     pagemap_t *map = mmu_get_kernel_pagemap();
 
     //free each underlying physical page
@@ -72,11 +84,37 @@ static void backing_free(void *virt, size pages) {
     //unmap the virtual range
     vmm_unmap(map, (uintptr)virt, pages);
 
-    //record as a hole for future reuse
+    uintptr start = (uintptr)virt;
+    size total_pages = pages;
+
+    //aggregate adjacent holes to prevent fragmentation
+    for (int i = 0; i < VHOLE_MAX_COUNT; i++) {
+        if (!vholes[i].in_use) continue;
+
+        uintptr h_start = vholes[i].addr;
+        uintptr h_end = h_start + vholes[i].pages * PAGE_SIZE;
+
+        if (h_end == start) {
+            //new range is immediately after existing hole
+            start = h_start;
+            total_pages += vholes[i].pages;
+            vholes[i].in_use = false;
+            //restart search to find further merges
+            i = -1;
+        } else if (start + total_pages * PAGE_SIZE == h_start) {
+            //new range is immediately before existing hole
+            total_pages += vholes[i].pages;
+            vholes[i].in_use = false;
+            //restart search
+            i = -1;
+        }
+    }
+
+    //record the (possibly merged) range as a hole
     for (int i = 0; i < VHOLE_MAX_COUNT; i++) {
         if (!vholes[i].in_use) {
-            vholes[i].addr = (uintptr)virt;
-            vholes[i].pages = pages;
+            vholes[i].addr = start;
+            vholes[i].pages = total_pages;
             vholes[i].in_use = true;
             return;
         }
@@ -154,6 +192,8 @@ void kheap_init(void) {
 void *kmalloc(size n) {
     if (n == 0 || !kheap_ready) return NULL;
 
+    irq_state_t flags = arch_irq_save();
+
     //try to satisfy from a slab bucket
     for (int i = 0; i < BUCKET_COUNT; i++) {
         if (n <= bucket_sizes[i]) {
@@ -165,7 +205,10 @@ void *kmalloc(size n) {
                 slab = cache->empty_slabs;
                 if (!slab) {
                     slab = slab_create(cache);
-                    if (!slab) return NULL;
+                    if (!slab) {
+                        arch_irq_restore(flags);
+                        return NULL;
+                    }
                 } else {
                     list_remove(&cache->empty_slabs, slab);
                 }
@@ -183,6 +226,7 @@ void *kmalloc(size n) {
                 list_prepend(&cache->full_slabs, slab);
             }
 
+            arch_irq_restore(flags);
             return (void *)obj;
         }
     }
@@ -194,7 +238,10 @@ void *kmalloc(size n) {
     size pages = (total + PAGE_SIZE - 1) / PAGE_SIZE;
 
     kheap_large_t *large = (kheap_large_t *)backing_alloc(pages);
-    if (!large) return NULL;
+    if (!large) {
+        arch_irq_restore(flags);
+        return NULL;
+    }
 
     large->magic = KHEAP_MAGIC_LARGE;
     large->pages = pages;
@@ -202,6 +249,8 @@ void *kmalloc(size n) {
     //return aligned pointer after header
     uintptr data = (uintptr)large + sizeof(kheap_large_t);
     data = (data + KHEAP_MIN_ALIGN - 1) & ~(KHEAP_MIN_ALIGN - 1);
+    
+    arch_irq_restore(flags);
     return (void *)data;
 }
 
@@ -213,6 +262,15 @@ void *kzalloc(size n) {
 
 void kfree(void *p) {
     if (!p) return;
+    
+    //range check to ensure this is actually a kernel heap pointer
+    uintptr addr = (uintptr)p;
+    if (addr < KHEAP_VIRT_START || addr >= KHEAP_VIRT_END) {
+        //not a heap pointer - likely truncated or from another space
+        return;
+    }
+
+    irq_state_t flags = arch_irq_save();
 
     //determine allocation type by checking magic at page start
     uintptr page_addr = (uintptr)p & ~(PAGE_SIZE - 1);
@@ -250,11 +308,18 @@ void kfree(void *p) {
         //large allocation: find header and free pages
         kheap_large_t *large = (kheap_large_t *)page_addr;
         if (large->magic == KHEAP_MAGIC_LARGE) {
-            backing_free(large, large->pages);
+            size pages = large->pages;
+            //clear magic BEFORE freeing to prevent use-after-free cascades
+            //if a stale pointer tries to kfree this address after reuse,
+            //it will fail the magic check instead of freeing the new allocation
+            large->magic = 0;
+            backing_free(large, pages);
         } else {
             printf("[kheap] ERR: kfree invalid pointer %P (magic 0x%X)\n", p, meta->magic);
         }
     }
+    
+    arch_irq_restore(flags);
 }
 
 void *krealloc(void *p, size n) {
@@ -291,4 +356,17 @@ void *krealloc(void *p, size n) {
     kfree(p);
 
     return new_p;
+}
+
+void *kheap_alloc_pages(size pages) {
+    irq_state_t flags = arch_irq_save();
+    void *p = backing_alloc(pages);
+    arch_irq_restore(flags);
+    return p;
+}
+
+void kheap_free_pages(void *p, size pages) {
+    irq_state_t flags = arch_irq_save();
+    backing_free(p, pages);
+    arch_irq_restore(flags);
 }

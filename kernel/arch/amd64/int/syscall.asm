@@ -13,6 +13,7 @@ syscall_entry_simple:
     mov rsp, [gs:PERCPU_KERNEL_RSP]
     
     ;save registers clobbered by syscall instruction
+    push qword [gs:PERCPU_USER_RSP] ;save REAL user RSP on kernel stack
     push rcx                ;RIP saved by syscall
     push r11                ;RFLAGS saved by syscall
     push rbp
@@ -62,7 +63,7 @@ syscall_entry_simple:
     pop r11
     pop rcx
     
-    mov rsp, [gs:PERCPU_USER_RSP]
+    pop rsp                 ;RESTORE user RSP from kernel stack
     
     swapgs
     

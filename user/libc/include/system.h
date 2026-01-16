@@ -20,6 +20,7 @@ void exit(int code);
 int64 getpid(void);
 void yield(void);
 int spawn(char *path, int argc, char **argv);
+int wait(int pid);
 
 //capability-based object access
 int32 get_obj(int32 parent, const char *path, uint32 rights);

@@ -40,6 +40,7 @@ typedef struct pagemap {
 #define PT_IDX(v)   (((v) >> 12) & 0x1FF)
 
 //MI mmu interface
+void mmu_init(void);
 void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint64 flags);
 void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages);
 uintptr mmu_virt_to_phys(pagemap_t *map, uintptr virt);
@@ -49,5 +50,8 @@ pagemap_t *mmu_get_kernel_pagemap(void);
 //user address space management
 pagemap_t *mmu_pagemap_create(void);
 void mmu_pagemap_destroy(pagemap_t *map);
+
+//debug
+void mmu_debug_walk(pagemap_t *map, uintptr virt, const char *label);
 
 #endif

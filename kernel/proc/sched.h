@@ -24,4 +24,7 @@ void sched_start(void);
 //exit current thread and schedule next (never returns)
 void sched_exit(void);
 
+//reap dead threads
+void sched_reap(void);
+
 #endif

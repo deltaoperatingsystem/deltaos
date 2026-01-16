@@ -230,6 +230,9 @@ int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *
         if (phdr->p_flags & PF_W) mmu_flags |= MMU_FLAG_WRITE;
         if (phdr->p_flags & PF_X) mmu_flags |= MMU_FLAG_EXEC;
         
+        //unmap before mapping to avoid leaking physical pages if segments overlap or repeat
+        vmm_unmap(pagemap, seg_vaddr, seg_pages);
+        
         //map into user address space
         vmm_map(pagemap, seg_vaddr, (uintptr)phys, seg_pages, mmu_flags);
         

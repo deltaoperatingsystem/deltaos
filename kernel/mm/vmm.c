@@ -19,6 +19,9 @@ void vmm_init(void) {
     pagemap_t *kernel_map = mmu_get_kernel_pagemap();
     printf("[vmm] initializing kernel address space (PML4: 0x%X)\n", kernel_map->top_level);
     
+    //pre-allocate all kernel PDPs to avoid synchronization issues with user pagemaps
+    mmu_init();
+    
     //the kernel is already mapped by the bootloader (HHDM + Kernel ELF)
     //vmm_init can eventually set up heap guards whatever
 }

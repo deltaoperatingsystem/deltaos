@@ -39,6 +39,13 @@ struct arch_context {
 
 typedef struct arch_context arch_context_t;
 
+typedef struct {
+    uint64 r15, r14, r13, r12, r11, r10, r9, r8;
+    uint64 rbp, rdi, rsi, rdx, rcx, rbx, rax;
+    uint64 vector, error_code;
+    uintptr rip, cs, rflags, rsp, ss;
+} interrupt_frame_t;
+
 //context functions
 void arch_context_init(arch_context_t *ctx, void *stack_top, void (*entry)(void *), void *arg);
 void arch_context_init_user(arch_context_t *ctx, void *user_stack, void *entry, void *arg);

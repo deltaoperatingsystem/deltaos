@@ -305,7 +305,18 @@ static int ld_load_library(const char *name, lib_handle_t *lib) {
     
     #undef TRY_PATH
     
-    if (!found) return LD_ERR_OPEN;
+    if (!found) {
+        outs("ld.so: could not find library: ");
+        outs(name);
+        outn();
+        return LD_ERR_OPEN;
+    }
+    
+/*
+    outs("ld.so: loading: ");
+    outs(path);
+    outn();
+*/
     
     //allocate exact read buffer via bump allocator
     uint64_t buf_size = st.size;

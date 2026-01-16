@@ -1,10 +1,12 @@
 #include <proc/process.h>
 #include <proc/thread.h>
+#include <mm/pmm.h>
 #include <mm/kheap.h>
 #include <mm/mm.h>
 #include <arch/mmu.h>
 #include <lib/string.h>
 #include <lib/io.h>
+#include <proc/sched.h>
 
 static uint64 next_pid = 1;
 static process_t *process_list = NULL;
@@ -25,7 +27,20 @@ static object_ops_t process_object_ops = {
     .lookup = NULL
 };
 
+process_t *process_find(uint64 pid) {
+    process_t *p = process_list;
+    while (p) {
+        if (p->pid == pid) return p;
+        p = p->next;
+    }
+    return NULL;
+}
+
+
 process_t *process_create(const char *name) {
+    //ensure we reclaim any dead processes before potentially allocating a new one
+    sched_reap();
+    
     process_t *proc = kzalloc(sizeof(process_t));
     if (!proc) return NULL;
     
@@ -53,6 +68,8 @@ process_t *process_create(const char *name) {
     proc->pagemap = NULL;
     proc->threads = NULL;
     proc->thread_count = 0;
+    proc->exit_code = 0;
+    wait_queue_init(&proc->exit_wait);
     
     //add to process list
     proc->next = process_list;
@@ -78,6 +95,9 @@ process_t *process_create_user(const char *name) {
 void process_destroy(process_t *proc) {
     if (!proc) return;
     
+    //wake any threads waiting for this process to exit
+    thread_wake_all(&proc->exit_wait);
+    
     //close all handles
     for (uint32 i = 0; i < proc->handle_capacity; i++) {
         if (proc->handles[i].obj) {
@@ -88,6 +108,33 @@ void process_destroy(process_t *proc) {
     
     //free user address space if present
     if (proc->pagemap) {
+        //first, free all VMAs and their physical memory
+        proc_vma_t *vma = proc->vma_list;
+        while (vma) {
+            proc_vma_t *next = vma->next;
+            
+            //if it's anonymous memory (no backing object), free the physical pages
+            //for now, we assume if obj is NULL, we own the physical pages
+            if (!vma->obj) {
+                //we need to walk the pages and free them
+                //since we don't track phys addresses in VMA directly for all types
+                //we have to use the pagemap to find them or walk the range
+                for (uintptr addr = vma->start; addr < vma->start + vma->length; addr += 4096) {
+                    uintptr phys = mmu_virt_to_phys(proc->pagemap, addr);
+                    if (phys) {
+                        //unmap first to prevent double-free via overlapping VMAs
+                        mmu_unmap_range(proc->pagemap, addr, 1);
+                        pmm_free((void *)phys, 1);
+                    }
+                }
+            }
+            
+            if (vma->obj) object_deref(vma->obj);
+            kfree(vma);
+            vma = next;
+        }
+        proc->vma_list = NULL;
+
         mmu_pagemap_destroy(proc->pagemap);
         proc->pagemap = NULL;
     }

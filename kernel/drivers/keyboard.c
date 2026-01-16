@@ -146,7 +146,6 @@ void keyboard_init(void) {
             //client endpoint is what userspace opens to receive events
             object_t *client_obj = process_get_handle(kproc, client_ep);
             if (client_obj) {
-                object_ref(client_obj);
                 ns_register("$devices/keyboard/channel", client_obj);
             }
         }
