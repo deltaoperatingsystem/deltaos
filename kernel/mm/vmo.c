@@ -36,7 +36,8 @@ static int vmo_obj_close(object_t *obj) {
     
     //free the backing memory
     if (vmo->pages) {
-        kfree(vmo->pages);
+        size pages = (vmo->size + PAGE_SIZE - 1) / PAGE_SIZE;
+        kheap_free_pages(vmo->pages, pages);
         vmo->pages = NULL;
     }
     
@@ -51,34 +52,37 @@ static object_ops_t vmo_ops = {
     .lookup = NULL
 };
 
-int32 vmo_create(process_t *proc, size size, uint32 flags, handle_rights_t rights) {
-    if (!proc || size == 0) return -1;
+int32 vmo_create(process_t *proc, size vmo_size, uint32 flags, handle_rights_t rights) {
+    if (!proc || vmo_size == 0) return -1;
     
     //allocate VMO structure
     vmo_t *vmo = kzalloc(sizeof(vmo_t));
     if (!vmo) return -1;
     
     //allocate backing memory (for now fully committed)
-    vmo->pages = kzalloc(size);
+    size pages = (vmo_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    vmo->pages = kheap_alloc_pages(pages);
     if (!vmo->pages) {
         kfree(vmo);
         return -1;
     }
+    //raw allocator doesn't zero memory so we must do it manually via HHDM
+    memset(vmo->pages, 0, pages * PAGE_SIZE);
     
     //initialize embedded object
     vmo->obj.type = OBJECT_VMO;
-    vmo->obj.refcount = 1;
+    vmo->obj.refcount = 0;
     vmo->obj.ops = &vmo_ops;
     vmo->obj.data = vmo;
     
-    vmo->size = size;
-    vmo->committed = size;
+    vmo->size = vmo_size;
+    vmo->committed = vmo_size;
     vmo->flags = flags;
     
     //grant handle to process
     int32 h = process_grant_handle(proc, &vmo->obj, rights);
     if (h < 0) {
-        kfree(vmo->pages);
+        kheap_free_pages(vmo->pages, pages);
         kfree(vmo);
         return -1;
     }

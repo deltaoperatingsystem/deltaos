@@ -4,12 +4,15 @@
 #include <arch/types.h>
 #include <obj/object.h>
 #include <obj/rights.h>
+#include <proc/wait.h>
+
 
 //process states
 #define PROC_STATE_READY    0
 #define PROC_STATE_RUNNING  1
 #define PROC_STATE_BLOCKED  2
 #define PROC_STATE_DEAD     3
+#define PROC_STATE_ZOMBIE   4
 
 #define PROC_INITIAL_HANDLES 16
 
@@ -32,6 +35,7 @@ typedef struct proc_vma {
     size obj_offset;            //offset into backing object
     struct proc_vma *next;      //linked list
 } proc_vma_t;
+
 
 //process structure
 typedef struct process {
@@ -58,6 +62,9 @@ typedef struct process {
     struct thread *threads;
     uint32 thread_count;
     
+    int64 exit_code;
+    wait_queue_t exit_wait;
+    
     //linked list for scheduler
     struct process *next;
 } process_t;
@@ -65,6 +72,9 @@ typedef struct process {
 //user address space bounds
 #define USER_SPACE_START    0x0000000000400000ULL  //4MB
 #define USER_SPACE_END      0x00007FFFFFFFFFFFULL  //canonical low half
+
+//find a process by PID
+process_t *process_find(uint64 pid);
 
 //create a new process
 process_t *process_create(const char *name);

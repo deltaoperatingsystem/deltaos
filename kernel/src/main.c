@@ -171,6 +171,10 @@ static void spawn_init(void) {
     mmu_map_range(proc->pagemap, user_stack_base - stack_size, stack_phys, 
                   stack_size / 4096, MMU_FLAG_WRITE | MMU_FLAG_USER);
     
+    //track stack in VMA list
+    process_vma_add(proc, user_stack_base - stack_size, stack_size,
+                    MMU_FLAG_WRITE | MMU_FLAG_USER, NULL, 0);
+    
     //set up argc/argv and aux vector
     char *init_argv[] = { "/initrd/init", NULL };
     int init_argc = sizeof(init_argv) / sizeof(init_argv[0]) - 1;
@@ -199,9 +203,6 @@ static void spawn_init(void) {
         return;
     }
     printf("[init] created thread TID %lu\n", thread->tid);
-    
-    //set up per-CPU kernel stack for syscalls
-    percpu_set_kernel_stack((char*)thread->kernel_stack + thread->kernel_stack_size);
     
     //add init thread to scheduler
     sched_add(thread);

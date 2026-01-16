@@ -34,65 +34,170 @@ static int64 sys_yield(void) {
 }
 
 static int64 sys_debug_write(const char *buf, size count) {
-    if (!buf) return -1;
-    for (size i = 0; i < count; i++) {
-        serial_write_char(buf[i]);
-    }
+    debug_write(buf, count);
     return (int64)count;
 }
 
 static int64 sys_spawn(const char *path, int argc, char **argv) {
-    //open the file
-    char buffer[256];
-    snprintf(buffer, 255, "$files/%s", path);
-    handle_t h = handle_open(buffer, HANDLE_RIGHT_READ);
-    if (h == INVALID_HANDLE) return -1;
-
-    //read the binary
-    char buf[8192];
-    ssize len = handle_read(h, buf, sizeof(buf));
+    //open path
+    handle_t h = handle_open(path, HANDLE_RIGHT_READ);
+    if (h == INVALID_HANDLE) {
+        return -1;
+    }
+    
+    //allocate buffer for exec binary
+    size buf_size = 32768;  //32KB should be enough
+    char *buf = kzalloc(buf_size);
+    if (!buf) {
+        return -1;
+    }
+    
+    ssize len = handle_read(h, buf, buf_size);
     handle_close(h);
-
-    if (len <= 0) return -2;
-
-    //validate elf
-    if (!elf_validate(buf, len)) return -3;
-
+    
+    if (len <= 0) {
+        kfree(buf);
+        return -1;
+    }
+    
+    //validate ELF
+    if (!elf_validate(buf, len)) {
+        kfree(buf);
+        return -1;
+    }
+    
     //create user process
     process_t *proc = process_create_user(path);
-    if (!proc) return -4;
-
-    //load elf into user space
+    if (!proc) {
+        kfree(buf);
+        return -1;
+    }
+    
+    //load ELF into user address space
     elf_load_info_t info;
-    int err = elf_load_user(buf, len, proc->pagemap, &info);
+    int err = elf_load_user(buf, len, proc, &info);
     if (err != ELF_OK) {
         process_destroy(proc);
-        return -5;
+        kfree(buf);
+        return -1;
     }
+    
+    //check for dynamic executable (has interpreter)
+    uint64 interp_base = 0;
+    uint64 real_entry = info.entry;
+    
+    if (info.interp_path[0]) {
+        
+        //convert interpreter path to initrd path
+        //e.x /system/libraries/ld.so -> $files/initrd/system/libraries/ld.so
+        char interp_fullpath[256];
+        if (info.interp_path[0] == '/') {
+            //absolute path - prepend $files/initrd
+            snprintf(interp_fullpath, sizeof(interp_fullpath), "$files/initrd%s", info.interp_path);
+        } else {
+            snprintf(interp_fullpath, sizeof(interp_fullpath), "$files/initrd/%s", info.interp_path);
+        }
+        
+        //load interpreter
+        handle_t ih = handle_open(interp_fullpath, HANDLE_RIGHT_READ);
+        if (ih == INVALID_HANDLE) {
+            process_destroy(proc);
+            kfree(buf);
+            return -1;
+        }
+        
+        size interp_buf_size = 32768; //32KB for interpreter
+        char *interp_buf = kzalloc(interp_buf_size);
+        if (!interp_buf) {
+            handle_close(ih);
+            process_destroy(proc);
+            kfree(buf);
+            return -1;
+        }
 
+        ssize interp_len = handle_read(ih, interp_buf, interp_buf_size);
+        handle_close(ih);
+        
+        if (interp_len <= 0 || !elf_validate(interp_buf, interp_len)) {
+            process_destroy(proc);
+            kfree(interp_buf);
+            kfree(buf);
+            return -1;
+        }
+        
+        //load interpreter into address space
+        elf_load_info_t interp_info;
+        err = elf_load_user(interp_buf, interp_len, proc, &interp_info);
+        if (err != ELF_OK) {
+            process_destroy(proc);
+            kfree(interp_buf);
+            kfree(buf);
+            return -1;
+        }
+        
+        interp_base = interp_info.virt_base;
+        real_entry = interp_info.entry;  //jump to interpreter not executable
+        kfree(interp_buf);
+    }
+    
     //allocate user stack
     uintptr user_stack_base = 0x7FFFFFFFE000ULL;
     size stack_size = 0x2000;
-
-    uintptr stack_phys = (uintptr)pmm_alloc(stack_size / 4096);
-    if (!stack_phys) return -6;
-    mmu_map_range(proc->pagemap, user_stack_base - stack_size, stack_phys,
-                    stack_size / 4096, MMU_FLAG_WRITE | MMU_FLAG_USER);
     
-    //setup argc/argv
-    uintptr user_stack_top = process_setup_user_stack(stack_phys, user_stack_base,
-                                                    stack_size, argc, argv);
+    uintptr stack_phys = (uintptr)pmm_alloc(stack_size / 4096);
+    if (!stack_phys) {
+        return -1;
+    }
+    
+    mmu_map_range(proc->pagemap, user_stack_base - stack_size, stack_phys, 
+                  stack_size / 4096, MMU_FLAG_WRITE | MMU_FLAG_USER);
+    
+    //track stack in VMA list for cleanup
+    process_vma_add(proc, user_stack_base - stack_size, stack_size, 
+                    MMU_FLAG_WRITE | MMU_FLAG_USER, NULL, 0);
+    
+
+    //set up argc/argv and aux vector
+    
+    uintptr user_stack_top;
+    if (info.interp_path[0]) {
+        //dynamic executable: use aux vector stack setup
+        user_stack_top = process_setup_user_stack_dynamic(
+            stack_phys, user_stack_base, stack_size, argc, argv,
+            info.phdr_addr, info.phdr_count, info.phdr_size,
+            info.entry,  //AT_ENTRY = original program entry
+            interp_base  //AT_BASE = interpreter load address
+        );
+        
+    } else {
+        //static executable: simple stack setup
+        user_stack_top = process_setup_user_stack(stack_phys, user_stack_base, 
+                                                   stack_size, argc, argv);
+    }
+    
+    
     //create user thread
-    thread_t *thread = thread_create_user(proc, (void*)info.entry, (void*)user_stack_top);
-    if (!thread) return -7;
-
-    //setup kernel stack for syscalls
-    percpu_set_kernel_stack((char*)thread->kernel_stack + thread->kernel_stack_size);
-
-    //add thread to scheduler
+    thread_t *thread = thread_create_user(proc, (void*)real_entry, (void*)user_stack_top);
+    if (!thread) {
+        kfree(buf);
+        return -1;
+    }
+    
+    //add exec thread to scheduler
     sched_add(thread);
     
-    return proc->pid;
+    kfree(buf);
+    return (int64)proc->pid;
+}
+
+static int64 sys_wait(uint64 pid) {
+    process_t *proc = process_find(pid);
+    if (!proc) return -1;
+    
+    //sleep until the process is destroyed (wakes exit_wait)
+    thread_sleep(&proc->exit_wait);
+    
+    return 0;
 }
 
 
@@ -418,6 +523,7 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
         case SYS_VMO_UNMAP: return sys_vmo_unmap((uintptr)arg1, (size)arg2);
         case SYS_NS_REGISTER: return sys_ns_register((const char *)arg1, (handle_t)arg2);
         case SYS_STAT: return sys_stat((const char *)arg1, (stat_t *)arg2);
+        case SYS_WAIT: return sys_wait(arg1);
         default: return -1;
     }
 }

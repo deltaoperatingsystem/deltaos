@@ -16,6 +16,17 @@ pagemap_t *mmu_get_kernel_pagemap(void) {
     return &kernel_pagemap;
 }
 
+static uint64 *get_next_level(uint64 *current_table, uint32 index, bool allocate, bool user);
+
+void mmu_init(void) {
+    pagemap_t *map = mmu_get_kernel_pagemap();
+    uint64 *pml4 = (uint64 *)P2V(map->top_level);
+    
+    for (int i = 256; i < 512; i++) {
+        get_next_level(pml4, i, true, false);
+    }
+}
+
 static uint64 *get_next_level(uint64 *current_table, uint32 index, bool allocate, bool user) {
     uint64 entry = current_table[index];
     if (entry & AMD64_PTE_PRESENT) {
@@ -44,6 +55,49 @@ static uint64 *get_next_level(uint64 *current_table, uint32 index, bool allocate
     return next_table_virt;
 }
 
+//debug: walk page table for address and print each level
+void mmu_debug_walk(pagemap_t *map, uintptr virt, const char *label) {
+    uint64 *pml4 = (uint64 *)P2V(map->top_level);
+    
+    printf("[mmu] walk %s virt=0x%lx PML4=0x%lx\n", label, virt, map->top_level);
+    
+    uint64 pml4_entry = pml4[PML4_IDX(virt)];
+    printf("[mmu]   PML4[%d]=0x%lx\n", PML4_IDX(virt), pml4_entry);
+    if (!(pml4_entry & AMD64_PTE_PRESENT)) {
+        printf("[mmu]   STOP: PML4 not present\n");
+        return;
+    }
+    
+    uint64 *pdp = (uint64 *)P2V(pml4_entry & AMD64_PTE_ADDR_MASK);
+    uint64 pdp_entry = pdp[PDP_IDX(virt)];
+    printf("[mmu]   PDP[%d]=0x%lx\n", PDP_IDX(virt), pdp_entry);
+    if (!(pdp_entry & AMD64_PTE_PRESENT)) {
+        printf("[mmu]   STOP: PDP not present\n");
+        return;
+    }
+    
+    uint64 *pd = (uint64 *)P2V(pdp_entry & AMD64_PTE_ADDR_MASK);
+    uint64 pd_entry = pd[PD_IDX(virt)];
+    printf("[mmu]   PD[%d]=0x%lx\n", PD_IDX(virt), pd_entry);
+    if (!(pd_entry & AMD64_PTE_PRESENT)) {
+        printf("[mmu]   STOP: PD not present\n");
+        return;
+    }
+    if (pd_entry & AMD64_PTE_HUGE) {
+        printf("[mmu]   2MB huge page\n");
+        return;
+    }
+    
+    uint64 *pt = (uint64 *)P2V(pd_entry & AMD64_PTE_ADDR_MASK);
+    uint64 pt_entry = pt[PT_IDX(virt)];
+    printf("[mmu]   PT[%d]=0x%lx\n", PT_IDX(virt), pt_entry);
+    if (!(pt_entry & AMD64_PTE_PRESENT)) {
+        printf("[mmu]   STOP: PT not present\n");
+        return;
+    }
+    printf("[mmu]   mapped to phys=0x%lx\n", pt_entry & AMD64_PTE_ADDR_MASK);
+}
+
 void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint64 flags) {
     uint64 *pml4 = (uint64 *)P2V(map->top_level);
     
@@ -61,10 +115,16 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
         uintptr cur_phys = phys + (i * PAGE_SIZE);
 
         uint64 *pdp = get_next_level(pml4, PML4_IDX(cur_virt), true, user);
-        if (!pdp) return;
+        if (!pdp) {
+            printf("[mmu] ERR: failed to allocate PDP for virt 0x%lx\n", cur_virt);
+            return;
+        }
         
         uint64 *pd = get_next_level(pdp, PDP_IDX(cur_virt), true, user);
-        if (!pd) return;
+        if (!pd) {
+            printf("[mmu] ERR: failed to allocate PD for virt 0x%lx\n", cur_virt);
+            return;
+        }
 
         //try to map a 2MB huge page
         if (pages - i >= 512 && (cur_virt % 0x200000 == 0) && (cur_phys % 0x200000 == 0)) {
@@ -72,7 +132,10 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
             i += 512;
         } else {
             uint64 *pt = get_next_level(pd, PD_IDX(cur_virt), true, user);
-            if (!pt) return;
+            if (!pt) {
+                printf("[mmu] ERR: failed to allocate PT for virt 0x%lx\n", cur_virt);
+                return;
+            }
             pt[PT_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | pte_flags;
             i++;
         }
@@ -83,6 +146,11 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
 }
 
 void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
+    /* debug: log unmapping of kernel heap range
+    if (virt >= KHEAP_VIRT_START && virt < KHEAP_VIRT_END) {
+        // printf("[mmu] unmap virt=0x%lx pages=%zu\n", virt, pages);
+    } */
+    
     uint64 *pml4 = (uint64 *)P2V(map->top_level);
     
     for (size i = 0; i < pages; ) {
@@ -168,20 +236,23 @@ pagemap_t *mmu_pagemap_create(void) {
 }
 
 static void free_page_table_level(uint64 *table, int level) {
-    //level 4 = PML4, level 1 = PT
-    //only recurse for levels > 1 and free page tables not actual data pages
+    if (level < 1) return;
+    
     for (int i = 0; i < 512; i++) {
         uint64 entry = table[i];
         if (!(entry & AMD64_PTE_PRESENT)) continue;
-        if (entry & AMD64_PTE_HUGE) continue;  //huge page so don't recurse
+        if (entry & AMD64_PTE_HUGE) continue;
         
+        // If we are at level > 1, the entry points to the next page table level
         if (level > 1) {
             uint64 *next = (uint64 *)P2V(entry & AMD64_PTE_ADDR_MASK);
             free_page_table_level(next, level - 1);
+            
+            // After returning from child, it's safe to free the CHILD table page
+            pmm_free((void *)(entry & AMD64_PTE_ADDR_MASK), 1);
         }
-        
-        //free this page table page (or data page at level 1)
-        pmm_free((void *)(entry & AMD64_PTE_ADDR_MASK), 1);
+        // If level == 1, the entry points to a DATA page.
+        // We do NOT free data pages here; that is the responsibility of the VMA system.
     }
 }
 

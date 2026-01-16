@@ -2,6 +2,7 @@
 #define __IO_H
 
 #include <types.h>
+#include <args.h>
 
 //standard I/O handles (initialized by _io_init)
 extern int32 __stdout;
@@ -14,5 +15,7 @@ void _io_init(void);
 void puts(const char *str);
 void putc(const char c);
 void printf(const char *fmt, ...);
+int snprintf(char *buf, size n, const char *format, ...);
+int vsnprintf(char *buf, size n, const char *format, va_list args);
 
 #endif

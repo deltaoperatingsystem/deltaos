@@ -25,6 +25,7 @@
 #define SYS_STAT            44
 #define SYS_CHANNEL_TRY_RECV 45
 #define SYS_CHANNEL_RECV_MSG 40
+#define SYS_WAIT            46
 
 /* 
  *System V AMD64 syscall ABI:

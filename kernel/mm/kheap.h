@@ -63,4 +63,8 @@ void *krealloc(void *p, size n);
 //free allocation
 void kfree(void *p);
 
+//raw page allocator (no headers, page-aligned)
+void *kheap_alloc_pages(size pages);
+void kheap_free_pages(void *p, size pages);
+
 #endif

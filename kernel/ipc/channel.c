@@ -15,6 +15,10 @@ static int channel_endpoint_close(object_t *obj) {
     //mark this endpoint as closed
     ch->closed[id] = 1;
     
+    //wake any threads waiting on either end - their wait state is now invalid
+    thread_wake_all(&ch->waiters[id]);
+    thread_wake_all(&ch->waiters[1 - id]);
+
     //free any pending messages in our queue
     channel_msg_entry_t *msg = ch->queue[id];
     while (msg) {
@@ -264,8 +268,13 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
         if (ch->closed[1 - my_id]) {
             return -2;  //peer closed, no more messages
         }
-        //sleep until woken (by message arrival)
+        //sleep until woken (by message arrival or peer closed)
         thread_sleep(&ch->waiters[my_id]);
+        
+        //if peer closed while we were sleeping, return error
+        if (ch->closed[1 - my_id] && !ch->queue[my_id]) {
+            return -2;
+        }
     }
     
     //dequeue message

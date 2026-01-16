@@ -21,7 +21,7 @@ void shell(void) {
         return;
     }
     
-    puts("[shell] ready. Type 'help' for commands:\n");
+    puts("[shell] ready. Type something:\n");
     
     char buffer[128];
     int l = 0;
@@ -40,15 +40,23 @@ void shell(void) {
         char c = (char)event.codepoint;
         if (c == 0) continue;  //non-printable
         
+        if (c == '\b') {
+            if (l > 0) {
+                l--;
+                puts("\b \b");
+            }
+            continue;
+        }
+
         putc(c);
         buffer[l++] = c;
         
         if (c == '\n' || l >= 126) {
-            buffer[l] = '\0';
+            buffer[l - 1] = '\0';
             char *cmd = strtok(buffer, " \t\n");
             if (cmd) {
                 if (streq(cmd, "help")) {
-                    puts("Available commands: help, echo, exit\n");
+                    puts("Available commands: help, echo, spawn, wm, exit\n");
                 } else if (streq(cmd, "echo")) {
                     char *arg = strtok(0, "\n");
                     if (arg) puts(arg);
@@ -56,6 +64,27 @@ void shell(void) {
                 } else if (streq(cmd, "exit")) {
                     puts("Goodbye!\n");
                     exit(0);
+                } else if (streq(cmd, "spawn")) {
+                    char *path = strtok(NULL, " \t\n");
+                    if (path) {
+                        int child = spawn(path, 0, NULL);
+                        if (child < 0) {
+                            printf("spawn: failed to start %s (error %d)\n", path, child);
+                        } else {
+                            printf("spawn: started %s (PID %d)\n", path, child);
+                            wait(child);
+                        }
+                    } else {
+                        puts("Usage: spawn <path>\n");
+                    }
+                } else if (streq(cmd, "wm")) {
+                    int child = spawn("$files/initrd/wm", 0, NULL);
+                    if (child < 0) {
+                        printf("wm: failed to start (error %d)\n", child);
+                    } else {
+                        printf("wm: started (PID %d)\n", child);
+                        wait(child);
+                    }
                 } else {
                     puts("Unknown command: ");
                     puts(cmd);
@@ -79,7 +108,7 @@ int main(int argc, char *argv[]) {
 
     int pid = (int)getpid();
     printf("[user] getpid() = %d\n", pid);
-    
+
     shell();
     
     return 0;

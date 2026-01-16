@@ -14,6 +14,7 @@ void puts(const char *s);
 void printf(const char *format, ...);
 int snprintf(char *buf, size n, const char *format, ...);
 int vsnprintf(char *buf, size n, const char *format, __builtin_va_list args);
+void debug_write(const char *buf, size count);
 void set_outmode(enum output_mode m);
 
 #endif

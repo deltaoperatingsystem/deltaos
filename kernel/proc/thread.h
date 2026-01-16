@@ -32,6 +32,9 @@ typedef struct thread {
     //kernel stack for this thread
     void *kernel_stack;
     size kernel_stack_size;
+
+    //usermode state for initial entry (only for user threads)
+    arch_context_t user_context;
     
     //linked list within process
     struct thread *next;

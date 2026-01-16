@@ -1,5 +1,6 @@
 #include <mm/pmm.h>
 #include <mm/mm.h>
+#include <arch/cpu.h>
 #include <boot/db.h>
 #include <drivers/serial.h>
 
@@ -156,6 +157,8 @@ void pmm_init(void) {
 void *pmm_alloc(size pages) {
     if (pages == 0) return NULL;
 
+    irq_state_t flags = arch_irq_save();
+
     uint64 consecutive = 0;
     uint64 start_bit = 0;
 
@@ -180,7 +183,9 @@ void *pmm_alloc(size pages) {
                     BITMAP_SET(start_bit + j);
                 }
                 last_free_page = start_bit + pages;
-                return (void *)(uintptr)(start_bit * PAGE_SIZE);
+                void *res = (void *)(uintptr)(start_bit * PAGE_SIZE);
+                arch_irq_restore(flags);
+                return res;
             }
         } else {
             consecutive = 0;
@@ -208,7 +213,9 @@ void *pmm_alloc(size pages) {
                         BITMAP_SET(start_bit + j);
                     }
                     last_free_page = start_bit + pages;
-                    return (void *)(uintptr)(start_bit * PAGE_SIZE);
+                    void *res = (void *)(uintptr)(start_bit * PAGE_SIZE);
+                    arch_irq_restore(flags);
+                    return res;
                 }
             } else {
                 consecutive = 0;
@@ -216,11 +223,14 @@ void *pmm_alloc(size pages) {
         }
     }
 
+    arch_irq_restore(flags);
     return NULL;
 }
 
 void pmm_free(void *ptr, size pages) {
     if (!ptr) return;
+
+    irq_state_t flags = arch_irq_save();
     uintptr addr = (uintptr)ptr;
     uint64 start_bit = addr / PAGE_SIZE;
 
@@ -233,4 +243,6 @@ void pmm_free(void *ptr, size pages) {
     if (start_bit < last_free_page) {
         last_free_page = start_bit;
     }
+
+    arch_irq_restore(flags);
 }

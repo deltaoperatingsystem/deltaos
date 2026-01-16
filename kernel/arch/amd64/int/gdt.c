@@ -1,4 +1,5 @@
 #include <arch/amd64/interrupts.h>
+#include <arch/amd64/percpu.h>
 #include <arch/amd64/int/tss.h>
 #include <lib/io.h>
 
@@ -132,4 +133,5 @@ tss_t *tss_get(void) {
 //set kernel stack for ring 3 -> ring 0 transitions
 void arch_set_kernel_stack(void *stack_top) {
     tss_set_rsp0((uint64)stack_top);
+    percpu_set_kernel_stack(stack_top);
 }

@@ -3,6 +3,7 @@
 #include <proc/sched.h>
 #include <arch/interrupts.h>
 #include <arch/cpu.h>
+#include <lib/io.h>
 
 void wait_queue_init(wait_queue_t *wq) {
     wq->head = NULL;
@@ -31,8 +32,7 @@ void thread_sleep(wait_queue_t *wq) {
     
     //wait until woken
     while (current->state == THREAD_STATE_BLOCKED) {
-        arch_interrupts_enable();  //enable before halt
-        arch_halt();               //wait for interrupt
+        sched_yield();
     }
     
     //we were woken - thread_wake_one added us to run queue with READY state
