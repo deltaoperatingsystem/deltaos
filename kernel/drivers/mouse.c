@@ -206,4 +206,6 @@ void mouse_init(void) {
             }
         }
     }
+
+    puts("[mouse] initialised\n");
 }

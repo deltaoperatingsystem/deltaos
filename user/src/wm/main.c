@@ -1,7 +1,9 @@
 #include <io.h>
 #include <system.h>
+#include <mem.h>
+
+
 
 int main(void) {
-    puts("Hello, world!");
-    return 0;
+    malloc(4096000);
 }

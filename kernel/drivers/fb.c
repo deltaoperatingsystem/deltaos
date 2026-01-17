@@ -64,7 +64,7 @@ void fb_init(void) {
     fb_size = fb_h * fb_pitch;
 
     fb_object = object_create(OBJECT_DEVICE, &fb_object_ops, NULL);
-    if (fb_object) ns_register("$devices/fb", fb_object);
+    if (fb_object) ns_register("$devices/fb0", fb_object);
     
     printf("[fb] initialised: %dx%d@0x%X\n", fb_w, fb_h, fb->address);
 }
