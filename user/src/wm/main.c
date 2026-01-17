@@ -17,11 +17,39 @@ typedef struct {
     uint8 _pad[3];
 } mouse_event_t;
 
+//cursor API
+int cursor_get_width(void);
+int cursor_get_height(void);
+uint32 cursor_get_pixel(int x, int y);
+
 uint32 *fb = NULL;
 handle_t fb_handle = INVALID_HANDLE;
 
-uint32 x = FB_W / 2;
-uint32 y = FB_H / 2;
+int32 cursor_x = FB_W / 2;
+int32 cursor_y = FB_H / 2;
+
+static void draw_cursor(uint32 *framebuffer, int x, int y) {
+    int cw = cursor_get_width();
+    int ch = cursor_get_height();
+    for (int cy = 0; cy < ch; cy++) {
+        for (int cx = 0; cx < cw; cx++) {
+            uint32 pixel = cursor_get_pixel(cx, cy);
+            if (pixel & 0xFF000000) {  // has alpha
+                int fx = x + cx;
+                int fy = y + cy;
+                if (fx >= 0 && fx < FB_W && fy >= 0 && fy < FB_H) {
+                    framebuffer[fy * FB_W + fx] = pixel & 0x00FFFFFF;
+                }
+            }
+        }
+    }
+}
+
+static void clear_cursor(uint32 *framebuffer, int x, int y) {
+    int cw = cursor_get_width();
+    int ch = cursor_get_height();
+    fb_fillrect(framebuffer, x, y, cw, ch, 0);
+}
 
 int main(int argc, char *argv[]) {
     fb = malloc(FB_W * FB_H * sizeof(uint32));
@@ -41,18 +69,17 @@ int main(int argc, char *argv[]) {
         }
         
         if (len == sizeof(mouse_event_t)) {
-            extern const struct { unsigned int width; unsigned int height; unsigned int bytes_per_pixel; char *comment; unsigned char pixel_data[12 * 19 * 4 + 1]; }
-            cursor_sprite;
-            fb_fillrect(fb, x, y, cursor_sprite.width, cursor_sprite.height, 0);
-            x += event.dx;
-            y += event.dy;
+            clear_cursor(fb, cursor_x, cursor_y);
             
-            if (x > FB_W) x = FB_W - 1;
-            if (x < 0) x = 0;
-            if (y > FB_H) y = FB_H - 1;
-            if (y < 0) y = 0;
+            cursor_x += event.dx;
+            cursor_y += event.dy;
+            
+            if (cursor_x >= FB_W) cursor_x = FB_W - 1;
+            if (cursor_x < 0) cursor_x = 0;
+            if (cursor_y >= FB_H) cursor_y = FB_H - 1;
+            if (cursor_y < 0) cursor_y = 0;
 
-            fb_drawimage(fb, cursor_sprite.pixel_data, x, y, cursor_sprite.width, cursor_sprite.height);
+            draw_cursor(fb, cursor_x, cursor_y);
             handle_write(fb_handle, fb, 4096000);
             handle_seek(fb_handle, 0, HANDLE_SEEK_SET);
         } else {
