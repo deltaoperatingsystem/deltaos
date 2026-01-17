@@ -27,6 +27,11 @@
 #define SYS_CHANNEL_RECV_MSG 40
 #define SYS_WAIT            46
 
+//capability-based process creation (Zircon-style)
+#define SYS_PROCESS_CREATE  50  //create suspended process, returns handle
+#define SYS_HANDLE_GRANT    51  //inject handle into child process
+#define SYS_PROCESS_START   52  //start initial thread in process
+
 /* 
  *System V AMD64 syscall ABI:
  *- syscall number in rax

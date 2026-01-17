@@ -31,6 +31,11 @@
 #define SYS_CHANNEL_TRY_RECV 45  //non-blocking channel receive
 #define SYS_WAIT            46  //wait for process to exit
 
+//capability-based process creation (Zircon-style)
+#define SYS_PROCESS_CREATE  50  //create suspended process, returns handle
+#define SYS_HANDLE_GRANT    51  //inject handle into child process
+#define SYS_PROCESS_START   52  //start initial thread in process
+
 #define SYS_MAX             64
 
 //result struct for channel_recv_msg
