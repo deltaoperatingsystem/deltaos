@@ -211,7 +211,15 @@ static void spawn_init(void) {
     kfree(buf);
 }
 
-void kernel_main(void) {
+void parse_cmdline(char *cmdline) {
+    char *arg = strtok(cmdline, " ");
+    do {
+        if (strcmp(arg, "debug") == 0) io_enable_serial();
+    } while ((arg = strtok(NULL, " ")));
+}
+
+void kernel_main(char *cmdline) {
+    parse_cmdline(cmdline);
     set_outmode(SERIAL);
     printf("kernel_main started\n");
     

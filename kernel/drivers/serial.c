@@ -27,6 +27,8 @@ static uint8 serial_is_transmit_empty(void) {
 }
 
 void serial_write_char(char c) {
+    extern bool serial_enabled;
+    if (serial_enabled != true) return;
     while (!serial_is_transmit_empty());
     if (ARCH_HAS_PORT_IO) {
         outb(COM1_PORT, c);

@@ -12,7 +12,7 @@
 #include <proc/process.h>
 #include <drivers/pci.h>
 
-extern void kernel_main(void);
+extern void kernel_main(char *cmdline);
 extern void enable_sse(void);
 
 void arch_init(struct db_boot_info *boot_info) {
@@ -59,5 +59,5 @@ void arch_init(struct db_boot_info *boot_info) {
     
     //jump to MI kernel
     puts("[amd64] jumping to kernel_main\n\n");
-    kernel_main();
+    kernel_main(cmdline);
 }

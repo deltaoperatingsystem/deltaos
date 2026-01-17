@@ -11,8 +11,13 @@ enum output_mode {
     CONSOLE,
 };
 
+bool serial_enabled = false;
 static enum output_mode mode = SERIAL;
 static spinlock_t console_lock = SPINLOCK_INIT;
+
+void io_enable_serial() {
+    serial_enabled = true;
+}
 
 void puts(const char *s) {
     irq_state_t flags = arch_irq_save();
