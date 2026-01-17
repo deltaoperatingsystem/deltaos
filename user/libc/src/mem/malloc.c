@@ -1,22 +1,46 @@
-#include <mem.h>
+#include "internal.h"
+#include <system.h>
 
-// super simple for now!
+void *malloc(size len) {
+    if (len == 0) return NULL;
 
-void *free; // initialised by _mem_init()
+    size aligned_len = _malloc_align_up(len);
 
-#include <io.h>
-void *malloc(size size) {
-    if (size >= HEAP_SIZE) {    // if attempting to allocate something over HEAP_SIZE, create a personal vmo
-        void *block = vmo_map(vmo_create(size + sizeof(heap_blk_t), 0, RIGHT_READ | RIGHT_WRITE | RIGHT_MAP), NULL, 0, size + sizeof(heap_blk_t), 3);
-        *(heap_blk_t*)block = (heap_blk_t){ .size = size, .addr = block + sizeof(heap_blk_t) };
-        printf("Successfully allocated %d at %X\n", size, block + sizeof(heap_blk_t));
-        return block + sizeof(heap_blk_t);
+    if (!_mem_addr) _mem_init();
+    if (!_malloc_free_list) _malloc_free_list = (malloc_header_t *)_mem_addr;
+
+    malloc_header_t *header = _malloc_find_free_block(aligned_len);
+
+    if (!header) {
+        size grow_by = _malloc_align_up(aligned_len + HEADER_SIZE);
+        if (grow_by < HEAP_SIZE) grow_by = HEAP_SIZE; 
+        
+        size old_cap = heap_capacity;
+        size new_cap = old_cap + grow_by;
+
+        if (vmo_resize(_mem_vmo, new_cap) == 0) {
+            malloc_header_t *new_block = (malloc_header_t *)((char *)_mem_addr + old_cap);
+            new_block->s = grow_by - HEADER_SIZE;
+            new_block->is_free = true;
+            new_block->next = NULL;
+            
+            malloc_header_t *last = _malloc_free_list;
+            while (last->next) last = last->next;
+            last->next = new_block;
+            new_block->prev = last;
+
+            heap_capacity = new_cap;
+            _malloc_coalesce(new_block);
+            
+            header = _malloc_find_free_block(aligned_len);
+            if (!header) return NULL;
+        } else {
+            return NULL;
+        }
     }
-    if ((free + size) > (_mem_addr + HEAP_SIZE + sizeof(heap_blk_t))) return NULL;
 
-    *(heap_blk_t*)free = (heap_blk_t){ .size = size, .addr = free + sizeof(heap_blk_t) };
-    printf("successfully allocated %d at %X\n", size, free + sizeof(heap_blk_t));
-    free += size + sizeof(heap_blk_t);
-    
-    return free - size;
+    header->is_free = false;
+    _malloc_split_block(header, aligned_len);
+
+    return (void *)((char *)header + HEADER_SIZE);
 }

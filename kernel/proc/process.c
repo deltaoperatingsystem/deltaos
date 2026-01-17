@@ -4,6 +4,7 @@
 #include <mm/kheap.h>
 #include <mm/mm.h>
 #include <arch/mmu.h>
+#include <arch/cpu.h>
 #include <lib/string.h>
 #include <lib/io.h>
 #include <proc/sched.h>
@@ -522,4 +523,14 @@ uintptr process_setup_user_stack_dynamic(uintptr stack_phys, uintptr stack_base,
     *(uint64 *)(stack_virt + (sp - offset_from_base)) = (uint64)argc;
     
     return sp;
+}
+
+void process_iterate(void (*cb)(process_t *proc, void *data), void *data) {
+    irq_state_t flags = arch_irq_save();
+    process_t *p = process_list;
+    while (p) {
+        cb(p, data);
+        p = p->next;
+    }
+    arch_irq_restore(flags);
 }

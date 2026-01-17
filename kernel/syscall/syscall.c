@@ -308,11 +308,7 @@ static int64 sys_vmo_map(handle_t h, uintptr vaddr_hint, size offset, size len, 
     process_t *proc = process_current();
     if (!proc) return 0;
     
-    //convert flags to rights (rn flags just indicate read/write intent)
-    handle_rights_t map_rights = 0;
-    if (flags & 1) map_rights |= HANDLE_RIGHT_READ;
-    if (flags & 2) map_rights |= HANDLE_RIGHT_WRITE;
-    if (flags & 4) map_rights |= HANDLE_RIGHT_EXECUTE;
+    handle_rights_t map_rights = (handle_rights_t)flags;
     
     void *result = vmo_map(proc, h, (void *)vaddr_hint, offset, len, map_rights);
     return (int64)(uintptr)result;
@@ -563,6 +559,13 @@ static int64 sys_process_start(handle_t proc_h, uint64 entry, uint64 stack) {
     return (int64)target->pid;
 }
 
+static int64 sys_vmo_resize(handle_t vmo_h, size new_size) {
+    process_t *current = process_current();
+    if (!current) return -1;
+    
+    return vmo_resize(current, vmo_h, new_size);
+}
+
 int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
                        uint64 arg4, uint64 arg5, uint64 arg6) {
     switch (num) {
@@ -597,6 +600,8 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
         case SYS_PROCESS_CREATE: return sys_process_create((const char *)arg1);
         case SYS_HANDLE_GRANT: return sys_handle_grant((handle_t)arg1, (handle_t)arg2, (handle_rights_t)arg3);
         case SYS_PROCESS_START: return sys_process_start((handle_t)arg1, arg2, arg3);
+        
+        case SYS_VMO_RESIZE: return sys_vmo_resize((handle_t)arg1, (size)arg2);
         
         default: return -1;
     }

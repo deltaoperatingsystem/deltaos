@@ -13,6 +13,10 @@
 #define RIGHT_EXECUTE       (1 << 4)
 #define RIGHT_MAP           (1 << 5)
 
+//VMO flags
+#define VMO_FLAG_NONE       0
+#define VMO_FLAG_RESIZABLE  (1 << 0)
+
 typedef int32 handle_t;
 
 //invalid handle sentinel
@@ -65,6 +69,7 @@ int vmo_read(handle_t h, void *buf, uint64 len, uint64 offset);
 int vmo_write(handle_t h, const void *buf, uint64 len, uint64 offset);
 void *vmo_map(handle_t h, void *vaddr_hint, uint64 offset, uint64 len, uint32 flags);
 int vmo_unmap(void *vaddr, uint64 len);
+int vmo_resize(handle_t h, uint64 new_size);
 
 //namespace operations
 int ns_register(const char *path, handle_t h);

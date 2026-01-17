@@ -57,4 +57,8 @@ void *vmo_map(struct process *proc, int32 handle, void *vaddr_hint,
 //unmap VMO from a process's address space
 int vmo_unmap(struct process *proc, void *vaddr, size len);
 
+//resize a VMO
+//returns 0 on success or negative error
+int vmo_resize(struct process *proc, int32 handle, size new_size);
+
 #endif

@@ -30,3 +30,8 @@ void *vmo_map(int32 h, void *vaddr_hint, uint64 offset, uint64 len, uint32 flags
 int vmo_unmap(void *vaddr, uint64 len) {
     return __syscall2(SYS_VMO_UNMAP, (long)vaddr, (long)len);
 }
+
+//resize a VMO
+int vmo_resize(int32 h, uint64 new_size) {
+    return __syscall2(SYS_VMO_RESIZE, (long)h, (long)new_size);
+}

@@ -102,10 +102,10 @@ static int ld_heap_grow(uint64_t min_size) {
         alloc_size = (min_size + 0xFFF) & ~0xFFFULL;  //page align
     }
     
-    int64_t vmo = syscall3(SYS_VMO_CREATE, alloc_size, 0, 0x3F);
+    int64_t vmo = syscall3(SYS_VMO_CREATE, alloc_size, 0, HANDLE_RIGHT_READ | HANDLE_RIGHT_WRITE | HANDLE_RIGHT_MAP);
     if (vmo < 0) return -1;
     
-    int64_t addr = syscall5(SYS_VMO_MAP, vmo, 0, 0, alloc_size, 0x3);
+    int64_t addr = syscall5(SYS_VMO_MAP, vmo, 0, 0, alloc_size, HANDLE_RIGHT_READ | HANDLE_RIGHT_WRITE);
     if (addr <= 0) return -1;
     
     ld_heap_ptr = (uint8_t *)addr;
@@ -351,10 +351,10 @@ static int ld_load_library(const char *name, lib_handle_t *lib) {
     uint64_t libsz = ((maxv - minv) + 0xFFF) & ~0xFFFULL;
     
     //map library VMO
-    int64_t lib_vmo = syscall3(SYS_VMO_CREATE, libsz, 0, 0x3F);
+    int64_t lib_vmo = syscall3(SYS_VMO_CREATE, libsz, 0, HANDLE_RIGHT_READ | HANDLE_RIGHT_WRITE | HANDLE_RIGHT_EXECUTE | HANDLE_RIGHT_MAP);
     if (lib_vmo < 0) return LD_ERR_VMO;
     
-    int64_t base = syscall5(SYS_VMO_MAP, lib_vmo, 0, 0, libsz, 0x7);
+    int64_t base = syscall5(SYS_VMO_MAP, lib_vmo, 0, 0, libsz, HANDLE_RIGHT_READ | HANDLE_RIGHT_WRITE | HANDLE_RIGHT_EXECUTE);
     if (base < 0) return LD_ERR_VMO;
     
     lib->base = (uint64_t)base;

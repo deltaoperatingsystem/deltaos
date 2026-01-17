@@ -35,6 +35,7 @@
 #define SYS_PROCESS_CREATE  50  //create suspended process, returns handle
 #define SYS_HANDLE_GRANT    51  //inject handle into child process
 #define SYS_PROCESS_START   52  //start initial thread in process
+#define SYS_VMO_RESIZE      53  //resize a VMO
 
 #define SYS_MAX             64
 

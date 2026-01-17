@@ -17,7 +17,12 @@ typedef unsigned char uint8_t;
 #define SYS_VMO_MAP     41
 #define SYS_STAT        44
 
-#define HANDLE_RIGHT_READ 0x01
+#define HANDLE_RIGHT_DUPLICATE  (1 << 0)
+#define HANDLE_RIGHT_TRANSFER   (1 << 1)
+#define HANDLE_RIGHT_READ       (1 << 2)
+#define HANDLE_RIGHT_WRITE      (1 << 3)
+#define HANDLE_RIGHT_EXECUTE    (1 << 4)
+#define HANDLE_RIGHT_MAP        (1 << 5)
 
 #define FS_TYPE_FILE    1
 #define FS_TYPE_DIR     2

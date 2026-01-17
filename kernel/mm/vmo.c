@@ -138,11 +138,17 @@ void *vmo_map(process_t *proc, int32 handle, void *vaddr_hint,
     if (!proc) return NULL;
     
     //check map rights
-    if (!process_handle_has_rights(proc, handle, HANDLE_RIGHT_MAP)) {
-        return NULL;  //no map permission
+    proc_handle_t *entry = process_get_handle_entry(proc, handle);
+    if (!entry || !(entry->rights & HANDLE_RIGHT_MAP)) {
+        return NULL;
     }
     
-    vmo_t *vmo = vmo_get(proc, handle);
+    //ensure requested mapping rights are allowed by handle
+    if ((map_rights & entry->rights) != map_rights) {
+        return NULL;
+    }
+    
+    vmo_t *vmo = (vmo_t *)entry->obj;
     if (!vmo) return NULL;
     
     //validate offset and length
@@ -195,6 +201,116 @@ int vmo_unmap(process_t *proc, void *vaddr, size len) {
     
     //remove VMA entry
     process_vma_remove(proc, (uintptr)vaddr);
+    
+    return 0;
+}
+
+typedef struct {
+    vmo_t *vmo;
+    uintptr new_phys;
+    size old_vmo_size;
+    size new_vmo_size;
+} vmo_update_data_t;
+
+static void vmo_update_mapping_cb(process_t *proc, void *data) {
+    vmo_update_data_t *ud = (vmo_update_data_t *)data;
+    if (!proc->pagemap) return;
+
+    for (proc_vma_t *vma = proc->vma_list; vma; vma = vma->next) {
+        if (vma->obj == &ud->vmo->obj) {
+            size old_map_pages = (vma->length + PAGE_SIZE - 1) / PAGE_SIZE;
+            
+            //unmap old physical pages
+            mmu_unmap_range(proc->pagemap, vma->start, old_map_pages);
+
+            //if the VMO grew and this VMA was mapping up to its end, try to grow the VMA
+            if (ud->new_vmo_size > ud->old_vmo_size && vma->obj_offset + vma->length == ud->old_vmo_size) {
+                size growth = ud->new_vmo_size - ud->old_vmo_size;
+                uintptr new_end = vma->start + vma->length + growth;
+                
+                //check for collisions with other VMAs in this process
+                int collision = 0;
+                for (proc_vma_t *vma_check = proc->vma_list; vma_check; vma_check = vma_check->next) {
+                    if (vma_check == vma) continue;
+                    //standard overlap check: [A, B] overlaps with [C, D] if A < D and C < B
+                    //A = vma->start + vma->length, B = new_end
+                    //C = vma_check->start, D = vma_check->start + vma_check->length
+                    if ((vma->start + vma->length) < (vma_check->start + vma_check->length) && vma_check->start < new_end) {
+                        collision = 1;
+                        break;
+                    }
+                }
+
+                if (!collision) {
+                    vma->length += growth;
+                }
+            }
+
+            //remap based on new VMO boundaries
+            if (vma->obj_offset < ud->new_vmo_size) {
+                size remaining_vmo = ud->new_vmo_size - vma->obj_offset;
+                size map_len = (vma->length < remaining_vmo) ? vma->length : remaining_vmo;
+                size map_pages = (map_len + PAGE_SIZE - 1) / PAGE_SIZE;
+
+                if (map_pages > 0) {
+                    uintptr vma_phys = ud->new_phys + vma->obj_offset;
+                    mmu_map_range(proc->pagemap, vma->start, vma_phys, map_pages, vma->flags);
+                }
+            }
+        }
+    }
+}
+
+int vmo_resize(process_t *proc, int32 handle, size new_size) {
+    if (!proc || new_size == 0) return -1;
+    
+    //check write rights for resizing
+    if (!process_handle_has_rights(proc, handle, HANDLE_RIGHT_WRITE)) {
+        return -3;
+    }
+    
+    vmo_t *vmo = vmo_get(proc, handle);
+    if (!vmo) return -1;
+    
+    if (!(vmo->flags & VMO_FLAG_RESIZABLE)) return -2;
+    size old_vmo_size = vmo->size;
+    if (new_size == old_vmo_size) return 0;
+    
+    size old_pages = (old_vmo_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    size new_pages = (new_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    
+    if (new_pages == old_pages) {
+        vmo->size = new_size;
+        return 0;
+    }
+    
+    void *new_p = kheap_alloc_pages(new_pages);
+    if (!new_p) return -1;
+    
+    size copy_size = (old_vmo_size < new_size) ? old_vmo_size : new_size;
+    memcpy(new_p, vmo->pages, copy_size);
+
+    if (new_pages * PAGE_SIZE > copy_size) {
+        memset((char *)new_p + copy_size, 0, (new_pages * PAGE_SIZE) - copy_size);
+    }
+    
+    pagemap_t *kmap = mmu_get_kernel_pagemap();
+    uintptr new_phys = mmu_virt_to_phys(kmap, (uintptr)new_p);
+
+    void *old_pages_addr = vmo->pages;
+    vmo->pages = new_p;
+    vmo->size = new_size;
+    vmo->committed = new_size;
+
+    vmo_update_data_t ud = { 
+        .vmo = vmo, 
+        .new_phys = new_phys, 
+        .old_vmo_size = old_vmo_size,
+        .new_vmo_size = new_size
+    };
+    process_iterate(vmo_update_mapping_cb, &ud);
+
+    kheap_free_pages(old_pages_addr, old_pages);
     
     return 0;
 }

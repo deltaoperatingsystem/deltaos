@@ -172,6 +172,6 @@ uintptr process_setup_user_stack_dynamic(uintptr stack_phys, uintptr stack_base,
                                           uint64 phdr_addr, uint16 phdr_count, uint16 phdr_size,
                                           uint64 entry_point, uint64 interp_base);
 
+void process_iterate(void (*cb)(process_t *proc, void *data), void *data);
+
 #endif
-
-

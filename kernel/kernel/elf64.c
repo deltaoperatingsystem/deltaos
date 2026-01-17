@@ -246,6 +246,13 @@ int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *
         seg->pages = seg_pages;
     }
     
+    //update vma_next_addr to point past the loaded program
+    //this prevents future allocations (like heap VMOs) from colliding with ELF segments
+    uintptr elf_end = (max_vaddr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    if (elf_end > proc->vma_next_addr) {
+        proc->vma_next_addr = elf_end;
+    }
+    
     return ELF_OK;
 }
 
