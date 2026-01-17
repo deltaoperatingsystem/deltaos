@@ -2,7 +2,7 @@
 #include "fb.h"
 
 void fb_putpixel(uint32 *fb, uint32 x, uint32 y, uint32 colour) {
-    if (y > FB_H || y < 0 || x > FB_W || x < 0) return;
+    if (x >= FB_W || y >= FB_H) return;
     fb[y * FB_W + x] = colour;
 }
 
