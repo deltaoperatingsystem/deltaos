@@ -25,6 +25,11 @@ void yield(void);
 int spawn(char *path, int argc, char **argv);
 int wait(int pid);
 
+//capability-based process creation (Zircon-style)
+int32 process_create(const char *name);              //create suspended process, returns handle
+int handle_grant(int32 proc_h, int32 local_h, uint32 rights);  //inject handle into child
+int process_start(int32 proc_h, uint64 entry, uint64 stack);   //start first thread
+
 //capability-based object access
 handle_t get_obj(handle_t parent, const char *path, uint32 rights);
 int handle_read(handle_t h, void *buf, int len);

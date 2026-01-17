@@ -21,6 +21,12 @@ void shell(void) {
         return;
     }
     
+    //flush any stale keyboard events from boot
+    kbd_event_t flush_event;
+    while (channel_try_recv(kbd_channel, &flush_event, sizeof(flush_event)) > 0) {
+        //discard
+    }
+    
     puts("[shell] ready. Type something:\n");
     
     char buffer[128];

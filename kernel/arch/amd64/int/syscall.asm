@@ -63,7 +63,7 @@ syscall_entry_simple:
     pop r11
     pop rcx
     
-    pop rsp                 ;RESTORE user RSP from kernel stack
+    pop rsp                 ;restore user RSP from kernel stack
     
     swapgs
     
