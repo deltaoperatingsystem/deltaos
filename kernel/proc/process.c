@@ -79,6 +79,10 @@ process_t *process_create(const char *name) {
 }
 
 process_t *process_create_user(const char *name) {
+    return process_create_user_suspended(name); //suspended is the base for user procs now
+}
+
+process_t *process_create_user_suspended(const char *name) {
     process_t *proc = process_create(name);
     if (!proc) return NULL;
     
@@ -204,6 +208,12 @@ int process_grant_handle(process_t *proc, object_t *obj, handle_rights_t rights)
     proc->handle_count++;
     
     return h;
+}
+
+int process_inject_handle(process_t *target, object_t *obj, handle_rights_t rights) {
+    //since we are a monolithic kernel, we can just call grant_handle on the target
+    //no need for complex IPC or transfer mechanisms
+    return process_grant_handle(target, obj, rights);
 }
 
 object_t *process_get_handle(process_t *proc, int handle) {

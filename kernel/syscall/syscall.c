@@ -66,8 +66,9 @@ static int64 sys_spawn(const char *path, int argc, char **argv) {
         return -1;
     }
     
-    //create user process
-    process_t *proc = process_create_user(path);
+    //create suspended user process (capability-based model)
+    //the process starts empty - we load the ELF and configure it before starting
+    process_t *proc = process_create_user_suspended(path);
     if (!proc) {
         kfree(buf);
         return -1;
@@ -495,6 +496,73 @@ static int64 sys_channel_try_recv(handle_t ep, void *buf, size buflen) {
     return (int64)msg.data_len;
 }
 
+//capability-based process creation: create suspended process container
+static int64 sys_process_create(const char *name) {
+    if (!name) return -1;
+    
+    process_t *current = process_current();
+    if (!current) return -1;
+    
+    //create a new suspended user process
+    process_t *child = process_create_user_suspended(name);
+    if (!child) return -1;
+    
+    //grant a handle to the child process back to the caller
+    //this allows the caller to configure the child before starting
+    int h = process_grant_handle(current, child->obj, HANDLE_RIGHTS_ALL);
+    if (h < 0) {
+        process_destroy(child);
+        return -1;
+    }
+    
+    return h;
+}
+
+//inject a handle from the caller into a target process
+static int64 sys_handle_grant(handle_t proc_h, handle_t local_h, handle_rights_t rights) {
+    process_t *current = process_current();
+    if (!current) return -1;
+    
+    //get the target process object from the handle
+    object_t *proc_obj = process_get_handle(current, proc_h);
+    if (!proc_obj || proc_obj->type != OBJECT_PROCESS) return -2;
+    
+    process_t *target = (process_t *)proc_obj->data;
+    if (!target) return -3;
+    
+    //get the object we want to inject
+    proc_handle_t *entry = process_get_handle_entry(current, local_h);
+    if (!entry) return -4;
+    
+    //can only grant rights we have (rights reduction)
+    handle_rights_t actual_rights = rights_reduce(entry->rights, rights);
+    
+    //inject into target
+    int new_h = process_inject_handle(target, entry->obj, actual_rights);
+    return new_h;
+}
+
+//start the first thread in a suspended process
+static int64 sys_process_start(handle_t proc_h, uint64 entry, uint64 stack) {
+    process_t *current = process_current();
+    if (!current) return -1;
+    
+    object_t *proc_obj = process_get_handle(current, proc_h);
+    if (!proc_obj || proc_obj->type != OBJECT_PROCESS) return -2;
+    
+    process_t *target = (process_t *)proc_obj->data;
+    if (!target) return -3;
+    
+    //create initial thread
+    thread_t *thread = thread_create_user(target, (void *)entry, (void *)stack);
+    if (!thread) return -4;
+    
+    //add to scheduler
+    sched_add(thread);
+    
+    return (int64)target->pid;
+}
+
 int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
                        uint64 arg4, uint64 arg5, uint64 arg6) {
     switch (num) {
@@ -524,6 +592,12 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
         case SYS_NS_REGISTER: return sys_ns_register((const char *)arg1, (handle_t)arg2);
         case SYS_STAT: return sys_stat((const char *)arg1, (stat_t *)arg2);
         case SYS_WAIT: return sys_wait(arg1);
+        
+        //capability-based process creation
+        case SYS_PROCESS_CREATE: return sys_process_create((const char *)arg1);
+        case SYS_HANDLE_GRANT: return sys_handle_grant((handle_t)arg1, (handle_t)arg2, (handle_rights_t)arg3);
+        case SYS_PROCESS_START: return sys_process_start((handle_t)arg1, arg2, arg3);
+        
         default: return -1;
     }
 }

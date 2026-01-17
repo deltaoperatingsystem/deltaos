@@ -82,6 +82,9 @@ process_t *process_create(const char *name);
 //create a new userspace process (with address space)
 process_t *process_create_user(const char *name);
 
+//create a new userspace process in suspended state
+process_t *process_create_user_suspended(const char *name);
+
 //destroy a process
 void process_destroy(process_t *proc);
 
@@ -90,6 +93,10 @@ object_t *process_get_object(process_t *proc);
 
 //grant a handle to a process with rights (returns handle index or -1)
 int process_grant_handle(process_t *proc, object_t *obj, handle_rights_t rights);
+
+//inject a handle from a source process into a target process (returns new handle index)
+//this is how a parent configures its child's capabilities
+int process_inject_handle(process_t *target, object_t *obj, handle_rights_t rights);
 
 //get object from handle (does NOT add ref)
 object_t *process_get_handle(process_t *proc, int handle);
