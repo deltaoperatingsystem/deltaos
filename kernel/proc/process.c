@@ -66,6 +66,10 @@ process_t *process_create(const char *name) {
     proc->handle_count = 0;
     proc->handle_capacity = PROC_INITIAL_HANDLES;
     
+    //initialize current working directory to root
+    proc->cwd[0] = '/';
+    proc->cwd[1] = '\0';
+    
     proc->pagemap = NULL;
     proc->threads = NULL;
     proc->thread_count = 0;

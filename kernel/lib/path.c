@@ -2,41 +2,81 @@
 #include <lib/string.h>
 
 int path_normalize(char *path) {
-    if (!path) return -1;
+    if (!path || path[0] == '\0') return 0;
     
-    char *read = path;
+    //work on a copy since strtok modifies in place
+    char temp[512];
+    strncpy(temp, path, sizeof(temp) - 1);
+    temp[sizeof(temp) - 1] = '\0';
+    
+    char *components[64];
+    int count = 0;
+    bool absolute = (temp[0] == '/');
+    bool is_namespace = (temp[0] == '$');
+    
+    //for namespace paths like $files/system we need to preserve the namespace
+    char *ns_part = NULL;
+    char *tokstart = temp;
+    
+    if (is_namespace) {
+        //find the first slash to separate namespace from path
+        char *slash = strchr(temp, '/');
+        if (slash) {
+            *slash = '\0';
+            ns_part = temp;  //e.x. "$files"
+            tokstart = slash + 1;
+        } else {
+            //just a namespace, no path
+            return 0;
+        }
+    } else if (absolute) {
+        tokstart = temp + 1;  //skip leading /
+    }
+    
+    //tokenize the path part
+    char *token = strtok(tokstart, "/");
+    while (token && count < 64) {
+        if (strcmp(token, ".") == 0) {
+            //ignore current dir
+        } else if (strcmp(token, "..") == 0) {
+            //go up one level
+            if (count > 0) {
+                count--;
+            }
+            //if count == 0 and absolute stay at root (ignore the ..)
+        } else if (token[0] != '\0') {
+            components[count++] = token;
+        }
+        token = strtok(NULL, "/");
+    }
+    
+    //reconstruct into original path buffer
     char *write = path;
     
-    while (*read) {
-        //check for . or .. components
-        if (*read == '.') {
-            //at start or after /
-            if (read == path || *(read - 1) == '/') {
-                //check for /. or /..
-                if (read[1] == '/' || read[1] == '\0') {
-                    return -1;  //single dot component not allowed
-                }
-                if (read[1] == '.' && (read[2] == '/' || read[2] == '\0')) {
-                    return -1;  //double dot component not allowed
-                }
-            }
+    if (is_namespace && ns_part) {
+        size ns_len = strlen(ns_part);
+        memcpy(write, ns_part, ns_len);
+        write += ns_len;
+    }
+    
+    if (absolute || is_namespace) {
+        *write++ = '/';
+    }
+    
+    for (int i = 0; i < count; i++) {
+        size len = strlen(components[i]);
+        memcpy(write, components[i], len);
+        write += len;
+        if (i < count - 1) {
+            *write++ = '/';
         }
-        
-        if (*read == '/') {
-            //skip consecutive slashes
-            while (read[1] == '/') {
-                read++;
-            }
-        }
-        
-        *write++ = *read++;
     }
     *write = '\0';
     
-    //strip trailing slash (but keep if path is just "/")
-    size len = strlen(path);
-    if (len > 1 && path[len - 1] == '/') {
-        path[len - 1] = '\0';
+    //special case: absolute path with no components = "/"
+    if ((absolute || is_namespace) && count == 0 && !is_namespace) {
+        path[0] = '/';
+        path[1] = '\0';
     }
     
     return 0;

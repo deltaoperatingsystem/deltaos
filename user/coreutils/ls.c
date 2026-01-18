@@ -3,7 +3,8 @@
 #include <string.h>
 
 int main(int argc, char *argv[]) {
-    const char *path = (argc > 1) ? argv[1] : "$files/";
+    //if no path provided use "." (current directory)
+    const char *path = (argc > 1) ? argv[1] : ".";
     
     handle_t dir = get_obj(INVALID_HANDLE, path, RIGHT_READ);
     if (dir == INVALID_HANDLE) {

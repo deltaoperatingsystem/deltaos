@@ -38,6 +38,8 @@
 #define SYS_PROCESS_START   52  //start initial thread in process
 #define SYS_VMO_RESIZE      53  //resize a VMO
 #define SYS_READDIR         54  //read directory entries
+#define SYS_CHDIR           55  //change current working directory
+#define SYS_GETCWD          56  //get current working directory
 
 #define SYS_MAX             64
 
