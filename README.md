@@ -31,7 +31,7 @@ make run    #run in QEMU
 It boots, runs programs,has some drivers and has a working shell. 
 The window manager exists but is incomplete.
 
-# Goals:
+# Goals (Roughly in order but not):
 - Add APIC support
 - Create a NVME driver 
 - Add SMP
@@ -44,6 +44,9 @@ The window manager exists but is incomplete.
 - Flesh out the capability system
 - TCP/IP stack
 - AArch64 support (Later down the line)
+
+Not promises just where we're probably headed
+
 
 
 ## License
