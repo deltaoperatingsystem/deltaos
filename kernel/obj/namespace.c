@@ -145,8 +145,9 @@ int ns_list(void *entries_ptr, uint32 count, uint32 *index) {
     for (uint32 b = 0; b < bucket_count && filled < count; b++) {
         for (ns_entry_t *e = buckets[b]; e && filled < count; e = e->next) {
             if (seen >= skip) {
-                //point to name (caller must not modify or free)
-                entries[filled].name = e->name;
+                //copy name into buffer
+                strncpy(entries[filled].name, e->name, sizeof(entries[filled].name) - 1);
+                entries[filled].name[sizeof(entries[filled].name) - 1] = '\0';
                 entries[filled].type = e->obj->type;
                 filled++;
             }
