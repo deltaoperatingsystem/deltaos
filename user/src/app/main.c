@@ -47,14 +47,27 @@ int main(void) {
 
     wm_res_t res;
     channel_recv(wm_handle, &res, sizeof(res));
-    if (res.ack != true) {
-        debug_puts("Window creation failed :(\n");
-    } else {
-        debug_puts("Created a window successfully\n");
-    }
+    if (res.ack != true) debug_puts("Window creation failed :(\n");
 
-    while(1);
-    __builtin_unreachable();
+    char path[64];
+    snprintf(path, sizeof(path), "$gui/%d/surface", getpid());
+    handle_t vmo = get_obj(INVALID_HANDLE, path, RIGHT_MAP | RIGHT_WRITE);
+    if (!vmo) debug_puts("Failed to open surface object\n");
+    uint32 *surface = vmo_map(vmo, NULL, 0, 500 * 500 * sizeof(uint32), RIGHT_WRITE);
+    if (!surface) debug_puts("Failed to map surface\n");
+
+    //test
+    int i = 0;
+    while (1) {
+        i %= 0xFF;
+        memset(surface, i++, 500 * 500 * sizeof(uint32));
+        req = (wm_req_t){ .type = COMMIT };
+        channel_send(wm_handle, &req, sizeof(req));
+
+        //wait for ack
+        channel_recv(wm_handle, &res, sizeof(res));
+        if (res.ack != true) debug_puts("Failed to commit surface\n");
+    }
 
     return 0;
 }

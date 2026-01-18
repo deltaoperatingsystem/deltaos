@@ -24,7 +24,6 @@ void fb_fillrect(uint32 *fb, uint32 x, uint32 y, uint32 w, uint32 h, uint32 colo
 void fb_drawimage(uint32 *fb, const unsigned char *src, uint32 x, uint32 y, uint32 w, uint32 h) {
     for (uint32 i = 0; i < h; i++) {
         for (uint32 j = 0; j < w; j++) {
-
             uint8 r = *src++;
             uint8 g = *src++;
             uint8 b = *src++;
