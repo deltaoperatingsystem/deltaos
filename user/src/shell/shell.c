@@ -4,7 +4,7 @@
 #include <keyboard.h>
 
 static void cmd_help(void) {
-    puts("Commands: help, echo, spawn, wm, exit\n");
+    puts("Commands: help, echo, cd, pwd, spawn, wm, ls, exit\n");
 }
 
 static void cmd_echo(char *args) {
@@ -37,6 +37,27 @@ static void cmd_wm(void) {
     }
 }
 
+static void cmd_cd(char *path) {
+    if (!path) {
+        puts("Usage: cd <path>\n");
+        return;
+    }
+    
+    if (chdir(path) < 0) {
+        printf("cd: failed to change directory to '%s'\n", path);
+    }
+}
+
+static void cmd_pwd(void) {
+    char cwd[256];
+    if (getcwd(cwd, sizeof(cwd)) < 0) {
+        puts("pwd: failed to get current directory\n");
+    } else {
+        puts(cwd);
+        puts("\n");
+    }
+}
+
 static void process_command(char *line) {
     char *cmd = strtok(line, " \t\n");
     if (!cmd) return;
@@ -45,6 +66,10 @@ static void process_command(char *line) {
         cmd_help();
     } else if (streq(cmd, "echo")) {
         cmd_echo(strtok(NULL, "\n"));
+    } else if (streq(cmd, "cd")) {
+        cmd_cd(strtok(NULL, " \t\n"));
+    } else if (streq(cmd, "pwd")) {
+        cmd_pwd();
     } else if (streq(cmd, "spawn")) {
         cmd_spawn(strtok(NULL, " \t\n"));
     } else if (streq(cmd, "wm")) {
@@ -53,17 +78,25 @@ static void process_command(char *line) {
         puts("Goodbye!\n");
         exit(0);
     } else {
-        //try to spawn from /initrd
-        char path[64];
-        int len = 0;
-        while (cmd[len] && len < 50) len++;
+        //try to spawn from /system/binaries
+        char path[128];
+        int len = strlen(cmd);
         
-        if (len > 0 && len < 50) {
-            memcpy(path, "$files/system/binaries/", 23);
-            memcpy(path + 23, cmd, len);
-            path[23 + len] = '\0';
+        if (len > 0 && len < 64) {
+            snprintf(path, sizeof(path), "$files/system/binaries/%s", cmd);
             
-            int child = spawn(path, 0, NULL);
+            //collect arguments
+            char *args_list[16];
+            int argc = 1;
+            args_list[0] = cmd;
+            
+            char *token;
+            while ((token = strtok(NULL, " \t\n")) && argc < 15) {
+                args_list[argc++] = token;
+            }
+            args_list[argc] = NULL;
+            
+            int child = spawn(path, argc, args_list);
             if (child < 0) {
                 printf("Unknown command: %s\n", cmd);
             } else {
@@ -87,7 +120,13 @@ int main(int argc, char *argv[]) {
     char buffer[128];
     int pos = 0;
     
-    puts("> ");
+    //show initial prompt with CWD
+    char cwd[256];
+    if (getcwd(cwd, sizeof(cwd)) >= 0) {
+        printf("%s> ", cwd);
+    } else {
+        puts("> ");
+    }
     while (1) {
         char c = kbd_getchar();
         if (c == 0) continue;
@@ -106,7 +145,14 @@ int main(int argc, char *argv[]) {
             buffer[pos] = '\0';
             process_command(buffer);
             pos = 0;
-            puts("> ");
+            
+            //show prompt with CWD
+            char cwd[256];
+            if (getcwd(cwd, sizeof(cwd)) >= 0) {
+                printf("%s> ", cwd);
+            } else {
+                puts("> ");
+            }
         } else {
             buffer[pos++] = c;
         }

@@ -94,4 +94,8 @@ int stat(const char *path, stat_t *st);
 //directory reading
 int readdir(handle_t h, dirent_t *entries, uint32 count, uint32 *index);
 
+//current working directory
+int chdir(const char *path);
+int getcwd(char *buf, size size);
+
 #endif

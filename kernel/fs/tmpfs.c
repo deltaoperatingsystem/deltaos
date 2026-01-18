@@ -344,11 +344,34 @@ static ssize tmpfs_root_read(object_t *obj, void *buf, size len, size offset) {
     return -1;
 }
 
+//root directory readdir - delegates to the actual tmpfs root node
+static int tmpfs_root_readdir(object_t *obj, void *buf, uint32 count, uint32 *index) {
+    (void)obj;
+    if (!root || !buf || !index) return -1;
+    
+    dirent_t *entries = (dirent_t *)buf;
+    uint32 start = *index;
+    uint32 found = 0;
+    
+    for (uint32 i = start; i < root->dir.count && found < count; i++) {
+        tmpfs_node_t *child = root->dir.children[i];
+        if (child) {
+            entries[found].type = child->type;
+            strncpy(entries[found].name, child->name, DIRENT_NAME_MAX - 1);
+            entries[found].name[DIRENT_NAME_MAX - 1] = '\0';
+            found++;
+            *index = i + 1;
+        }
+    }
+    
+    return found;
+}
+
 static object_ops_t tmpfs_root_ops = {
     .read = tmpfs_root_read,
     .write = NULL,
     .close = NULL,
-    .readdir = NULL,
+    .readdir = tmpfs_root_readdir,
     .lookup = NULL
 };
 

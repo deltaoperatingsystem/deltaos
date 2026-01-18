@@ -13,6 +13,7 @@
 #include <mm/kheap.h>
 #include <lib/io.h>
 #include <lib/string.h>
+#include <lib/path.h>
 #include <fs/fs.h>
 
 static int64 sys_exit(int64 status) {
@@ -73,6 +74,13 @@ static int64 sys_spawn(const char *path, int argc, char **argv) {
     if (!proc) {
         kfree(buf);
         return -1;
+    }
+    
+    //inherit CWD from current process
+    process_t *current = process_current();
+    if (current) {
+        strncpy(proc->cwd, current->cwd, sizeof(proc->cwd) - 1);
+        proc->cwd[sizeof(proc->cwd) - 1] = '\0';
     }
     
     //load ELF into user address space
@@ -630,6 +638,54 @@ static int64 sys_readdir(handle_t h, dirent_t *entries, uint32 count, uint32 *in
     return obj->ops->readdir(obj, entries, count, index);
 }
 
+//change current working directory
+static int64 sys_chdir(const char *path) {
+    if (!path) return -1;
+    
+    process_t *proc = process_current();
+    if (!proc) return -1;
+    
+    //reject namespace paths (starting with $) - those are kernel-internal
+    if (path[0] == '$') return -4;
+    
+    //validate that path exists and is a directory
+    stat_t st;
+    if (handle_stat(path, &st) != 0) return -2;  //path doesn't exist
+    if (st.type != FS_TYPE_DIR) return -3;  //not a directory
+    
+    //to store the CWD we need to resolve it to an absolute path first
+    char full_path[256];
+    if (path[0] == '/') {
+        strncpy(full_path, path, sizeof(full_path) - 1);
+    } else {
+        snprintf(full_path, sizeof(full_path), "%s/%s", proc->cwd, path);
+    }
+    
+    path_normalize(full_path);
+    
+    //validate final path length
+    size final_len = strlen(full_path);
+    if (final_len >= sizeof(proc->cwd)) return -1;
+    
+    //copy new cwd
+    memcpy(proc->cwd, full_path, final_len + 1);
+    return 0;
+}
+
+//get current working directory
+static int64 sys_getcwd(char *buf, size bufsize) {
+    if (!buf || bufsize == 0) return -1;
+    
+    process_t *proc = process_current();
+    if (!proc) return -1;
+    
+    size cwd_len = strlen(proc->cwd);
+    if (cwd_len >= bufsize) return -1;  //buffer too small
+    
+    memcpy(buf, proc->cwd, cwd_len + 1);
+    return cwd_len;
+}
+
 int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
                        uint64 arg4, uint64 arg5, uint64 arg6) {
     switch (num) {
@@ -670,6 +726,8 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
         
         case SYS_VMO_RESIZE: return sys_vmo_resize((handle_t)arg1, (size)arg2);
         case SYS_READDIR: return sys_readdir((handle_t)arg1, (dirent_t *)arg2, (uint32)arg3, (uint32 *)arg4);
+        case SYS_CHDIR: return sys_chdir((const char *)arg1);
+        case SYS_GETCWD: return sys_getcwd((char *)arg1, (size)arg2);
         
         default: return -1;
     }

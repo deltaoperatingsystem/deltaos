@@ -41,6 +41,7 @@ typedef struct proc_vma {
 typedef struct process {
     uint64 pid;
     char name[32];
+    char cwd[256];  //current working directory
     uint32 state;
     
     //kernel object wrapper (for capability-based access)
