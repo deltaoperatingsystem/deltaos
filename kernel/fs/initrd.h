@@ -2,7 +2,7 @@
 #define FS_INITRD_H
 
 //initialize initrd: parse DA archive from boot info and populate tmpfs
-//files are mounted under /initrd/
+//files are mounted under / (root directory)
 void initrd_init(void);
 
 //get initrd base address (for reclamation later)

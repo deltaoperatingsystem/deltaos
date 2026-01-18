@@ -13,10 +13,11 @@
 #define FS_TYPE_SOCKET  6   //socket
 #define FS_TYPE_DEVICE  7   //device node
 
-//directory entry (name points to fs-managed storage)
+//directory entry
+#define DIRENT_NAME_MAX 64
 typedef struct dirent {
-    const char *name;   //entry name (managed by filesystem)
-    uint32 type;        //FS_TYPE_*
+    char name[DIRENT_NAME_MAX];  //entry name
+    uint32 type;                  //FS_TYPE_*
 } dirent_t;
 
 //file status info

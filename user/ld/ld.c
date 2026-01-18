@@ -139,8 +139,7 @@ static lib_node_t g_exe_node; //persistent node for main exe
 
 //library search paths
 static const char *ld_default_paths[] = {
-    "$files/initrd/system/libraries/",
-    "$files/initrd/lib/",
+    "$files/system/libraries/",
     0
 };
 static char *ld_runpath = 0;  //from DT_RUNPATH or DT_RPATH

@@ -186,7 +186,8 @@ static int tmpfs_dir_readdir(object_t *obj, void *buf, uint32 count, uint32 *ind
     uint32 filled = 0;
     
     for (uint32 i = start; i < node->dir.count && filled < count; i++) {
-        entries[filled].name = node->dir.children[i]->name;
+        strncpy(entries[filled].name, node->dir.children[i]->name, sizeof(entries[filled].name) - 1);
+        entries[filled].name[sizeof(entries[filled].name) - 1] = '\0';
         entries[filled].type = node->dir.children[i]->type;
         filled++;
     }

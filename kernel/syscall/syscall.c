@@ -13,6 +13,7 @@
 #include <mm/kheap.h>
 #include <lib/io.h>
 #include <lib/string.h>
+#include <fs/fs.h>
 
 static int64 sys_exit(int64 status) {
     (void)status;
@@ -89,14 +90,14 @@ static int64 sys_spawn(const char *path, int argc, char **argv) {
     
     if (info.interp_path[0]) {
         
-        //convert interpreter path to initrd path
-        //e.x /system/libraries/ld.so -> $files/initrd/system/libraries/ld.so
+        //convert interpreter path to full path
+        //e.x /system/libraries/ld.so -> $files/system/libraries/ld.so
         char interp_fullpath[256];
         if (info.interp_path[0] == '/') {
-            //absolute path - prepend $files/initrd
-            snprintf(interp_fullpath, sizeof(interp_fullpath), "$files/initrd%s", info.interp_path);
+            //absolute path - prepend $files
+            snprintf(interp_fullpath, sizeof(interp_fullpath), "$files%s", info.interp_path);
         } else {
-            snprintf(interp_fullpath, sizeof(interp_fullpath), "$files/initrd/%s", info.interp_path);
+            snprintf(interp_fullpath, sizeof(interp_fullpath), "$files/%s", info.interp_path);
         }
         
         //load interpreter
@@ -613,6 +614,22 @@ static int64 sys_vmo_resize(handle_t vmo_h, size new_size) {
     return vmo_resize(current, vmo_h, new_size);
 }
 
+//read directory entries from a handle
+//returns number of entries read or negative on error
+static int64 sys_readdir(handle_t h, dirent_t *entries, uint32 count, uint32 *index) {
+    if (!entries || !index || count == 0) return -1;
+    
+    process_t *proc = process_current();
+    if (!proc) return -1;
+    
+    object_t *obj = process_get_handle(proc, h);
+    if (!obj) return -2;
+    
+    if (!obj->ops || !obj->ops->readdir) return -3;
+    
+    return obj->ops->readdir(obj, entries, count, index);
+}
+
 int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
                        uint64 arg4, uint64 arg5, uint64 arg6) {
     switch (num) {
@@ -652,6 +669,7 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
         case SYS_PROCESS_START: return sys_process_start((handle_t)arg1, arg2, arg3);
         
         case SYS_VMO_RESIZE: return sys_vmo_resize((handle_t)arg1, (size)arg2);
+        case SYS_READDIR: return sys_readdir((handle_t)arg1, (dirent_t *)arg2, (uint32)arg3, (uint32 *)arg4);
         
         default: return -1;
     }

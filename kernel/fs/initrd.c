@@ -22,21 +22,18 @@ static void populate_entry(da_header_t *hdr, da_entry_t *entry, void *ctx) {
     //skip root directory entry
     if (strcmp(path, "/") == 0) return;
     
-    //build full path: /initrd + archive_path
-    char full_path[256];
-    snprintf(full_path, sizeof(full_path), "/initrd%s", path);
-    
+    //use archive path directly (mount as root)
     uint32 type = da_entry_type(entry);
     
     if (type == DA_TYPE_DIR) {
         //create directory
-        if (tmpfs_create_dir(full_path) < 0) {
-            printf("[initrd] warn: failed to create dir %s\n", full_path);
+        if (tmpfs_create_dir(path) < 0) {
+            printf("[initrd] warn: failed to create dir %s\n", path);
         }
     } else if (type == DA_TYPE_FILE) {
         //create file
-        if (tmpfs_create(full_path) < 0) {
-            printf("[initrd] warn: failed to create file %s\n", full_path);
+        if (tmpfs_create(path) < 0) {
+            printf("[initrd] warn: failed to create file %s\n", path);
             return;
         }
         
@@ -44,7 +41,7 @@ static void populate_entry(da_header_t *hdr, da_entry_t *entry, void *ctx) {
         if (entry->size > 0) {
             void *data = da_file_data(hdr, entry);
             if (data) {
-                object_t *file = tmpfs_open(full_path);
+                object_t *file = tmpfs_open(path);
                 if (file) {
                     object_write(file, data, entry->size, 0);
                     object_release(file);
@@ -79,16 +76,10 @@ void initrd_init(void) {
     da_header_t *hdr = (da_header_t *)initrd_base;
     printf("[initrd] DA v%04x, %u entries\n", hdr->version, hdr->entry_count);
     
-    //create /initrd mount point
-    if (tmpfs_create_dir("/initrd") < 0) {
-        puts("[initrd] failed to create /initrd mount point\n");
-        return;
-    }
-    
-    //populate tmpfs from archive
+    //populate tmpfs from archive (mount as root)
     da_foreach(hdr, populate_entry, NULL);
     
-    printf("[initrd] mounted %u entries to /initrd\n", hdr->entry_count);
+    printf("[initrd] mounted %u entries to /\n", hdr->entry_count);
 }
 
 void *initrd_get_base(void) {

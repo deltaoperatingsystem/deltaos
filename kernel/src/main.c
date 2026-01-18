@@ -32,9 +32,9 @@ extern void percpu_set_kernel_stack(void *stack_top);
 //load and execute init from initrd
 static void spawn_init(void) {
     //open init
-    handle_t h = handle_open("$files/initrd/init", HANDLE_RIGHT_READ);
+    handle_t h = handle_open("$files/system/binaries/init", HANDLE_RIGHT_READ);
     if (h == INVALID_HANDLE) {
-        printf("[init] failed to open /initrd/init\n");
+        printf("[init] failed to open /system/binaries/init\n");
         return;
     }
     
@@ -95,14 +95,14 @@ static void spawn_init(void) {
     if (info.interp_path[0]) {
         printf("[init] dynamic executable, interpreter: %s\n", info.interp_path);
         
-        //convert interpreter path to initrd path
-        //e.x /system/libraries/ld.so -> $files/initrd/system/libraries/ld.so
+        //convert interpreter path to full path
+        //e.x /system/libraries/ld.so -> $files/system/libraries/ld.so
         char interp_fullpath[256];
         if (info.interp_path[0] == '/') {
-            //absolute path - prepend $files/initrd
-            snprintf(interp_fullpath, sizeof(interp_fullpath), "$files/initrd%s", info.interp_path);
+            //absolute path - prepend $files
+            snprintf(interp_fullpath, sizeof(interp_fullpath), "$files%s", info.interp_path);
         } else {
-            snprintf(interp_fullpath, sizeof(interp_fullpath), "$files/initrd/%s", info.interp_path);
+            snprintf(interp_fullpath, sizeof(interp_fullpath), "$files/%s", info.interp_path);
         }
         
         //load interpreter
@@ -176,7 +176,7 @@ static void spawn_init(void) {
                     MMU_FLAG_WRITE | MMU_FLAG_USER, NULL, 0);
     
     //set up argc/argv and aux vector
-    char *init_argv[] = { "/initrd/init", NULL };
+    char *init_argv[] = { "/system/binaries/init", NULL };
     int init_argc = sizeof(init_argv) / sizeof(init_argv[0]) - 1;
     
     uintptr user_stack_top;
@@ -218,7 +218,7 @@ void parse_cmdline(char *cmdline) {
     } while ((arg = strtok(NULL, " ")));
 }
 
-void kernel_main(char *cmdline) {
+void kernel_main(const char *cmdline) {
     parse_cmdline(cmdline);
     set_outmode(SERIAL);
     printf("kernel_main started\n");

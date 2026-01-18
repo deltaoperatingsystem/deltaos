@@ -33,8 +33,11 @@
 #define SYS_HANDLE_GRANT    51  //inject handle into child process
 #define SYS_PROCESS_START   52  //start initial thread in process
 #define SYS_VMO_RESIZE      53  //resize a VMO
+#define SYS_READDIR         54  //read directory entries
 
-/* 
+#define SYS_MAX             64
+
+/*
  *System V AMD64 syscall ABI:
  *- syscall number in rax
  *- arguments: rdi, rsi, rdx, r10, r8, r9

@@ -12,7 +12,7 @@
 #include <proc/process.h>
 #include <drivers/pci.h>
 
-extern void kernel_main(char *cmdline);
+extern void kernel_main(const char *cmdline);
 extern void enable_sse(void);
 
 void arch_init(struct db_boot_info *boot_info) {

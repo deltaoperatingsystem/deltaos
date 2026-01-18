@@ -52,6 +52,17 @@ int channel_send(handle_t ep, const void *data, int len);
 int channel_recv(handle_t ep, void *buf, int buflen);
 int channel_try_recv(handle_t ep, void *buf, int buflen);
 
+//directory entry structure
+#define DIRENT_NAME_MAX 64
+typedef struct {
+    char name[DIRENT_NAME_MAX];  //entry name
+    uint32 type;                  //file type
+} dirent_t;
+
+//filesystem types
+#define FS_TYPE_FILE    1
+#define FS_TYPE_DIR     2
+
 //extended channel recv with sender info
 typedef struct {
     uint64 data_len;     //actual bytes of data received
@@ -79,5 +90,8 @@ int ns_register(const char *path, handle_t h);
 
 //metadata
 int stat(const char *path, stat_t *st);
+
+//directory reading
+int readdir(handle_t h, dirent_t *entries, uint32 count, uint32 *index);
 
 #endif

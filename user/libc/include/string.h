@@ -7,6 +7,7 @@ size strlen(const char *s);
 bool streq(const char *a, const char *b);
 char *strchr(const char *s, int c);
 char *strtok(char *str, const char *delim);
+char *strncpy(char *dest, const char *src, size n);
 
 void *memcpy(void *dest, const void *src, size len);
 void *memset(void *s, int c, size len);
