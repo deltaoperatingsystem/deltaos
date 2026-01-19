@@ -18,6 +18,6 @@ void printf(const char *fmt, ...);
 int snprintf(char *buf, size n, const char *format, ...);
 int vsnprintf(char *buf, size n, const char *format, va_list args);
 
-void debug_puts(const char *str);
+void dprintf(const char *fmt, ...);
 
 #endif
