@@ -129,7 +129,6 @@ void server_listen(handle_t *server) {
         switch (msg.type) {
             case COMMIT: window_commit(clients[i].handle, res, msg); break;
             case RESIZE: {
-                dprintf("[wm] recieved resize request of %dx%d\n", msg.u.resize.width, msg.u.resize.height);
                 vmo_unmap(clients[i].surface, clients[i].surface_w * clients[i].surface_h * sizeof(uint32));
                 clients[i].surface_w = msg.u.resize.width;
                 clients[i].surface_h = msg.u.resize.height;
@@ -193,7 +192,6 @@ int main(void) {
     kbd_setup(&kbd_handle);
     server_setup(&server_handle, &client_handle);
 
-    spawn("$files/system/binaries/app", 0, NULL);
     while (1) {
         server_listen(&server_handle);
         // handle_input();

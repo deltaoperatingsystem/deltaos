@@ -33,6 +33,7 @@ static void cmd_wm(void) {
         printf("wm: failed to start (error %d)\n", child);
     } else {
         printf("wm: started (PID %d)\n", child);
+        spawn("$files/system/binaries/app", 0, NULL);
         wait(child);
     }
 }
