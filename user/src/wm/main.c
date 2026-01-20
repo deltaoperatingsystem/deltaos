@@ -54,7 +54,7 @@ void recompute_layout(uint16 screen_w, uint16 screen_h) {
         clients[i].win_h = (i == num_clients - 1) ? (screen_h - tile_h * (num_clients - 1)) : tile_h;
         clients[i].dirty = true;
         
-        wm_res_t configure = (wm_res_t){
+        wm_server_msg_t configure = (wm_server_msg_t){
             .type = CONFIGURE,
             .u.configure = {
                 .x = 0,
@@ -67,7 +67,7 @@ void recompute_layout(uint16 screen_w, uint16 screen_h) {
     }
 }
 
-void window_create(handle_t *server, channel_recv_result_t res, wm_req_t req) {
+void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t req) {
     if (num_clients == 16) return; //ignore for now
 
     //create surface
@@ -97,17 +97,17 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_req_t req) {
         .dirty = false,
     };
 
-    wm_res_t resp = (wm_res_t){ .type = ACK, .u.ack = true };
+    wm_server_msg_t resp = (wm_server_msg_t){ .type = ACK, .u.ack = true };
     channel_send(*server, &resp, sizeof(resp));
 
     recompute_layout(1280, 800);
 }
 
-void window_commit(handle_t client, channel_recv_result_t res, wm_req_t req) {
+void window_commit(handle_t client, channel_recv_result_t res, wm_client_msg_t req) {
     for (int i = 0; i < num_clients; i++) {
         if (clients[i].pid == res.sender_pid) {
             clients[i].dirty = true;
-            wm_res_t resp = (wm_res_t){ .type = ACK, .u.ack = true };
+            wm_server_msg_t resp = (wm_server_msg_t){ .type = ACK, .u.ack = true };
             channel_send(client, &resp, sizeof(resp));
             return;
         }
@@ -115,19 +115,28 @@ void window_commit(handle_t client, channel_recv_result_t res, wm_req_t req) {
 }
 
 void server_listen(handle_t *server) {
-    wm_req_t msg;
+    wm_client_msg_t msg;
     channel_recv_result_t res;
-    if (channel_try_recv_msg(*server, &msg, sizeof(wm_req_t), NULL, 0, &res) == 0) {
+    if (channel_try_recv_msg(*server, &msg, sizeof(wm_client_msg_t), NULL, 0, &res) == 0) {
         switch (msg.type) {
             case CREATE: window_create(server, res, msg); break;
         }
     }
 
     for (int i = 0; i < num_clients; i++) {
-        if (channel_try_recv_msg(clients[i].handle, &msg, sizeof(wm_req_t), NULL, 0, &res) != 0) continue;
+        if (channel_try_recv_msg(clients[i].handle, &msg, sizeof(wm_client_msg_t), NULL, 0, &res) != 0) continue;
 
         switch (msg.type) {
-            case COMMIT: window_commit(clients[i].handle, res, msg);
+            case COMMIT: window_commit(clients[i].handle, res, msg); break;
+            case RESIZE: {
+                dprintf("[wm] recieved resize request of %dx%d\n", msg.u.resize.width, msg.u.resize.height);
+                vmo_unmap(clients[i].surface, clients[i].surface_w * clients[i].surface_h * sizeof(uint32));
+                clients[i].surface_w = msg.u.resize.width;
+                clients[i].surface_h = msg.u.resize.height;
+                clients[i].surface = vmo_map(clients[i].vmo, NULL, 0, clients[i].surface_w * clients[i].surface_h * sizeof(uint32), RIGHT_MAP);
+                clients[i].dirty = true;
+                break;
+            }
         }
     }
 }
@@ -161,7 +170,7 @@ void render_surfaces(handle_t fb_handle, uint32 *fb_backbuffer) {
 
         if (copy_w <= 0 || copy_h <= 0) continue; //nothing to copy, skip
 
-        for (int row = 0; row < copy_h - 1; row++) {
+        for (int row = 0; row < copy_h; row++) {
             uint32 *src_row = c.surface + (src_y0 + row) * c.surface_w + src_x0;
             uint32 *dst_row = fb_backbuffer + (dst_y0 + row) * FB_W + dst_x0;
             memcpy(dst_row, src_row, copy_w * sizeof(uint32));
@@ -184,9 +193,6 @@ int main(void) {
     kbd_setup(&kbd_handle);
     server_setup(&server_handle, &client_handle);
 
-    spawn("$files/system/binaries/app", 0, NULL);
-    spawn("$files/system/binaries/app", 0, NULL);
-    spawn("$files/system/binaries/app", 0, NULL);
     spawn("$files/system/binaries/app", 0, NULL);
     while (1) {
         server_listen(&server_handle);

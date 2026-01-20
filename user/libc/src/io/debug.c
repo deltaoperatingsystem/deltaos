@@ -16,7 +16,7 @@ void dprintf(const char *fmt, ...) {
         if (__stdout != INVALID_HANDLE) {
             //cap at buffer size for the write
             size to_write = (len < (int)sizeof(buf)) ? (size)len : (sizeof(buf) - 1);
-            __syscall2(SYS_DEBUG_WRITE, buf, to_write);
+            __syscall2(SYS_DEBUG_WRITE, (long)buf, to_write);
         }
     }
 
