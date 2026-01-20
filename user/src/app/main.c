@@ -1,72 +1,55 @@
 #include <system.h>
 #include <string.h>
 #include <io.h>
-
-typedef struct {
-    enum {
-        CREATE, COMMIT, DESTROY,
-    } type;
-    union {
-        struct {
-            uint16 width, height;
-        } create;
-        struct {
-
-        } commit;
-        struct {
-
-        } destroy;
-    } u;
-} wm_req_t;
-
-typedef struct {
-    bool ack;
-    union {
-        struct {
-
-        } create;
-        struct {
-
-        } commit;
-        struct {
-
-        } destroy;
-    } u;
-} wm_res_t;
-
+#include "../wm/protocol.h"
 
 int main(void) {
+    uint16 w = 500, h = 500;
     //request a window
-    wm_req_t req = (wm_req_t){
+    wm_client_msg_t req = (wm_client_msg_t){
         .type = CREATE,
-        .u.create.width = 500,
-        .u.create.height = 500,
+        .u.create.width = w,
+        .u.create.height = h,
     };
     handle_t wm_handle = get_obj(INVALID_HANDLE, "$gui/wm", RIGHT_READ | RIGHT_WRITE);
     channel_send(wm_handle, &req, sizeof(req));
 
-    wm_res_t res;
+    wm_server_msg_t res;
     channel_recv(wm_handle, &res, sizeof(res));
-    if (res.ack != true) debug_puts("Window creation failed :(\n");
 
     char path[64];
     snprintf(path, sizeof(path), "$gui/%d/surface", getpid());
     handle_t vmo = get_obj(INVALID_HANDLE, path, RIGHT_MAP | RIGHT_WRITE);
-    if (!vmo) debug_puts("Failed to open surface object\n");
-    uint32 *surface = vmo_map(vmo, NULL, 0, 500 * 500 * sizeof(uint32), RIGHT_WRITE);
-    if (!surface) debug_puts("Failed to map surface\n");
+    uint32 *surface = vmo_map(vmo, NULL, 0, w * h * sizeof(uint32), RIGHT_WRITE | RIGHT_MAP);
+
+    snprintf(path, sizeof(path), "$gui/%d/channel", getpid());
+    handle_t channel = get_obj(INVALID_HANDLE, path, RIGHT_READ | RIGHT_WRITE);
 
     //test
     int i = 0;
     while (1) {
-        i %= 0xFF;
-        memset(surface, i++, 500 * 500 * sizeof(uint32));
-        req = (wm_req_t){ .type = COMMIT };
-        channel_send(wm_handle, &req, sizeof(req));
+        if (channel_recv(channel, &res, sizeof(res)) > 0) {
+            switch(res.type) {
+                case CONFIGURE: {
+                    if (res.u.configure.w <= w && res.u.configure.h <= h) break;
+                    vmo_unmap(surface, w * h * sizeof(uint32));
+                    w = res.u.configure.w;
+                    h = res.u.configure.h;
+                    vmo_resize(vmo, w * h * sizeof(uint32));
+                    surface = vmo_map(vmo, NULL, 0, w * h * sizeof(uint32), RIGHT_WRITE | RIGHT_MAP);
+                    req = (wm_client_msg_t){ .type = RESIZE, .u.resize.width = w, .u.resize.height = h };
+                    channel_send(channel, &req, sizeof(req));
+                    break;
+                }
+            }
+        }
 
-        //wait for ack
-        channel_recv(wm_handle, &res, sizeof(res));
-        if (res.ack != true) debug_puts("Failed to commit surface\n");
+        i %= 0xFF;
+        memset(surface, i++, w * h * sizeof(uint32));
+        req = (wm_client_msg_t){ .type = COMMIT };
+        channel_send(channel, &req, sizeof(req));
+
+        yield();
     }
 
     return 0;
