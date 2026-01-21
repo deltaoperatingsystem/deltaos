@@ -21,7 +21,7 @@ TOPS := $(sort $(foreach f,$(SRC_SRCS),$(firstword $(subst /, ,$(patsubst src/%,
 USER_BINS := $(patsubst %,../initrd/system/binaries/%,$(TOPS))
 
 #apps that need libkeyboard
-KEYBOARD_APPS := shell
+KEYBOARD_APPS := shell wm
 
 define LOAD_PROJECT_CONFIG
 CFLAGS_$(1) 	:=

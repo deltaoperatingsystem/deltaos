@@ -41,6 +41,10 @@ int main(void) {
                     channel_send(channel, &req, sizeof(req));
                     break;
                 }
+                case KBD: {
+                    dprintf("%c\n", res.u.kbd.data.codepoint);
+                    break;
+                }
             }
         }
 

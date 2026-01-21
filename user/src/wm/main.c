@@ -4,6 +4,7 @@
 #include <io.h>
 #include "fb.h"
 #include "protocol.h"
+#include "../../libkeyboard/include/keyboard.h"
 
 #define FB_BACKBUFFER_SIZE  (1280 * 800 * sizeof(uint32))
 
@@ -18,10 +19,6 @@ static inline int min(int a, int b) {
 void fb_setup(handle_t *h, uint32 **backbuffer) {
     *h = get_obj(INVALID_HANDLE, "$devices/fb0", RIGHT_READ | RIGHT_WRITE);
     *backbuffer = malloc(FB_BACKBUFFER_SIZE);
-}
-
-void kbd_setup(handle_t *h) {
-    *h = get_obj(INVALID_HANDLE, "$devices/keyboard", RIGHT_READ);
 }
 
 void server_setup(handle_t *server, handle_t *client) {
@@ -42,6 +39,7 @@ typedef struct {
 
 wm_client_t clients[16];
 uint8 num_clients = 0;
+int8 focused = -1;
 
 #define WM_ACK  0xFF
 
@@ -101,6 +99,8 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
     channel_send(*server, &resp, sizeof(resp));
 
     recompute_layout(1280, 800);
+
+    if (focused == -1) focused = 0;
 }
 
 void window_commit(handle_t client, channel_recv_result_t res, wm_client_msg_t req) {
@@ -181,20 +181,31 @@ void render_surfaces(handle_t fb_handle, uint32 *fb_backbuffer) {
     handle_write(fb_handle, fb_backbuffer, FB_BACKBUFFER_SIZE);
 }
 
+void handle_input() {
+    if (focused == -1) return;
+    kbd_event_t ev;
+    if (kbd_try_read(&ev) == 0) {
+        wm_server_msg_t msg = {
+            .type = KBD,
+            .u.kbd.data = ev,
+        };
+        channel_send(clients[focused].handle, &msg, sizeof(msg));
+    }
+}
+
 int main(void) {
     handle_t fb_handle = INVALID_HANDLE;
     uint32 *fb_backbuffer = NULL;
-    handle_t kbd_handle = INVALID_HANDLE;
     handle_t server_handle = INVALID_HANDLE;
     handle_t client_handle = INVALID_HANDLE;
 
     fb_setup(&fb_handle, &fb_backbuffer);
-    kbd_setup(&kbd_handle);
+    kbd_init();
     server_setup(&server_handle, &client_handle);
 
     while (1) {
         server_listen(&server_handle);
-        // handle_input();
+        handle_input();
         render_surfaces(fb_handle, fb_backbuffer);
 
         yield();

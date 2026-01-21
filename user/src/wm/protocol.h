@@ -1,6 +1,8 @@
 #ifndef WM_PROTOCOL_H
 #define WM_PROTOCOL_H
 
+#include "../../libkeyboard/include/keyboard.h"
+
 typedef enum {
     ACK,
     CREATE,
@@ -8,6 +10,7 @@ typedef enum {
     DESTROY,
     CONFIGURE,
     RESIZE,
+    KBD,
 } wm_msg_type_t;
 
 typedef struct {
@@ -29,6 +32,9 @@ typedef struct {
         struct {
             uint16 x, y, w, h;
         } configure;
+        struct {
+            kbd_event_t data;
+        } kbd;
     } u;
 } wm_server_msg_t;
 
