@@ -63,6 +63,7 @@ int32 vmo_create(process_t *proc, size vmo_size, uint32 flags, handle_rights_t r
     size pages = (vmo_size + PAGE_SIZE - 1) / PAGE_SIZE;
     vmo->pages = kheap_alloc_pages(pages);
     if (!vmo->pages) {
+        printf("[vmo] ERR: vmo_create failed to allocate %zu pages\n", pages);
         kfree(vmo);
         return -1;
     }
@@ -166,10 +167,9 @@ void *vmo_map(process_t *proc, int32 handle, void *vaddr_hint,
     if (map_rights & HANDLE_RIGHT_WRITE) flags |= MMU_FLAG_WRITE;
     if (map_rights & HANDLE_RIGHT_EXECUTE) flags |= MMU_FLAG_EXEC;
     
-    //get physical address of VMO pages - must use page table lookup because
-    //kernel heap addresses (0xFFFF9...) are not in HHDM range (0xFFFF8...)
+    //get kernel pagemap for physical address lookups - must use page table lookup
+    //because kernel heap addresses (0xFFFF9...) are not in HHDM range (0xFFFF8...)
     pagemap_t *kmap = mmu_get_kernel_pagemap();
-    uint64 phys = mmu_virt_to_phys(kmap, (uintptr)vmo->pages + offset);
     
     //choose virtual address - use hint if provided or allocate from VMA
     uintptr vaddr;
@@ -177,17 +177,29 @@ void *vmo_map(process_t *proc, int32 handle, void *vaddr_hint,
         vaddr = (uintptr)vaddr_hint;
         //add VMA entry for tracking at specified address
         if (process_vma_add(proc, vaddr, len, flags, &vmo->obj, offset) < 0) {
+            printf("[vmo] ERR: vmo_map vma_add failed for 0x%lx\n", vaddr);
             return NULL;
         }
     } else {
         //allocate a free region using VMA
-        vaddr = process_vma_alloc(proc, len, flags, &vmo->obj, offset);
-        if (!vaddr) return NULL;
+        vaddr = process_vma_find_free(proc, len);
+        if (!vaddr) {
+            printf("[vmo] ERR: vmo_map no free virtual region for len 0x%lx\n", len);
+            return NULL;
+        }
+        if (process_vma_add(proc, vaddr, (len + 0xFFF) & ~0xFFFULL, flags, &vmo->obj, offset) < 0) {
+            printf("[vmo] ERR: vmo_map vma_add failed for 0x%lx\n", vaddr);
+            return NULL;
+        }
     }
     
     //map pages
     size pages = (len + 0xFFF) / 0x1000;
-    mmu_map_range(proc->pagemap, vaddr, phys, pages, flags);
+    for (size p = 0; p < pages; p++) {
+        uintptr vmo_virt = (uintptr)vmo->pages + offset + (p * PAGE_SIZE);
+        uintptr phys = mmu_virt_to_phys(kmap, vmo_virt);
+        mmu_map_range(proc->pagemap, vaddr + (p * PAGE_SIZE), phys, 1, flags);
+    }
     
     return (void *)vaddr;
 }
@@ -207,9 +219,10 @@ int vmo_unmap(process_t *proc, void *vaddr, size len) {
 
 typedef struct {
     vmo_t *vmo;
-    uintptr new_phys;
+    uintptr new_phys; //this assumes new physical pages are contiguous btw (which they are from pmm_alloc)
     size old_vmo_size;
     size new_vmo_size;
+    int status;
 } vmo_update_data_t;
 
 static void vmo_update_mapping_cb(process_t *proc, void *data) {
@@ -220,9 +233,6 @@ static void vmo_update_mapping_cb(process_t *proc, void *data) {
         if (vma->obj == &ud->vmo->obj) {
             size old_map_pages = (vma->length + PAGE_SIZE - 1) / PAGE_SIZE;
             
-            //unmap old physical pages
-            mmu_unmap_range(proc->pagemap, vma->start, old_map_pages);
-
             //if the VMO grew and this VMA was mapping up to its end, try to grow the VMA
             if (ud->new_vmo_size > ud->old_vmo_size && vma->obj_offset + vma->length == ud->old_vmo_size) {
                 size growth = ud->new_vmo_size - ud->old_vmo_size;
@@ -232,9 +242,6 @@ static void vmo_update_mapping_cb(process_t *proc, void *data) {
                 int collision = 0;
                 for (proc_vma_t *vma_check = proc->vma_list; vma_check; vma_check = vma_check->next) {
                     if (vma_check == vma) continue;
-                    //standard overlap check: [A, B] overlaps with [C, D] if A < D and C < B
-                    //A = vma->start + vma->length, B = new_end
-                    //C = vma_check->start, D = vma_check->start + vma_check->length
                     if ((vma->start + vma->length) < (vma_check->start + vma_check->length) && vma_check->start < new_end) {
                         collision = 1;
                         break;
@@ -243,18 +250,30 @@ static void vmo_update_mapping_cb(process_t *proc, void *data) {
 
                 if (!collision) {
                     vma->length += growth;
+                } else {
+                    ud->status = -1; //signal collision
                 }
             }
 
-            //remap based on new VMO boundaries
+            //unmap all previously mapped pages for this VMA
+            mmu_unmap_range(proc->pagemap, vma->start, old_map_pages);
+
+            //remap based on new VMO location and (possibly updated) VMA boundaries
+            //we clamp to VMO size in case it shrank
             if (vma->obj_offset < ud->new_vmo_size) {
                 size remaining_vmo = ud->new_vmo_size - vma->obj_offset;
                 size map_len = (vma->length < remaining_vmo) ? vma->length : remaining_vmo;
                 size map_pages = (map_len + PAGE_SIZE - 1) / PAGE_SIZE;
 
                 if (map_pages > 0) {
-                    uintptr vma_phys = ud->new_phys + vma->obj_offset;
-                    mmu_map_range(proc->pagemap, vma->start, vma_phys, map_pages, vma->flags);
+                    //must map page by page as VMO pages might not be physically contiguous
+                    //(though currently they are, the kernel heap doesn't guarantee it for grow/move)
+                    pagemap_t *kmap = mmu_get_kernel_pagemap();
+                    for (size p = 0; p < map_pages; p++) {
+                        uintptr vmo_virt = (uintptr)ud->vmo->pages + vma->obj_offset + (p * PAGE_SIZE);
+                        uintptr phys = mmu_virt_to_phys(kmap, vmo_virt);
+                        mmu_map_range(proc->pagemap, vma->start + (p * PAGE_SIZE), phys, 1, vma->flags);
+                    }
                 }
             }
         }
@@ -306,9 +325,17 @@ int vmo_resize(process_t *proc, int32 handle, size new_size) {
         .vmo = vmo, 
         .new_phys = new_phys, 
         .old_vmo_size = old_vmo_size,
-        .new_vmo_size = new_size
+        .new_vmo_size = new_size,
+        .status = 0
     };
     process_iterate(vmo_update_mapping_cb, &ud);
+
+    if (ud.status != 0) {
+        //one or more VMAs could not be grown buttttt we've already moved the data
+        //this is a kinda serious fucking problem for the process that failed but we must continue
+        //later just rollback (try atleast) but rn it's a TODO
+        return ud.status;
+    }
 
     kheap_free_pages(old_pages_addr, old_pages);
     

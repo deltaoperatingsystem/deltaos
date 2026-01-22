@@ -106,7 +106,7 @@ static int ld_heap_grow(uint64_t min_size) {
     if (vmo < 0) return -1;
     
     int64_t addr = syscall5(SYS_VMO_MAP, vmo, 0, 0, alloc_size, HANDLE_RIGHT_READ | HANDLE_RIGHT_WRITE);
-    if (addr <= 0) return -1;
+    if (addr == 0) return -1;
     
     ld_heap_ptr = (uint8_t *)addr;
     ld_heap_end = ld_heap_ptr + alloc_size;
@@ -354,7 +354,7 @@ static int ld_load_library(const char *name, lib_handle_t *lib) {
     if (lib_vmo < 0) return LD_ERR_VMO;
     
     int64_t base = syscall5(SYS_VMO_MAP, lib_vmo, 0, 0, libsz, HANDLE_RIGHT_READ | HANDLE_RIGHT_WRITE | HANDLE_RIGHT_EXECUTE);
-    if (base < 0) return LD_ERR_VMO;
+    if (base <= 0) return LD_ERR_VMO;
     
     lib->base = (uint64_t)base;
     

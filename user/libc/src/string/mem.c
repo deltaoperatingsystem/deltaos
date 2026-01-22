@@ -1,5 +1,8 @@
 #include <string.h>
 
+#include <types.h>
+#include <sys/syscall.h>
+
 void *memcpy(void *dest, const void *src, size n) {
     unsigned char *d = dest;
     const unsigned char *s = src;
