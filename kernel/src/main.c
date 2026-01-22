@@ -211,11 +211,18 @@ static void spawn_init(void) {
     kfree(buf);
 }
 
-void parse_cmdline(char *cmdline) {
-    char *arg = strtok(cmdline, " ");
-    do {
+void parse_cmdline(const char *cmdline) {
+    if (!cmdline) return;
+    char buf[256];
+    size len = strlen(cmdline);
+    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    memcpy(buf, cmdline, len);
+    buf[len] = '\0';
+    char *arg = strtok(buf, " ");
+    while (arg) {
         if (strcmp(arg, "debug") == 0) io_enable_serial();
-    } while ((arg = strtok(NULL, " ")));
+        arg = strtok(NULL, " ");
+    }
 }
 
 void kernel_main(const char *cmdline) {

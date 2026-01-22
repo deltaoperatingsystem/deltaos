@@ -7,7 +7,6 @@ void *malloc(size len) {
     size aligned_len = _malloc_align_up(len);
 
     if (!_mem_addr) _mem_init();
-    if (!_malloc_free_list) _malloc_free_list = (malloc_header_t *)_mem_addr;
 
     malloc_header_t *header = _malloc_find_free_block(aligned_len);
 
