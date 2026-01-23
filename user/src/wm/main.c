@@ -2,79 +2,53 @@
 #include <string.h>
 #include <mem.h>
 #include <io.h>
-#include <keyboard.h>
 #include "fb.h"
 #include "protocol.h"
+#include "../../libkeyboard/include/keyboard.h"
 
 #define FB_BACKBUFFER_SIZE  (1280 * 800 * sizeof(uint32))
 
-//cursor functions
-extern int cursor_get_width(void);
-extern int cursor_get_height(void);
-extern uint32 cursor_get_pixel(int x, int y);
-
-//mouse state
-static int16 mouse_x = FB_W / 2;
-static int16 mouse_y = FB_H / 2;
-static handle_t mouse_handle = INVALID_HANDLE;
-static bool cursor_moved = true;
-
+/**
+ * Selects the greater of two integers.
+ * @returns The greater of `a` and `b`.
+ */
 static inline int max(int a, int b) {
     return (a > b) ? a : b;
 }
 
+/**
+ * Selects the smaller of two integers.
+ *
+ * @returns The smaller of `a` and `b`; if they are equal, returns that value.
+ */
 static inline int min(int a, int b) {
     return (a < b) ? a : b;
 }
 
+/**
+ * Obtain a handle to the primary framebuffer device and allocate a software backbuffer.
+ *
+ * @param h Pointer that will receive the framebuffer device handle (opened with read and write rights).
+ * @param backbuffer Pointer that will receive a newly allocated buffer of size FB_BACKBUFFER_SIZE for composing framebuffer contents.
+ */
 void fb_setup(handle_t *h, uint32 **backbuffer) {
-    printf("wm: waiting for fb0...\n");
-    while ((*h = get_obj(INVALID_HANDLE, "$devices/fb0", RIGHT_READ | RIGHT_WRITE)) == INVALID_HANDLE) {
-        yield();
-    }
-    printf("wm: got fb0 handle %d\n", *h);
+    *h = get_obj(INVALID_HANDLE, "$devices/fb0", RIGHT_READ | RIGHT_WRITE);
     *backbuffer = malloc(FB_BACKBUFFER_SIZE);
-    printf("wm: backbuffer allocated at %p\n", *backbuffer);
-    if (*backbuffer == NULL) {
-        printf("wm: FATAL: failed to allocate backbuffer!\n");
-        exit(1);
-    }
 }
 
+/**
+ * Create a new IPC channel pair and publish the client endpoint.
+ *
+ * Creates a channel pair and stores the server endpoint in `*server`.
+ * The client endpoint stored in `*client` is registered in the namespace
+ * under "$gui/wm" so external processes can connect to the window manager.
+ *
+ * @param server Pointer to receive the server-side channel handle.
+ * @param client Pointer to receive the client-side channel handle (registered as "$gui/wm").
+ */
 void server_setup(handle_t *server, handle_t *client) {
     channel_create(server, client);
     ns_register("$gui/wm", *client);
-}
-
-void mouse_setup(void) {
-    mouse_handle = get_obj(INVALID_HANDLE, "$devices/mouse/channel", RIGHT_READ);
-    if (mouse_handle == INVALID_HANDLE) {
-        printf("wm: mouse not available\n");
-    }
-}
-
-void mouse_update(void) {
-    if (mouse_handle == INVALID_HANDLE) return;
-    
-    //mouse_event_t: int16 dx, int16 dy, uint8 buttons, uint8 _pad[3]
-    struct {
-        int16 dx;
-        int16 dy;
-        uint8 buttons;
-        uint8 _pad[3];
-    } event;
-    
-    while (channel_try_recv(mouse_handle, &event, sizeof(event)) == sizeof(event)) {
-        mouse_x += event.dx;
-        mouse_y += event.dy;
-        
-        if (mouse_x < 0) mouse_x = 0;
-        if (mouse_y < 0) mouse_y = 0;
-        if (mouse_x >= FB_W) mouse_x = FB_W - 1;
-        if (mouse_y >= FB_H) mouse_y = FB_H - 1;
-        
-        cursor_moved = true;
-    }
 }
 
 typedef struct {
@@ -116,6 +90,23 @@ void recompute_layout(uint16 screen_w, uint16 screen_h) {
     }
 }
 
+/**
+ * Register a newly connecting client: create and map its surface VMO, create a private IPC
+ * channel, add the client to the manager's client list, acknowledge the creator, and recompute layout.
+ *
+ * If the maximum client capacity (16) has been reached, the request is ignored.
+ *
+ * @param server Pointer to the server channel handle used to send the ACK response.
+ * @param res IPC receive result containing the sender PID of the requesting client.
+ * @param req Client request message containing the surface dimensions for creation.
+ *
+ * Side effects:
+ *  - Allocates and maps a VMO for the client's surface and registers it under "$gui/<pid>/surface".
+ *  - Creates a private channel registered under "$gui/<pid>/channel" and stores the server end.
+ *  - Appends a new wm_client_t to the global clients array and marks it for layout.
+ *  - Sends an ACK back to the caller and invokes recompute_layout.
+ *  - If no client is currently focused, sets focus to the newly added client.
+ */
 void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t req) {
     if (num_clients == 16) return; //ignore for now
 
@@ -125,7 +116,6 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
     snprintf(path, sizeof(path), "$gui/%d/surface", res.sender_pid);
     ns_register(path, client_vmo);
     uint32 *surface = vmo_map(client_vmo, NULL, 0, req.u.create.width * req.u.create.height * sizeof(uint32), RIGHT_MAP);
-    printf("wm: client %d surface mapped at %p (%dx%d)\n", res.sender_pid, surface, req.u.create.width, req.u.create.height);
 
     //create personal ipc channel
     handle_t wm_end, client_end;
@@ -166,6 +156,16 @@ void window_commit(handle_t client, channel_recv_result_t res) {
     }
 }
 
+/**
+ * Polls the server channel and all connected client channels for pending window manager messages
+ * and processes them non-blockingly.
+ *
+ * Listens for CREATE messages on the server channel to accept new clients. For each connected
+ * client, processes COMMIT messages to mark a client's buffer update and RESIZE messages to
+ * resize, remap, and mark the client's surface as dirty. Unknown message types are ignored.
+ *
+ * @param server Pointer to the server channel handle used to accept new clients and receive messages.
+ */
 void server_listen(handle_t *server) {
     wm_client_msg_t msg;
     channel_recv_result_t res;
@@ -194,9 +194,18 @@ void server_listen(handle_t *server) {
     }
 }
 
+/**
+ * Composite dirty client surfaces into the framebuffer backbuffer and flush it to the framebuffer device.
+ *
+ * For each client marked dirty, copies the visible portion of that client's surface into the provided
+ * framebuffer backbuffer (clamped to framebuffer and surface bounds), clears the client's dirty flag,
+ * then writes the entire backbuffer to the framebuffer starting at offset zero.
+ *
+ * @param fb_handle Handle to the framebuffer device to write the backbuffer to.
+ * @param fb_backbuffer Pointer to a pixel buffer of size FB_BACKBUFFER_SIZE representing the framebuffer backbuffer.
+ */
 void render_surfaces(handle_t fb_handle, uint32 *fb_backbuffer) {
-    static bool bg_dirty = true;
-
+    if (num_clients < 1) return;
     for (int i = 0; i < num_clients; i++) {
         if (clients[i].dirty == false) continue;
         wm_client_t c = clients[i];
@@ -227,33 +236,11 @@ void render_surfaces(handle_t fb_handle, uint32 *fb_backbuffer) {
         for (int row = 0; row < copy_h; row++) {
             uint32 *src_row = c.surface + (src_y0 + row) * c.surface_w + src_x0;
             uint32 *dst_row = fb_backbuffer + (dst_y0 + row) * FB_W + dst_x0;
-            if (!dst_row || !src_row) {
-                printf("wm: ERROR: NULL ptr in memcpy client %d, row %d, dst %p, src %p, fb_bb %p, surface %p\n", 
-                        i, row, dst_row, src_row, fb_backbuffer, c.surface);
-                exit(1);
-            }
             memcpy(dst_row, src_row, copy_w * sizeof(uint32));
         }
         
         clients[i].dirty = false;
     }
-    //draw cursor
-    if (cursor_moved) {
-        for (int cy = 0; cy < cursor_get_height(); cy++) {
-            for (int cx = 0; cx < cursor_get_width(); cx++) {
-                uint32 pixel = cursor_get_pixel(cx, cy);
-                if (pixel) {
-                    int sx = mouse_x + cx;
-                    int sy = mouse_y + cy;
-                    if (sx >= 0 && sx < FB_W && sy >= 0 && sy < FB_H) {
-                        fb_backbuffer[sy * FB_W + sx] = pixel;
-                    }
-                }
-            }
-        }
-        cursor_moved = false;
-    }
-    
     handle_seek(fb_handle, 0, HANDLE_SEEK_SET);
     handle_write(fb_handle, fb_backbuffer, FB_BACKBUFFER_SIZE);
 }
@@ -270,6 +257,16 @@ void handle_input() {
     }
 }
 
+/**
+ * Program entry point; initializes subsystems and runs the window manager main loop.
+ *
+ * Initializes the framebuffer, keyboard, and server/channel infrastructure, then
+ * enters the primary event loop that accepts client connections and messages,
+ * forwards input to the focused client, and renders client surfaces to the
+ * framebuffer backbuffer.
+ *
+ * @returns 0 on normal termination (function is intended to run indefinitely; return is unreachable under normal operation).
+ */
 int main(void) {
     handle_t fb_handle = INVALID_HANDLE;
     uint32 *fb_backbuffer = NULL;
@@ -278,13 +275,11 @@ int main(void) {
 
     fb_setup(&fb_handle, &fb_backbuffer);
     kbd_init();
-    mouse_setup();
     server_setup(&server_handle, &client_handle);
 
     while (1) {
         server_listen(&server_handle);
         handle_input();
-        mouse_update();
         render_surfaces(fb_handle, fb_backbuffer);
 
         yield();

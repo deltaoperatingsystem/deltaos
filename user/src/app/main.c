@@ -3,6 +3,19 @@
 #include <io.h>
 #include "../wm/protocol.h"
 
+/**
+ * Start a minimal window client: create a window surface, map its VMO, and enter a loop
+ * that processes window-manager messages, updates the pixel buffer, and commits frames.
+ *
+ * The program requests a new window of initial size 500x500, maps the process-specific
+ * surface VMO for direct pixel access, and listens on a per-process channel for
+ * CONFIGURE and KBD messages. On CONFIGURE with larger dimensions it resizes and remaps
+ * the surface and replies with a RESIZE message. On KBD it prints the received codepoint.
+ * Independently it fills the surface with a byte pattern that increments each frame and
+ * sends COMMIT messages; the loop yields after each commit.
+ *
+ * @returns 0 on normal termination (the main loop is infinite under normal operation).
+ */
 int main(void) {
     uint16 w = 500, h = 500;
     //request a window
@@ -19,15 +32,8 @@ int main(void) {
 
     char path[64];
     snprintf(path, sizeof(path), "$gui/%d/surface", getpid());
-    handle_t vmo = INVALID_HANDLE;
-    while ((vmo = get_obj(INVALID_HANDLE, path, RIGHT_MAP | RIGHT_WRITE)) == INVALID_HANDLE) {
-        yield();
-    }
+    handle_t vmo = get_obj(INVALID_HANDLE, path, RIGHT_MAP | RIGHT_WRITE);
     uint32 *surface = vmo_map(vmo, NULL, 0, w * h * sizeof(uint32), RIGHT_WRITE | RIGHT_MAP);
-    if (!surface) {
-        printf("app: FATAL: failed to map surface!\n");
-        exit(1);
-    }
 
     snprintf(path, sizeof(path), "$gui/%d/channel", getpid());
     handle_t channel = get_obj(INVALID_HANDLE, path, RIGHT_READ | RIGHT_WRITE);
