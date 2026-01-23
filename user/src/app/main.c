@@ -19,15 +19,8 @@ int main(void) {
 
     char path[64];
     snprintf(path, sizeof(path), "$gui/%d/surface", getpid());
-    handle_t vmo = INVALID_HANDLE;
-    while ((vmo = get_obj(INVALID_HANDLE, path, RIGHT_MAP | RIGHT_WRITE)) == INVALID_HANDLE) {
-        yield();
-    }
+    handle_t vmo = get_obj(INVALID_HANDLE, path, RIGHT_MAP | RIGHT_WRITE);
     uint32 *surface = vmo_map(vmo, NULL, 0, w * h * sizeof(uint32), RIGHT_WRITE | RIGHT_MAP);
-    if (!surface) {
-        printf("app: FATAL: failed to map surface!\n");
-        exit(1);
-    }
 
     snprintf(path, sizeof(path), "$gui/%d/channel", getpid());
     handle_t channel = get_obj(INVALID_HANDLE, path, RIGHT_READ | RIGHT_WRITE);

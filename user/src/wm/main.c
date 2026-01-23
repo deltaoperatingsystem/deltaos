@@ -2,22 +2,11 @@
 #include <string.h>
 #include <mem.h>
 #include <io.h>
-#include <keyboard.h>
 #include "fb.h"
 #include "protocol.h"
+#include "../../libkeyboard/include/keyboard.h"
 
 #define FB_BACKBUFFER_SIZE  (1280 * 800 * sizeof(uint32))
-
-//cursor functions
-extern int cursor_get_width(void);
-extern int cursor_get_height(void);
-extern uint32 cursor_get_pixel(int x, int y);
-
-//mouse state
-static int16 mouse_x = FB_W / 2;
-static int16 mouse_y = FB_H / 2;
-static handle_t mouse_handle = INVALID_HANDLE;
-static bool cursor_moved = true;
 
 static inline int max(int a, int b) {
     return (a > b) ? a : b;
@@ -28,53 +17,13 @@ static inline int min(int a, int b) {
 }
 
 void fb_setup(handle_t *h, uint32 **backbuffer) {
-    printf("wm: waiting for fb0...\n");
-    while ((*h = get_obj(INVALID_HANDLE, "$devices/fb0", RIGHT_READ | RIGHT_WRITE)) == INVALID_HANDLE) {
-        yield();
-    }
-    printf("wm: got fb0 handle %d\n", *h);
+    *h = get_obj(INVALID_HANDLE, "$devices/fb0", RIGHT_READ | RIGHT_WRITE);
     *backbuffer = malloc(FB_BACKBUFFER_SIZE);
-    printf("wm: backbuffer allocated at %p\n", *backbuffer);
-    if (*backbuffer == NULL) {
-        printf("wm: FATAL: failed to allocate backbuffer!\n");
-        exit(1);
-    }
 }
 
 void server_setup(handle_t *server, handle_t *client) {
     channel_create(server, client);
     ns_register("$gui/wm", *client);
-}
-
-void mouse_setup(void) {
-    mouse_handle = get_obj(INVALID_HANDLE, "$devices/mouse/channel", RIGHT_READ);
-    if (mouse_handle == INVALID_HANDLE) {
-        printf("wm: mouse not available\n");
-    }
-}
-
-void mouse_update(void) {
-    if (mouse_handle == INVALID_HANDLE) return;
-    
-    //mouse_event_t: int16 dx, int16 dy, uint8 buttons, uint8 _pad[3]
-    struct {
-        int16 dx;
-        int16 dy;
-        uint8 buttons;
-        uint8 _pad[3];
-    } event;
-    
-    while (channel_try_recv(mouse_handle, &event, sizeof(event)) == sizeof(event)) {
-        mouse_x += event.dx;
-        mouse_y += event.dy;
-        
-        if (mouse_x < 0) mouse_x = 0;
-        if (mouse_y < 0) mouse_y = 0;
-        if (mouse_x >= FB_W) mouse_x = FB_W - 1;
-        if (mouse_y >= FB_H) mouse_y = FB_H - 1;
-        
-        cursor_moved = true;
-    }
 }
 
 typedef struct {
@@ -125,7 +74,6 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
     snprintf(path, sizeof(path), "$gui/%d/surface", res.sender_pid);
     ns_register(path, client_vmo);
     uint32 *surface = vmo_map(client_vmo, NULL, 0, req.u.create.width * req.u.create.height * sizeof(uint32), RIGHT_MAP);
-    printf("wm: client %d surface mapped at %p (%dx%d)\n", res.sender_pid, surface, req.u.create.width, req.u.create.height);
 
     //create personal ipc channel
     handle_t wm_end, client_end;
@@ -195,8 +143,7 @@ void server_listen(handle_t *server) {
 }
 
 void render_surfaces(handle_t fb_handle, uint32 *fb_backbuffer) {
-    static bool bg_dirty = true;
-
+    if (num_clients < 1) return;
     for (int i = 0; i < num_clients; i++) {
         if (clients[i].dirty == false) continue;
         wm_client_t c = clients[i];
@@ -227,33 +174,11 @@ void render_surfaces(handle_t fb_handle, uint32 *fb_backbuffer) {
         for (int row = 0; row < copy_h; row++) {
             uint32 *src_row = c.surface + (src_y0 + row) * c.surface_w + src_x0;
             uint32 *dst_row = fb_backbuffer + (dst_y0 + row) * FB_W + dst_x0;
-            if (!dst_row || !src_row) {
-                printf("wm: ERROR: NULL ptr in memcpy client %d, row %d, dst %p, src %p, fb_bb %p, surface %p\n", 
-                        i, row, dst_row, src_row, fb_backbuffer, c.surface);
-                exit(1);
-            }
             memcpy(dst_row, src_row, copy_w * sizeof(uint32));
         }
         
         clients[i].dirty = false;
     }
-    //draw cursor
-    if (cursor_moved) {
-        for (int cy = 0; cy < cursor_get_height(); cy++) {
-            for (int cx = 0; cx < cursor_get_width(); cx++) {
-                uint32 pixel = cursor_get_pixel(cx, cy);
-                if (pixel) {
-                    int sx = mouse_x + cx;
-                    int sy = mouse_y + cy;
-                    if (sx >= 0 && sx < FB_W && sy >= 0 && sy < FB_H) {
-                        fb_backbuffer[sy * FB_W + sx] = pixel;
-                    }
-                }
-            }
-        }
-        cursor_moved = false;
-    }
-    
     handle_seek(fb_handle, 0, HANDLE_SEEK_SET);
     handle_write(fb_handle, fb_backbuffer, FB_BACKBUFFER_SIZE);
 }
@@ -278,13 +203,11 @@ int main(void) {
 
     fb_setup(&fb_handle, &fb_backbuffer);
     kbd_init();
-    mouse_setup();
     server_setup(&server_handle, &client_handle);
 
     while (1) {
         server_listen(&server_handle);
         handle_input();
-        mouse_update();
         render_surfaces(fb_handle, fb_backbuffer);
 
         yield();
