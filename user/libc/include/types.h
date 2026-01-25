@@ -11,6 +11,15 @@ typedef unsigned int        uint32;
 typedef signed long long    int64;
 typedef unsigned long long  uint64;
 
+typedef signed char         int8_t;
+typedef unsigned char       uint8_t;
+typedef signed short        int16_t;
+typedef unsigned short      uint16_t;
+typedef signed int          int32_t;
+typedef unsigned int        uint32_t;
+typedef signed long long    int64_t;
+typedef unsigned long long  uint64_t;
+
 //limits
 #define INT8_MIN    (-128)
 #define INT8_MAX    127
@@ -32,8 +41,13 @@ typedef unsigned long long  uint64;
 #define NULL ((void*)0)
 
 typedef char bool;
+#ifndef __bool_true_false_are_defined
+#define __bool_true_false_are_defined 1
+#ifndef __cplusplus
 #define true  1
 #define false 0
+#endif
+#endif
 
 //architecture info
 #define ARCH_BITS     64
@@ -42,10 +56,14 @@ typedef char bool;
 //pointer-sized integers (64-bit on amd64)
 typedef int64  intptr;
 typedef uint64 uintptr;
+typedef int64  intptr_t;
+typedef uint64 uintptr_t;
 
 //size types (64-bit on amd64)
 typedef uint64 size;
+typedef uint64 size_t;
 typedef int64  ssize;
+typedef int64  ssize_t;
 
 //native word types (64-bit on amd64)
 typedef int64  word;
@@ -54,6 +72,8 @@ typedef uint64 uword;
 //maximum-width integer types
 typedef int64  intmax;
 typedef uint64 uintmax;
+typedef int64  intmax_t;
+typedef uint64 uintmax_t;
 
 //pointer-sized limits
 #define INTPTR_MIN  INT64_MIN

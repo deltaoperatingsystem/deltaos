@@ -18,6 +18,6 @@ double sqrt(double x);
 
 double floor(double x);
 double ceil(double x);
-double abs(double x);
+double fabs(double x);
 
 #endif

@@ -6,6 +6,8 @@
 #include <drivers/mouse.h>
 #include <lib/io.h>
 #include <arch/amd64/context.h>
+#include <arch/amd64/int/apic.h>
+#include <arch/amd64/int/ioapic.h>
 
 
 struct idt_entry {
@@ -37,6 +39,7 @@ static void irq0_handler(int from_usermode) {
     arch_timer_tick();
     sched_tick(from_usermode);  //preemptive scheduling - only preempt if from usermode
 }
+
 
 void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_frame_t *frame) {
     if (vector < 32) {
@@ -87,7 +90,11 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
     } else {
         uint8 irq = vector - 32;
 
-        pic_send_eoi(irq);
+        if (apic_is_enabled()) {
+            apic_send_eoi();
+        } else {
+            pic_send_eoi(irq);
+        }
         
         //check if we were interrupted from usermode (userspace RIP is low, kernel is high)
         int from_usermode = (rip < 0xFFFF800000000000ULL) ? 1 : 0;
@@ -102,12 +109,39 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
             case 12:
                 mouse_irq();
                 break;
-            default:
-                printf("Unhandled IRQ: 0x%X\n", irq + 32);
+            default: {
+                if (vector >= 0x40 && vector <= 0x47) {
+                    extern void nvme_isr_callback(uint64);
+                    nvme_isr_callback(vector);
+                } else {
+                    printf("Unhandled IRQ: 0x%X (vector 0x%X)\n", irq + 32, vector);
+                }
                 break;
+            }
         }
 
         return;
+    }
+}
+
+void interrupt_mask(uint8 irq) {
+    if (apic_is_enabled()) {
+        ioapic_mask_irq(irq);
+    } else {
+        pic_set_mask(irq);
+    }
+}
+
+void interrupt_unmask(uint8 irq) {
+    if (apic_is_enabled()) {
+        ioapic_unmask_irq(irq);
+        //handle ISA override: IRQ 0 (PIT) -> GSI 2
+        //we map GSI 2 to Vector 32 (IRQ0 handler) and unmask it
+        if (irq == 0) {
+            ioapic_set_irq(2, 32 + 0, 0, false);
+        }
+    } else {
+        pic_clear_mask(irq);
     }
 }
 
@@ -138,6 +172,19 @@ void arch_interrupts_init(void) {
 
     //remap PIC IRQ0-7 -> vectors 32-39, IRQ8-15 -> vectors 40-47
     pic_remap(0x20, 0x28);
+
+    //try to initialize APIC
+    if (apic_init()) {
+        //unmask keyboard and mouse
+        interrupt_unmask(1);
+        interrupt_unmask(12);
+        printf("[amd64] APIC/IOAPIC initialized\n");
+    } else {
+        //fallback to PIC
+        interrupt_unmask(1); //keyboard
+        interrupt_unmask(12); //mouse
+        printf("[amd64] Using legacy PIC\n");
+    }
 
     __asm__ volatile ("lidt %0" : : "m"(idtr));
 }

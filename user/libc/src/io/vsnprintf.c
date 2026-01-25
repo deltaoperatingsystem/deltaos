@@ -23,6 +23,10 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
     while (*p) {
         if (*p == '%') {
             p++;
+            if (!*p) {
+                ctx_putc(ctx, '%');
+                break;
+            }
             
             int zero_pad = 0;
             int left_align = 0;
@@ -34,9 +38,34 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
             if (left_align) zero_pad = 0;
             
             int width = 0;
-            while (*p >= '0' && *p <= '9') {
-                width = width * 10 + (*p - '0');
+            if (*p == '*') {
+                width = va_arg(args, int);
                 p++;
+                if (width < 0) {
+                    left_align = 1;
+                    width = -width;
+                }
+            } else {
+                while (*p >= '0' && *p <= '9') {
+                    width = width * 10 + (*p - '0');
+                    p++;
+                }
+            }
+            if (left_align) zero_pad = 0;
+
+            int precision = -1;
+            if (*p == '.') {
+                p++;
+                precision = 0;
+                if (*p == '*') {
+                    precision = va_arg(args, int);
+                    p++;
+                } else {
+                    while (*p >= '0' && *p <= '9') {
+                        precision = precision * 10 + (*p - '0');
+                        p++;
+                    }
+                }
             }
             
             int is_long = 0;
@@ -57,11 +86,13 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                 const char *s = str;
                 while (*s++) len++;
                 
+                if (precision >= 0 && precision < len) len = precision;
+                
                 if (!left_align && width > len) {
                     for (int i = 0; i < width - len; i++) ctx_putc(ctx, ' ');
                 }
                 s = str;
-                while (*s) ctx_putc(ctx, *s++);
+                for (int i = 0; i < len; i++) ctx_putc(ctx, *s++);
                 if (left_align && width > len) {
                     for (int i = 0; i < width - len; i++) ctx_putc(ctx, ' ');
                 }
@@ -91,7 +122,9 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                     u = (uintmax)num;
                 }
 
-                if (u == 0) {
+                if (u == 0 && precision == 0) {
+                    len = 0; //"%.0d" with 0 prints nothing
+                } else if (u == 0) {
                     tmp[len++] = '0';
                 } else {
                     while (u) {
@@ -100,16 +133,18 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                     }
                 }
                 
-                int total = len + neg;
+                int prec_pad = (precision > len) ? precision - len : 0;
+                int total = len + neg + prec_pad;
                 int pad = (width > total) ? width - total : 0;
                 
                 if (!left_align && !zero_pad && pad > 0) {
                     for (int i = 0; i < pad; i++) ctx_putc(ctx, ' ');
                 }
                 if (neg) ctx_putc(ctx, '-');
-                if (!left_align && zero_pad && pad > 0) {
+                if (!left_align && zero_pad && pad > 0 && precision < 0) {
                     for (int i = 0; i < pad; i++) ctx_putc(ctx, '0');
                 }
+                while (prec_pad--) ctx_putc(ctx, '0');
                 for (int i = len - 1; i >= 0; i--) ctx_putc(ctx, tmp[i]);
                 if (left_align && pad > 0) {
                     for (int i = 0; i < pad; i++) ctx_putc(ctx, ' ');
@@ -121,7 +156,9 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
 
                 char tmp[32];
                 int len = 0;
-                if (num == 0) {
+                if (num == 0 && precision == 0) {
+                    len = 0;
+                } else if (num == 0) {
                     tmp[len++] = '0';
                 } else {
                     while (num) {
@@ -130,13 +167,16 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                     }
                 }
                 
-                int pad = (width > len) ? width - len : 0;
+                int prec_pad = (precision > len) ? precision - len : 0;
+                int total = len + prec_pad;
+                int pad = (width > total) ? width - total : 0;
                 if (!left_align && !zero_pad && pad > 0) {
                     for (int i = 0; i < pad; i++) ctx_putc(ctx, ' ');
                 }
-                if (!left_align && zero_pad && pad > 0) {
+                if (!left_align && zero_pad && pad > 0 && precision < 0) {
                     for (int i = 0; i < pad; i++) ctx_putc(ctx, '0');
                 }
+                while (prec_pad--) ctx_putc(ctx, '0');
                 for (int i = len - 1; i >= 0; i--) ctx_putc(ctx, tmp[i]);
                 if (left_align && pad > 0) {
                     for (int i = 0; i < pad; i++) ctx_putc(ctx, ' ');
@@ -158,7 +198,9 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                 char tmp[32];
                 int len = 0;
 
-                if (num == 0) {
+                if (num == 0 && precision == 0) {
+                    len = 0;
+                } else if (num == 0) {
                     tmp[len++] = '0';
                 } else {
                     while (num) {
@@ -168,7 +210,8 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                     }
                 }
                 
-                int total = len + (prefix ? 2 : 0);
+                int prec_pad = (precision > len) ? precision - len : 0;
+                int total = len + (prefix ? 2 : 0) + prec_pad;
                 int pad = (width > total) ? width - total : 0;
                 
                 if (!left_align && !zero_pad && pad > 0) {
@@ -178,9 +221,10 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                     ctx_putc(ctx, '0');
                     ctx_putc(ctx, 'x');
                 }
-                if (!left_align && zero_pad && pad > 0) {
+                if (!left_align && zero_pad && pad > 0 && precision < 0) {
                     for (int i = 0; i < pad; i++) ctx_putc(ctx, '0');
                 }
+                while (prec_pad--) ctx_putc(ctx, '0');
                 for (int i = len - 1; i >= 0; i--) ctx_putc(ctx, tmp[i]);
                 if (left_align && pad > 0) {
                     for (int i = 0; i < pad; i++) ctx_putc(ctx, ' ');
@@ -206,7 +250,7 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
 
                 if (frac < 0) frac = -frac;
                 ctx_putc(ctx, '.');
-                int digits = 6; //standard precision
+                int digits = (precision >= 0) ? precision : 6;
                 while (digits--) {
                     frac *= 10.0;
                     int digit = (int)frac;

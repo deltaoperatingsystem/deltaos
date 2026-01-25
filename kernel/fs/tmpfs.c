@@ -2,6 +2,7 @@
 #include <obj/object.h>
 #include <obj/namespace.h>
 #include <mm/kheap.h>
+#include <mm/pmm.h>
 #include <lib/string.h>
 #include <lib/io.h>
 
@@ -168,12 +169,22 @@ static ssize tmpfs_file_write(object_t *obj, const void *buf, size len, size off
     return len;
 }
 
+static int tmpfs_file_stat(object_t *obj, stat_t *st) {
+    tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
+    if (!node || !st) return -1;
+    st->type = FS_TYPE_FILE;
+    st->size = node->file.size;
+    st->ctime = st->mtime = st->atime = 0;
+    return 0;
+}
+
 static object_ops_t tmpfs_file_ops = {
     .read = tmpfs_file_read,
     .write = tmpfs_file_write,
     .close = NULL,
     .readdir = NULL,
-    .lookup = NULL
+    .lookup = NULL,
+    .stat = tmpfs_file_stat
 };
 
 //directory object readdir
@@ -199,6 +210,15 @@ static int tmpfs_dir_readdir(object_t *obj, void *buf, uint32 count, uint32 *ind
 //forward declaration for recursive reference
 static object_ops_t tmpfs_dir_ops;
 
+static int tmpfs_dir_stat(object_t *obj, stat_t *st) {
+    tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
+    if (!node || !st) return -1;
+    st->type = FS_TYPE_DIR;
+    st->size = 0;
+    st->ctime = st->mtime = st->atime = 0;
+    return 0;
+}
+
 //directory lookup - find child by name
 static object_t *tmpfs_dir_lookup(object_t *obj, const char *name) {
     tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
@@ -221,7 +241,8 @@ static object_ops_t tmpfs_dir_ops = {
     .write = NULL,
     .close = NULL,
     .readdir = tmpfs_dir_readdir,
-    .lookup = tmpfs_dir_lookup
+    .lookup = tmpfs_dir_lookup,
+    .stat = tmpfs_dir_stat
 };
 
 //filesystem ops

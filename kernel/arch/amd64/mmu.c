@@ -30,6 +30,9 @@ void mmu_init(void) {
 static uint64 *get_next_level(uint64 *current_table, uint32 index, bool allocate, bool user) {
     uint64 entry = current_table[index];
     if (entry & AMD64_PTE_PRESENT) {
+        //if this is a huge page, we cannot traverse further
+        if (entry & AMD64_PTE_HUGE) return NULL;
+        
         //if we need user access and entry doesn't have it, add it
         if (user && !(entry & AMD64_PTE_USER)) {
             current_table[index] = entry | AMD64_PTE_USER;
@@ -108,6 +111,7 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
     if (!(flags & MMU_FLAG_EXEC)) pte_flags |= AMD64_PTE_NX;
     
     bool user = (flags & MMU_FLAG_USER) != 0;
+    //printf("[mmu] map_range virt=0x%lx phys=0x%lx pages=%zu flags=0x%lx\n", virt, phys, pages, flags);
 
     size i = 0;
     while (i < pages) {
@@ -116,37 +120,63 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
 
         uint64 *pdp = get_next_level(pml4, PML4_IDX(cur_virt), true, user);
         if (!pdp) {
-            printf("[mmu] ERR: failed to allocate PDP for virt 0x%lx\n", cur_virt);
+            //if get_next_level failed it might be because the entry is a HUGE page
+            //we treat this as a fatal error for now but in kernel space we could overwrite
+            printf("[mmu] ERR: failed to traverse PML4 index %d for 0x%lx\n", PML4_IDX(cur_virt), cur_virt);
             return;
         }
         
         uint64 *pd = get_next_level(pdp, PDP_IDX(cur_virt), true, user);
         if (!pd) {
-            printf("[mmu] ERR: failed to allocate PD for virt 0x%lx\n", cur_virt);
+            printf("[mmu] ERR: failed to traverse PDP index %d for 0x%lx\n", PDP_IDX(cur_virt), cur_virt);
             return;
         }
 
         //try to map a 2MB huge page
+        bool mapped_huge = false;
         if (pages - i >= 512 && (cur_virt % 0x200000 == 0) && (cur_phys % 0x200000 == 0)) {
+            //overwrite existing entry (whether it was a PT or a huge page)
             pd[PD_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | pte_flags | AMD64_PTE_HUGE;
+            
+            //thoroughly invalidate the entire 2MB range in TLB
+            for (int j = 0; j < 512; j++) {
+                __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt + j * 4096) : "memory");
+            }
+            
             i += 512;
-        } else {
+            mapped_huge = true;
+        }
+        
+        if (!mapped_huge) {
+            //if the PD entry is already a HUGE page we must split/overwrite it to map a 4KB page
+            if (pd[PD_IDX(cur_virt)] & AMD64_PTE_HUGE) {
+                pd[PD_IDX(cur_virt)] = 0; //clear it first
+                __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt) : "memory");
+            }
+
             uint64 *pt = get_next_level(pd, PD_IDX(cur_virt), true, user);
             if (!pt) {
                 printf("[mmu] ERR: failed to allocate PT for virt 0x%lx\n", cur_virt);
                 return;
             }
             pt[PT_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | pte_flags;
+            __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt) : "memory");
             i++;
         }
-        
-        //invalidate TLB for this address
-        __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt) : "memory");
+    }
+    
+    //check that all pages are actually mapped
+    for (size v = 0; v < pages; v++) {
+        uintptr check_virt = virt + (v * PAGE_SIZE);
+        uintptr resolved = mmu_virt_to_phys(map, check_virt);
+        if (resolved == 0) {
+            printf("[mmu] VERIFY FAIL: page %zu at 0x%lx not mapped!\\n", v, check_virt);
+        }
     }
 }
 
 void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
-    /* debug: log unmapping of kernel heap range
+    /*debug: log unmapping of kernel heap range
     if (virt >= KHEAP_VIRT_START && virt < KHEAP_VIRT_END) {
         // printf("[mmu] unmap virt=0x%lx pages=%zu\n", virt, pages);
     } */
@@ -165,16 +195,19 @@ void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
         uint64 pd_entry = pd[PD_IDX(cur_virt)];
         if (pd_entry & AMD64_PTE_HUGE) {
             pd[PD_IDX(cur_virt)] = 0;
+            //invalidate all 512 pages in the huge block
+            for (int j = 0; j < 512; j++) {
+                __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt + j * 4096) : "memory");
+            }
             i += 512;
         } else {
             uint64 *pt = get_next_level(pd, PD_IDX(cur_virt), false, false);
             if (pt) {
                 pt[PT_IDX(cur_virt)] = 0;
             }
+            __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt) : "memory");
             i++;
         }
-        
-        __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt) : "memory");
     }
 }
 
@@ -185,14 +218,13 @@ uintptr mmu_virt_to_phys(pagemap_t *map, uintptr virt) {
     if (!pdp) return 0;
     
     uint64 *pd = get_next_level(pdp, PDP_IDX(virt), false, false);
-    if (!pd) return 0;
-
-    uint64 pd_entry = pd[PD_IDX(virt)];
-    if (!(pd_entry & AMD64_PTE_PRESENT)) return 0;
-    
-    if (pd_entry & AMD64_PTE_HUGE) {
-        //2MB huge page
-        return (pd_entry & AMD64_PTE_ADDR_MASK) + (virt & 0x1FFFFF);
+    if (!pd) {
+        //check if the PD itself has a huge page entry (get_next_level returns NULL for huge)
+        uint64 entry = pdp[PDP_IDX(virt)];
+        if ((entry & AMD64_PTE_PRESENT) && (entry & AMD64_PTE_HUGE)) {
+            return (entry & AMD64_PTE_ADDR_MASK) + (virt & 0x1FFFFF);
+        }
+        return 0;
     }
 
     uint64 *pt = get_next_level(pd, PD_IDX(virt), false, false);

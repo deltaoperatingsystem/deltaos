@@ -36,6 +36,9 @@
 #define SYS_READDIR         54  //read directory entries
 #define SYS_CHDIR           55  //change current working directory
 #define SYS_GETCWD          56  //get current working directory
+#define SYS_GET_TICKS       57  //get timer ticks since boot
+#define SYS_MKDIR           58
+#define SYS_REMOVE          59
 
 #define SYS_MAX             64
 

@@ -3,3 +3,4 @@
 *.da
 initrd/
 darc
+*.img

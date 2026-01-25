@@ -4,6 +4,8 @@ set -e
 #config
 DISK_IMG="hda.img"
 DISK_SIZE_MB=64
+NVME_IMG="nvme.img"
+NVME_SIZE_MB=128
 EFI_BINARY="BOOTX64.EFI"
 OVMF_CODE=
 
@@ -15,6 +17,13 @@ print_step() {
 create_disk_image() {
     print_step "creating disk image"
     dd if=/dev/zero of="$DISK_IMG" bs=1M count=$DISK_SIZE_MB status=none
+    
+    #create sample NVmE image if it doesn't exist
+    if [[ ! -f "$NVME_IMG" ]]; then
+        print_step "creating sample NVMe image"
+        dd if=/dev/zero of="$NVME_IMG" bs=1M count=$NVME_SIZE_MB status=none
+        sgdisk --clear --new=1:2048:65535 --change-name=1:"TestPart1" --new=2:65536:0 --change-name=2:"TestPart2" "$NVME_IMG"
+    fi
 
     #partition table creation
     sgdisk --clear --new=1:2048:0 --typecode=1:EF00 --change-name=1:"EFI System" "$DISK_IMG"
@@ -52,6 +61,8 @@ run_qemu() {
         -m 256M
         -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
         -drive "file=$DISK_IMG,format=raw"
+        -drive "file=$NVME_IMG,format=raw,if=none,id=nvm"
+        -device nvme,serial=deadbeef,drive=nvm
         -net none
         -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0
 	    -enable-kvm

@@ -15,6 +15,7 @@
 #include <lib/string.h>
 #include <lib/path.h>
 #include <fs/fs.h>
+#include <arch/timer.h>
 
 static int64 sys_exit(int64 status) {
     (void)status;
@@ -47,10 +48,23 @@ static int64 sys_spawn(const char *path, int argc, char **argv) {
         return -1;
     }
     
+    //get file size
+    stat_t st;
+    if (handle_stat(path, &st) != 0) {
+        handle_close(h);
+        return -1;
+    }
+    
     //allocate buffer for exec binary
-    size buf_size = 32768;  //32KB should be enough
-    char *buf = kzalloc(buf_size);
+    size buf_size = st.size;
+    if (buf_size == 0) {
+        handle_close(h);
+        return -1;
+    }
+    
+    char *buf = kmalloc(buf_size);
     if (!buf) {
+        handle_close(h);
         return -1;
     }
     
@@ -116,8 +130,24 @@ static int64 sys_spawn(const char *path, int argc, char **argv) {
             return -1;
         }
         
-        size interp_buf_size = 32768; //32KB for interpreter
-        char *interp_buf = kzalloc(interp_buf_size);
+        //get interpreter size
+        stat_t ist;
+        if (handle_stat(interp_fullpath, &ist) != 0) {
+            handle_close(ih);
+            process_destroy(proc);
+            kfree(buf);
+            return -1;
+        }
+
+        size interp_buf_size = ist.size;
+        if (interp_buf_size == 0) {
+            handle_close(ih);
+            process_destroy(proc);
+            kfree(buf);
+            return -1;
+        }
+
+        char *interp_buf = kmalloc(interp_buf_size);
         if (!interp_buf) {
             handle_close(ih);
             process_destroy(proc);
@@ -686,6 +716,17 @@ static int64 sys_getcwd(char *buf, size bufsize) {
     return cwd_len;
 }
 
+static int64 sys_mkdir(const char *path, uint32 mode) {
+    (void)mode;
+    if (!path) return -1;
+    return handle_create(path, FS_TYPE_DIR);
+}
+
+static int64 sys_remove(const char *path) {
+    if (!path) return -1;
+    return handle_remove(path);
+}
+
 int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
                        uint64 arg4, uint64 arg5, uint64 arg6) {
     switch (num) {
@@ -728,6 +769,9 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
         case SYS_READDIR: return sys_readdir((handle_t)arg1, (dirent_t *)arg2, (uint32)arg3, (uint32 *)arg4);
         case SYS_CHDIR: return sys_chdir((const char *)arg1);
         case SYS_GETCWD: return sys_getcwd((char *)arg1, (size)arg2);
+        case SYS_GET_TICKS: return (int64)arch_timer_get_ticks();
+        case SYS_MKDIR: return sys_mkdir((const char *)arg1, (uint32)arg2);
+        case SYS_REMOVE: return sys_remove((const char *)arg1);
         
         default: return -1;
     }

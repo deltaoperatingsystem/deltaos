@@ -38,6 +38,7 @@
  * optional (arch-specific):
  *
  * arch_rdtsc() - read time-stamp counter (x86/amd64)
+ * arch_cpuid(leaf, subleaf, *eax, *ebx, *ecx, *edx) - CPU identification (x86/amd64)
  */
 
 #endif
