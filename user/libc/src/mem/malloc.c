@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "internal.h"
 #include <system.h>
 
@@ -16,6 +17,8 @@ void *malloc(size len) {
         
         size old_cap = heap_capacity;
         size new_cap = old_cap + grow_by;
+
+        //printf("malloc: growing heap from %d to %d (grow_by=%d)\n", (int)old_cap, (int)new_cap, (int)grow_by);
 
         if (vmo_resize(_mem_vmo, new_cap) == 0) {
             malloc_header_t *new_block = (malloc_header_t *)((char *)_mem_addr + old_cap);

@@ -102,29 +102,21 @@ void keyboard_irq(void) {
     if (code == SC_SHIFT_L || code == SC_SHIFT_R) {
         if (released) mods &= ~KBD_MOD_SHIFT;
         else mods |= KBD_MOD_SHIFT;
-        return;
-    }
+            }
     if (code == SC_CTRL) {
         if (released) mods &= ~KBD_MOD_CTRL;
         else mods |= KBD_MOD_CTRL;
-        return;
     }
     if (code == SC_ALT) {
         if (released) mods &= ~KBD_MOD_ALT;
         else mods |= KBD_MOD_ALT;
-        return;
     }
 
     //get ASCII
     char ascii = (mods & KBD_MOD_SHIFT) ? scancodes_shift[code] : scancodes_normal[code];
     
-    //ignore key releases for non-modifiers (only send press events)
-    if (released) return;
-    
     //push to channel (for userspace/consumers)
-    if (ascii) {
-        kbd_push_event(code, 1, (uint32)(unsigned char)ascii);
-    }
+    kbd_push_event(code, !released, (uint32)(unsigned char)ascii);
 }
 
 void keyboard_init(void) {

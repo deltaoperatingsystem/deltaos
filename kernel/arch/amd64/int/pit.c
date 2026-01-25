@@ -32,5 +32,5 @@ uint32 arch_timer_getfreq(void) {
 
 void arch_timer_init(uint32 hz) {
     arch_timer_setfreq(hz);
-    pic_clear_mask(0);
+    interrupt_unmask(0);
 }

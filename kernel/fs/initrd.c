@@ -43,7 +43,9 @@ static void populate_entry(da_header_t *hdr, da_entry_t *entry, void *ctx) {
             if (data) {
                 object_t *file = tmpfs_open(path);
                 if (file) {
-                    object_write(file, data, entry->size, 0);
+                    if (object_write(file, data, entry->size, 0) < 0) {
+                        printf("[initrd] ERR: failed to write file data for %s\n", path);
+                    }
                     object_release(file);
                 }
             }

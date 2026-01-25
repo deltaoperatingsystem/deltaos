@@ -18,6 +18,7 @@ extern void enable_sse(void);
 void arch_init(struct db_boot_info *boot_info) {
     //early console for debugging
     serial_init();
+    io_enable_serial();
     set_outmode(SERIAL);
 
     puts("\x1b[2J\x1b[H");

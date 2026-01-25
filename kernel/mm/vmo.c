@@ -1,4 +1,5 @@
 #include <mm/vmo.h>
+#include <fs/fs.h>
 #include <mm/kheap.h>
 #include <mm/pmm.h>
 #include <mm/mm.h>
@@ -30,6 +31,15 @@ static ssize vmo_obj_write(object_t *obj, const void *buf, size len, size offset
     return len;
 }
 
+static int vmo_obj_stat(object_t *obj, struct stat *st) {
+    vmo_t *vmo = (vmo_t *)obj;
+    if (!vmo || !st) return -1;
+    st->type = FS_TYPE_FILE; //VMO behaves like file uh a bit ig
+    st->size = vmo->size;
+    st->ctime = st->mtime = st->atime = 0;
+    return 0;
+}
+
 static int vmo_obj_close(object_t *obj) {
     vmo_t *vmo = (vmo_t *)obj;
     if (!vmo) return -1;
@@ -49,7 +59,8 @@ static object_ops_t vmo_ops = {
     .write = vmo_obj_write,
     .close = vmo_obj_close,
     .readdir = NULL,
-    .lookup = NULL
+    .lookup = NULL,
+    .stat = vmo_obj_stat
 };
 
 int32 vmo_create(process_t *proc, size vmo_size, uint32 flags, handle_rights_t rights) {
@@ -306,7 +317,9 @@ int vmo_resize(process_t *proc, int32 handle, size new_size) {
     void *new_p = kheap_alloc_pages(new_pages);
     if (!new_p) return -1;
     
-    size copy_size = (old_vmo_size < new_size) ? old_vmo_size : new_size;
+    //copy the allocated bytes (page-aligned)
+    size old_alloc_size = old_pages * PAGE_SIZE;
+    size copy_size = (old_alloc_size < new_size) ? old_alloc_size : new_size;
     memcpy(new_p, vmo->pages, copy_size);
 
     if (new_pages * PAGE_SIZE > copy_size) {

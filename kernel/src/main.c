@@ -8,6 +8,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
 #include <drivers/rtc.h>
+#include <drivers/nvme.h>
 #include <drivers/serial.h>
 #include <drivers/vt/vt.h>
 #include <lib/string.h>
@@ -237,6 +238,7 @@ void kernel_main(const char *cmdline) {
     vt_init();
     keyboard_init();
     mouse_init();
+    nvme_init();
     serial_init_object();
     rtc_init();
     

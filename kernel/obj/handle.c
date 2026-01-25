@@ -19,30 +19,39 @@ void handle_init(void) {
     ns_init();
 }
 
+static int resolve_full_path(const char *path, char *out, size out_max) {
+    if (!path) return -1;
+    process_t *proc = process_current();
+    if (!proc) proc = process_get_kernel();
+
+    if (path[0] != '/' && path[0] != '$') {
+        size cwd_len = strlen(proc->cwd);
+        size path_len = strlen(path);
+        if (cwd_len + 1 + path_len >= out_max) return -1;
+        
+        memcpy(out, proc->cwd, cwd_len);
+        if (proc->cwd[cwd_len - 1] != '/') {
+            out[cwd_len] = '/';
+            cwd_len++;
+        }
+        memcpy(out + cwd_len, path, path_len + 1);
+    } else {
+        if (strlen(path) >= out_max) return -1;
+        strcpy(out, path);
+    }
+    return 0;
+}
+
 handle_t handle_open(const char *path, handle_rights_t rights) {
     if (!path) return INVALID_HANDLE;
+    
+    char full_path[512];
+    if (resolve_full_path(path, full_path, sizeof(full_path)) < 0) return INVALID_HANDLE;
     
     process_t *proc = get_handle_owner();
     if (!proc) return INVALID_HANDLE;
     
-    char full_path[512];
-    const char *resolved_path = path;
-    
-    //path resolution (relative to absolute)
-    if (path[0] != '/' && path[0] != '$') {
-        //relative path - prepend CWD
-        size cwd_len = strlen(proc->cwd);
-        size path_len = strlen(path);
-        if (cwd_len + 1 + path_len >= sizeof(full_path)) return INVALID_HANDLE;
-        
-        memcpy(full_path, proc->cwd, cwd_len);
-        if (proc->cwd[cwd_len - 1] != '/') {
-            full_path[cwd_len] = '/';
-            cwd_len++;
-        }
-        memcpy(full_path + cwd_len, path, path_len + 1);
-        resolved_path = full_path;
-    }
+    const char *resolved_path = full_path;
     
     //namespace resolution
     const char *final_path = resolved_path;
@@ -120,17 +129,22 @@ handle_t handle_open(const char *path, handle_rights_t rights) {
 int handle_create(const char *path, uint32 type) {
     if (!path) return -1;
     
+    char full_path[512];
+    if (resolve_full_path(path, full_path, sizeof(full_path)) < 0) return -1;
+    
+    const char *resolved_path = full_path;
+    
     //find first slash
-    const char *slash = path;
+    const char *slash = resolved_path;
     while (*slash && *slash != '/') slash++;
     
     if (*slash != '/') return -1;  //need fs prefix
     
-    size prefix_len = slash - path;
+    size prefix_len = slash - resolved_path;
     char prefix[64];
     if (prefix_len >= sizeof(prefix)) return -1;
     
-    memcpy(prefix, path, prefix_len);
+    memcpy(prefix, resolved_path, prefix_len);
     prefix[prefix_len] = '\0';
     
     object_t *root = ns_lookup(prefix);
@@ -219,8 +233,13 @@ ssize handle_seek(handle_t h, ssize offset, int whence) {
         case SEEK_CUR:
             entry->offset += offset;
             break;
-        case SEEK_END:
-            return -1;
+        case SEEK_END: {
+            if (!entry->obj->ops || !entry->obj->ops->stat) return -1;
+            stat_t st;
+            if (entry->obj->ops->stat(entry->obj, &st) < 0) return -1;
+            entry->offset = st.size + offset;
+            break;
+        }
         default:
             return -1;
     }
@@ -307,6 +326,47 @@ int handle_stat(const char *path, stat_t *st) {
         if (fs->ops && fs->ops->stat) {
             const char *fs_path = (*slash == '/') ? (slash + 1) : slash;
             result = fs->ops->stat(fs, fs_path, st);
+        }
+    }
+    
+    object_deref(root);
+    return result;
+}
+
+int handle_remove(const char *path) {
+    if (!path) return -1;
+    
+    char full_path[512];
+    if (resolve_full_path(path, full_path, sizeof(full_path)) < 0) return -1;
+    
+    const char *resolved_path = full_path;
+    const char *slash = resolved_path;
+    char prefix[64];
+    
+    if (resolved_path[0] == '/') {
+        strcpy(prefix, "$files");
+        slash = resolved_path;
+    } else if (resolved_path[0] == '$') {
+        const char *s = resolved_path + 1;
+        while (*s && *s != '/') s++;
+        size prefix_len = s - resolved_path;
+        if (prefix_len >= sizeof(prefix)) return -1;
+        memcpy(prefix, resolved_path, prefix_len);
+        prefix[prefix_len] = '\0';
+        slash = s;
+    } else {
+        return -1;
+    }
+    
+    object_t *root = ns_lookup(prefix);
+    if (!root) return -1;
+    
+    int result = -1;
+    if (root->type == OBJECT_DIR && root->data) {
+        fs_t *fs = (fs_t *)root->data;
+        if (fs->ops && fs->ops->remove) {
+            const char *fs_path = (*slash == '/') ? (slash + 1) : slash;
+            result = fs->ops->remove(fs, fs_path);
         }
     }
     

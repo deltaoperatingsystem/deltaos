@@ -52,6 +52,9 @@ int handle_readdir(handle_t h, void *entries, uint32 count);
 //stat a path (without opening)
 int handle_stat(const char *path, stat_t *st);
 
+//remove a path
+int handle_remove(const char *path);
+
 //seek whence values
 #define SEEK_SET 0
 #define SEEK_CUR 1

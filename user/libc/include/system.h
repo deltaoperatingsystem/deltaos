@@ -28,6 +28,7 @@ int64 getpid(void);
 void yield(void);
 int spawn(char *path, int argc, char **argv);
 int wait(int pid);
+uint64 get_ticks(void);
 
 //capability-based process creation (Zircon-style)
 int32 process_create(const char *name);              //create suspended process, returns handle

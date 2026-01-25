@@ -44,6 +44,12 @@ static inline uint64 arch_rdtsc(void) {
     return ((uint64)hi << 32) | lo;
 }
 
+static inline void arch_cpuid(uint32 leaf, uint32 subleaf, uint32 *eax, uint32 *ebx, uint32 *ecx, uint32 *edx) {
+    __asm__ volatile ("cpuid"
+                      : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx)
+                      : "a"(leaf), "c"(subleaf));
+}
+
 //interrupt state save/restore (for nested critical sections)
 typedef uint64 irq_state_t;
 

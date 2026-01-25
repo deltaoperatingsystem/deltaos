@@ -61,7 +61,7 @@ static void *backing_alloc(size pages) {
     vmm_kernel_map(heap_virt_cursor, (uintptr)paddr, pages, MMU_FLAG_PRESENT | MMU_FLAG_WRITE);
     heap_virt_cursor += pages * PAGE_SIZE;
     
-    // printf("[kheap] alloc virt=0x%lx phys=0x%lx pages=%zu\n", (uintptr)vaddr, (uintptr)paddr, pages);
+    //printf("[kheap] bump: virt=0x%lx phys=0x%lx pages=%zu\n", (uintptr)vaddr, (uintptr)paddr, pages);
     return vaddr;
 }
 
@@ -340,7 +340,7 @@ void *krealloc(void *p, size n) {
     } else {
         kheap_large_t *large = (kheap_large_t *)page_addr;
         if (large->magic == KHEAP_MAGIC_LARGE) {
-            old_size = (large->pages * PAGE_SIZE) - sizeof(kheap_large_t);
+            old_size = (large->pages * PAGE_SIZE) - ((uintptr)p - (uintptr)large);
             if (n <= old_size) return p; //already fits
         } else {
             return NULL; //invalid pointer

@@ -19,5 +19,8 @@ void pic_remap(uint8 vector1, uint8 vector2);
 void pic_disable(void);
 void pic_set_mask(uint8 irqline);
 void pic_clear_mask(uint8 irqline);
+void interrupt_mask(uint8 irq);
+void interrupt_unmask(uint8 irq);
+void apic_send_eoi(void);
 
 #endif

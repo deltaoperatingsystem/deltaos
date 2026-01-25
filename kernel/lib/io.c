@@ -126,6 +126,22 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                 p++;
             }
             
+            //precision
+            int precision = -1;
+            if (*p == '.') {
+                p++;
+                if (*p == '*') {
+                    precision = va_arg(args, int);
+                    p++;
+                } else {
+                    precision = 0;
+                    while (*p >= '0' && *p <= '9') {
+                        precision = precision * 10 + (*p - '0');
+                        p++;
+                    }
+                }
+            }
+            
             //length modifiers
             int is_long = 0;
             int is_size = 0;
@@ -143,14 +159,17 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                 if (!str) str = "(null)";
                 int len = 0;
                 const char *s = str;
-                while (*s++) len++;
+                while (*s && (precision < 0 || len < precision)) {
+                    s++;
+                    len++;
+                }
                 
                 //right-align padding
                 if (!left_align && width > len) {
                     for (int i = 0; i < width - len; i++) ctx_putc(ctx, ' ');
                 }
                 s = str;
-                while (*s) ctx_putc(ctx, *s++);
+                for (int i = 0; i < len; i++) ctx_putc(ctx, *s++);
                 //left-align padding
                 if (left_align && width > len) {
                     for (int i = 0; i < width - len; i++) ctx_putc(ctx, ' ');

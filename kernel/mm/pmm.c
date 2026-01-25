@@ -166,7 +166,7 @@ void *pmm_alloc(size pages) {
     uword *bitmap_words = (uword *)bitmap;
     uint64 max_words = max_pages / ARCH_BITS;
 
-    for (uint64 i = last_free_page; i < max_pages; i++) {
+    for (uint64 i = last_free_page; i < max_pages; ) {
         //if we are at the start of a word and need more than current bit try skipping
         if ((i % ARCH_BITS == 0) && (consecutive == 0)) {
             while (i / ARCH_BITS < max_words && bitmap_words[i / ARCH_BITS] == (uword)-1) {
@@ -190,6 +190,7 @@ void *pmm_alloc(size pages) {
         } else {
             consecutive = 0;
         }
+        i++;
     }
 
     //if we reached the end try searching from the beginning once
@@ -197,7 +198,7 @@ void *pmm_alloc(size pages) {
         uint64 search_limit = last_free_page;
         last_free_page = 0;
         consecutive = 0;
-        for (uint64 i = 0; i < search_limit; i++) {
+        for (uint64 i = 0; i < search_limit; ) {
             if ((i % ARCH_BITS == 0) && (consecutive == 0)) {
                 while (i / ARCH_BITS < max_words && i + ARCH_BITS <= search_limit && bitmap_words[i / ARCH_BITS] == (uword)-1) {
                     i += ARCH_BITS;
@@ -220,6 +221,7 @@ void *pmm_alloc(size pages) {
             } else {
                 consecutive = 0;
             }
+            i++;
         }
     }
 

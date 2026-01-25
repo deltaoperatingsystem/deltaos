@@ -3,6 +3,8 @@
 
 #include <arch/types.h>
 
+struct stat;
+
 //base object types
 #define OBJECT_NONE    0
 #define OBJECT_FILE    1
@@ -25,6 +27,7 @@ typedef struct object_ops {
     int   (*close)(struct object *obj);  //called when refcount hits 0
     int   (*readdir)(struct object *obj, void *entries, uint32 count, uint32 *index);
     struct object *(*lookup)(struct object *obj, const char *name);  //find child by name
+    int   (*stat)(struct object *obj, struct stat *st);
 } object_ops_t;
 
 //base object structure
