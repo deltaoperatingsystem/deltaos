@@ -55,6 +55,7 @@ static void client_remove_at(int idx) {
 
     wm_client_t *c = &clients[idx];
     INFO("Tearing down client idx=%d pid=%u\n", idx, c->pid);
+    c->status = DEAD;
 
     if (c->surface) {
         vmo_unmap(c->surface, (size)c->surface_w * (size)c->surface_h * sizeof(uint32));
@@ -82,6 +83,7 @@ static void client_remove_at(int idx) {
         focused = num_clients - 1;
     }
 
+    c->status = EMPTY;
     recompute_layout(1280, 800);
     INFO("Client removed. remaining=%d focused=%d\n", num_clients, focused);
 }
@@ -242,8 +244,7 @@ void server_listen(handle_t *server) {
         if (rc != 0) {
             if (rc < 0 && rc != -3) {
                 WARN("Channel error or peer closed for pid=%u idx=%d rc=%d - tearing down\n", clients[i].pid, i, rc);
-                client_remove_at(i);
-                i--;
+                client_remove_at(i--);
             }
             continue;
         }
@@ -274,8 +275,7 @@ void server_listen(handle_t *server) {
                 clients[i].surface = vmo_map(clients[i].vmo, NULL, 0, needed, RIGHT_MAP);
                 if (!clients[i].surface) {
                     ERROR("vmo_map failed for pid=%u idx=%d\n\033[37m", clients[i].pid, i);
-                    client_remove_at(i);
-                    i--;
+                    client_remove_at(i--);
                     break;
                 }
                 clients[i].dirty = true;
@@ -285,6 +285,11 @@ void server_listen(handle_t *server) {
 
             case KBD:
                 WARN("Unexpected KBD message from client pid=%u\n", clients[i].pid);
+                break;
+
+            case DESTROY:
+                clients[i].status = DEAD;
+                client_remove_at(i--);
                 break;
 
             default:
