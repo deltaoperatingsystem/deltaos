@@ -3,9 +3,9 @@
 #include <string.h>
 #include <mem.h>
 #include <io.h>
+#include <keyboard.h>
 #include "fb.h"
 #include "protocol.h"
-#include "../../libkeyboard/include/keyboard.h"
 
 #ifndef DEBUG
 static bool debug = false;

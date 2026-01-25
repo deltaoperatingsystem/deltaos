@@ -1,7 +1,7 @@
 #ifndef WM_PROTOCOL_H
 #define WM_PROTOCOL_H
 
-#include "../../libkeyboard/include/keyboard.h"
+#include <keyboard.h>
 
 typedef enum {
     ACK,
