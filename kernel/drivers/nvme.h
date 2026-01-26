@@ -4,36 +4,37 @@
 #include <arch/types.h>
 #include <drivers/pci.h>
 #include <proc/wait.h>
+#include <lib/spinlock.h>
 
-/* NVMe Register Offsets (MMIO) */
-#define NVME_REG_CAP     0x00   /* Controller Capabilities */
-#define NVME_REG_VS      0x08   /* Version */
-#define NVME_REG_INTMS   0x0C   /* Interrupt Mask Set */
-#define NVME_REG_INTMC   0x10   /* Interrupt Mask Clear */
-#define NVME_REG_CC      0x14   /* Controller Configuration */
-#define NVME_REG_CSTS    0x1C   /* Controller Status */
-#define NVME_REG_NSSR    0x20   /* NVM Subsystem Reset */
-#define NVME_REG_AQA     0x24   /* Admin Queue Attributes */
-#define NVME_REG_ASQ     0x28   /* Admin Submission Queue Base Address */
-#define NVME_REG_ACQ     0x30   /* Admin Completion Queue Base Address */
+//NVMe register offsets (MMIO)
+#define NVME_REG_CAP     0x00   //controller capabilities
+#define NVME_REG_VS      0x08   //version
+#define NVME_REG_INTMS   0x0C   //interrupt mask set
+#define NVME_REG_INTMC   0x10   //interrupt mask clear
+#define NVME_REG_CC      0x14   //controller configuration
+#define NVME_REG_CSTS    0x1C   //controller status
+#define NVME_REG_NSSR    0x20   //NVM subsystem reset
+#define NVME_REG_AQA     0x24   //admin queue attributes
+#define NVME_REG_ASQ     0x28   //admin submission queue base address
+#define NVME_REG_ACQ     0x30   //admin completion queue base address
 
-/* Doorbell stride is calculated from CAP.DSTRD (1 << (2 + cap.dstrd)) */
+//doorbell stride is calculated from CAP.DSTRD (1 << (2 + cap.dstrd))
 #define NVME_REG_DBL(q, is_cq, dstrd) (0x1000 + ((q) * 2 + (is_cq ? 1 : 0)) * (4 << (dstrd)))
 
-/* Controller Configuration Bits */
+//controller configuration bits
 #define NVME_CC_EN       (1 << 0)
 #define NVME_CC_CSS_NVM  (0 << 4)
 #define NVME_CC_MPS_4K   (0 << 7)
 #define NVME_CC_AMS_RR   (0 << 11)
 #define NVME_CC_SHN_NONE (0 << 14)
-#define NVME_CC_IOSQES   (6 << 16) /* 2^6 = 64 bytes */
-#define NVME_CC_IOCQES   (4 << 20) /* 2^4 = 16 bytes */
+#define NVME_CC_IOSQES   (6 << 16) //2^6 = 64 bytes
+#define NVME_CC_IOCQES   (4 << 20) //2^4 = 16 bytes
 
-/* Controller Status Bits */
+//controller status bits
 #define NVME_CSTS_RDY    (1 << 0)
 #define NVME_CSTS_CFS    (1 << 1)
 
-/* NVMe Opcodes (Admin) */
+//NVMe opcodes (admin)
 #define NVME_OP_DELETE_I_SQ    0x00
 #define NVME_OP_CREATE_I_SQ    0x01
 #define NVME_OP_GET_LOG_PAGE   0x02
@@ -42,11 +43,11 @@
 #define NVME_OP_IDENTIFY       0x06
 #define NVME_OP_SET_FEATURES   0x09
 
-/* NVMe Opcodes (NVM) */
+//NVMe opcodes (NVM)
 #define NVME_OP_WRITE          0x01
 #define NVME_OP_READ           0x02
 
-/* 64-byte Submission Queue Entry (SQE) */
+//64-byte submission queue entry (SQE)
 typedef struct {
     uint8  opcode;
     uint8  flags;
@@ -64,7 +65,7 @@ typedef struct {
     uint32 cdw15;
 } __attribute__((packed)) nvme_sqe_t;
 
-/* 16-byte Completion Queue Entry (CQE) */
+//16-byte completion queue wntry (CQE)
 typedef struct {
     uint32 command_specific;
     uint32 reserved;
@@ -74,24 +75,24 @@ typedef struct {
     uint16 status;
 } __attribute__((packed)) nvme_cqe_t;
 
-/* Identify Structures */
+//identify structures 
 typedef struct {
     uint16 vid;
     uint16 ssvid;
     char   sn[20];
     char   mn[40];
     char   fr[8];
-    /* ... lots of other fields, we just need basic ones for now ... */
+    //shit ton of other fields we just need basic ones for now
     uint8  reserved[4096 - 72];
 } __attribute__((packed)) nvme_identify_ctrl_t;
 
 typedef struct {
-    uint64 ns_size;    /* total size in logical blocks */
+    uint64 ns_size;    //total size in logical blocks 
     uint64 ns_cap;
     uint64 ns_use;
     uint8  features;
-    uint8  nlbaf;      /* number of LBA formats */
-    uint8  flbas;      /* formatted LBA size */
+    uint8  nlbaf;      //number of LBA formats 
+    uint8  flbas;      //formatted LBA size 
     uint8  mc;
     uint8  dpc;
     uint8  dps;
@@ -105,12 +106,12 @@ typedef struct {
     uint8  reserved1[2];
     uint32 nzapa;
     uint8  reserved2[85];
-    /* ... LBA formats start at byte 128 ... */
+    //LBA formats start at byte 128 
     uint32 lbaf[16];
     uint8  reserved3[4096 - 192];
 } __attribute__((packed)) nvme_identify_ns_t;
 
-/* PCI MSI-X Structures */
+//MSI-X structures 
 typedef struct {
     uint32 msg_addr_low;
     uint32 msg_addr_high;
@@ -131,6 +132,7 @@ typedef struct {
     wait_queue_t wq;
     uint32      db_sq;
     uint32      db_cq;
+    spinlock_t  lock;
 } nvme_queue_t;
 
 typedef struct {
@@ -138,10 +140,10 @@ typedef struct {
     void        *regs;
     size        dstrd;
     
-    /* Admin Queue */
+    //admin queue 
     nvme_queue_t admin_q;
     
-    /* I/O Queues */
+    //I/O queues 
     nvme_queue_t io_q[NVME_MAX_IO_QUEUES];
     uint16      num_io_queues;
     
@@ -150,7 +152,7 @@ typedef struct {
     uint64      sector_count;
     uint32      sector_size;
     
-    /* MSI-X */
+    //MSI-X 
     uint16      msix_cap_ptr;
     msix_table_entry_t *msix_table;
     uint64      int_count;

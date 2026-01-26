@@ -150,8 +150,28 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
         if (!mapped_huge) {
             //if the PD entry is already a HUGE page we must split/overwrite it to map a 4KB page
             if (pd[PD_IDX(cur_virt)] & AMD64_PTE_HUGE) {
-                pd[PD_IDX(cur_virt)] = 0; //clear it first
-                __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt) : "memory");
+                uint64 old_entry = pd[PD_IDX(cur_virt)];
+                uintptr base_phys = old_entry & AMD64_PTE_ADDR_MASK;
+                uint64 flags = old_entry & ~AMD64_PTE_ADDR_MASK & ~AMD64_PTE_HUGE;
+
+                //allocate a new PT
+                void *pt_phys = pmm_alloc(1);
+                if (!pt_phys) {
+                    printf("[mmu] ERR: failed to allocate PT for split\n");
+                    return;
+                }
+                uint64 *pt_virt = (uint64 *)P2V(pt_phys);
+                
+                //populate the new PT with 4KB entries
+                for (int j = 0; j < 512; j++) {
+                    pt_virt[j] = (base_phys + (j * 4096)) | flags;
+                }
+
+                //update the PD entry to point to the new PT
+                pd[PD_IDX(cur_virt)] = (uintptr)pt_phys | AMD64_PTE_PRESENT | AMD64_PTE_WRITE | (user ? AMD64_PTE_USER : 0);
+                
+                //invalidate the original huge page
+                __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt & ~0x1FFFFFULL) : "memory");
             }
 
             uint64 *pt = get_next_level(pd, PD_IDX(cur_virt), true, user);

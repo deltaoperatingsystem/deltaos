@@ -36,6 +36,11 @@ int main(int argc, char *argv[]) {
     //fill buffer with pattern
     char buf[512];
     size plen = strlen(pattern);
+    if (plen == 0) {
+        puts("sectorwrite: empty pattern\n");
+        handle_close(h);
+        return 1;
+    }
     for (int i = 0; i < 512; i++) {
         buf[i] = pattern[i % plen];
     }

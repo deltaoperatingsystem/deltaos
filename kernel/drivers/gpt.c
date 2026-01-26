@@ -20,6 +20,10 @@ static bool guid_is_null(const uint8 *guid) {
 static int partition_read(blkdev_t *dev, uint64 lba, uint32 count, void *buf) {
     blkdev_t *parent = dev->parent;
     if (!parent) return -1;
+    
+    //bounds check
+    if (lba + count > dev->sector_count) return -1;
+    
     return parent->ops->read(parent, dev->start_lba + lba, count, buf);
 }
 
@@ -27,6 +31,10 @@ static int partition_read(blkdev_t *dev, uint64 lba, uint32 count, void *buf) {
 static int partition_write(blkdev_t *dev, uint64 lba, uint32 count, const void *buf) {
     blkdev_t *parent = dev->parent;
     if (!parent) return -1;
+    
+    //bounds check
+    if (lba + count > dev->sector_count) return -1;
+    
     return parent->ops->write(parent, dev->start_lba + lba, count, buf);
 }
 
@@ -150,6 +158,10 @@ int gpt_scan(blkdev_t *dev) {
         if (!part) continue;
         
         char *name = kzalloc(32);
+        if (!name) {
+            kfree(part);
+            continue;
+        }
         snprintf(name, 32, "%sp%u", dev->name, partitions_found + 1);
         
         part->name = name;

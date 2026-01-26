@@ -20,6 +20,10 @@ FILE *fopen(const char *path, const char *mode) {
     if (h == INVALID_HANDLE) return NULL;
     
     FILE *f = malloc(sizeof(FILE));
+    if (!f) {
+        handle_close(h);
+        return NULL;
+    }
     f->handle = h;
     f->eof = false;
     return f;

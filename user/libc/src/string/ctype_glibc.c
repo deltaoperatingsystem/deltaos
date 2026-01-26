@@ -15,15 +15,6 @@ static const int _toupper_tab[256 + 128] = {
 static const int *const _toupper_ptr = &_toupper_tab[128]; //offset for negavitve chars
 
 const int **__ctype_toupper_loc(void) {
-    static const int *ptr = NULL;
-    if (!ptr) {
-        static int table[384];
-        for (int i = 0; i < 384; i++) {
-            int c = i - 128;
-            if (c >= 'a' && c <= 'z') table[i] = c - 32;
-            else table[i] = c;
-        }
-        ptr = &table[128];
-    }
+    static const int *ptr = &_toupper_tab[128];
     return &ptr;
 }

@@ -100,6 +100,8 @@ static int nvme_wait_completion(nvme_ctrl_t *ctrl, nvme_queue_t *q, uint16 cmd_i
 }
 
 static int nvme_submit_cmd(nvme_ctrl_t *ctrl, nvme_queue_t *q, nvme_sqe_t *cmd, uint32 *cdw0) {
+    spinlock_acquire(&q->lock);
+    
     uint16 cmd_id = q->sq_tail;
     cmd->command_id = cmd_id;
     
@@ -108,6 +110,8 @@ static int nvme_submit_cmd(nvme_ctrl_t *ctrl, nvme_queue_t *q, nvme_sqe_t *cmd, 
     
     //update SQ doorbell
     nvme_write32(ctrl, q->db_sq, q->sq_tail);
+    
+    spinlock_release(&q->lock);
     
     return nvme_wait_completion(ctrl, q, cmd_id, cdw0);
 }
@@ -192,6 +196,7 @@ static int nvme_setup_io_queues(nvme_ctrl_t *ctrl) {
         uint16 qid = i + 1;
         
         wait_queue_init(&q->wq);
+        spinlock_init(&q->lock);
         q->db_sq = NVME_REG_DBL(qid, false, ctrl->dstrd);
         q->db_cq = NVME_REG_DBL(qid, true, ctrl->dstrd);
         
@@ -234,24 +239,78 @@ int nvme_read(nvme_ctrl_t *ctrl, uint64 lba, uint16 count, void *buf) {
     nvme_sqe_t cmd = {0};
     cmd.opcode = NVME_OP_READ;
     cmd.nsid = ctrl->nsid;
-    cmd.prp1 = V2P(buf);
+    
+    uintptr phys = V2P(buf);
+    cmd.prp1 = phys;
+    
+    //check if we need more than one PRP
+    uint32 bytes = count * ctrl->sector_size;
+    uint32 offset_in_page = (uintptr)buf & 0xFFF;
+    
+    void *prp_list_phys = NULL;
+    if (offset_in_page + bytes > 4096) {
+        //multi-page transfer
+        if (offset_in_page + bytes <= 8192) {
+            //exactly two pages
+            cmd.prp2 = (phys & ~0xFFFULL) + 4096;
+        } else {
+            //more than two pages so need a PRP list
+            uint32 num_pages = (offset_in_page + bytes + 4095) / 4096;
+            prp_list_phys = pmm_alloc(1);
+            if (!prp_list_phys) return -1;
+            uint64 *prp_list = (uint64 *)P2V(prp_list_phys);
+            
+            for (uint32 i = 0; i < num_pages - 1; i++) {
+                prp_list[i] = (phys & ~0xFFFULL) + (i + 1) * 4096;
+            }
+            cmd.prp2 = (uintptr)prp_list_phys;
+        }
+    }
+
     cmd.cdw10 = lba & 0xFFFFFFFF;
     cmd.cdw11 = (lba >> 32) & 0xFFFFFFFF;
     cmd.cdw12 = (count - 1); //number of blocks (0-based)
     
-    return nvme_io_submit(ctrl, &cmd);
+    int result = nvme_io_submit(ctrl, &cmd);
+    if (prp_list_phys) pmm_free(prp_list_phys, 1);
+    return result;
 }
 
 int nvme_write(nvme_ctrl_t *ctrl, uint64 lba, uint16 count, const void *buf) {
     nvme_sqe_t cmd = {0};
     cmd.opcode = NVME_OP_WRITE;
     cmd.nsid = ctrl->nsid;
-    cmd.prp1 = V2P(buf);
+    
+    uintptr phys = V2P(buf);
+    cmd.prp1 = phys;
+    
+    uint32 bytes = count * ctrl->sector_size;
+    uint32 offset_in_page = (uintptr)buf & 0xFFF;
+    
+    void *prp_list_phys = NULL;
+    if (offset_in_page + bytes > 4096) {
+        if (offset_in_page + bytes <= 8192) {
+            cmd.prp2 = (phys & ~0xFFFULL) + 4096;
+        } else {
+            uint32 num_pages = (offset_in_page + bytes + 4095) / 4096;
+            prp_list_phys = pmm_alloc(1);
+            if (!prp_list_phys) return -1;
+            uint64 *prp_list = (uint64 *)P2V(prp_list_phys);
+            for (uint32 i = 0; i < num_pages - 1; i++) {
+                prp_list[i] = (phys & ~0xFFFULL) + (i + 1) * 4096;
+            }
+            prp_list_phys = (void *)V2P(prp_list);
+            cmd.prp2 = (uintptr)prp_list_phys;
+        }
+    }
+
     cmd.cdw10 = lba & 0xFFFFFFFF;
     cmd.cdw11 = (lba >> 32) & 0xFFFFFFFF;
     cmd.cdw12 = (count - 1); //number of blocks (0-based)
     
-    return nvme_io_submit(ctrl, &cmd);
+    int result = nvme_io_submit(ctrl, &cmd);
+    if (prp_list_phys) pmm_free(prp_list_phys, 1);
+    return result;
 }
 
 //object operations
@@ -357,12 +416,32 @@ static object_ops_t nvme_ops = {
 //blkdev wrappers for GPT
 static int nvme_blkdev_read(blkdev_t *dev, uint64 lba, uint32 count, void *buf) {
     nvme_ctrl_t *ctrl = (nvme_ctrl_t *)dev->data;
-    return nvme_read(ctrl, lba, (uint16)count, buf);
+    
+    while (count > 0) {
+        uint32 chunk = count > 0xFFFF ? 0xFFFF : count;
+        int res = nvme_read(ctrl, lba, (uint16)chunk, buf);
+        if (res != 0) return res;
+        
+        lba += chunk;
+        count -= chunk;
+        buf = (uint8 *)buf + chunk * ctrl->sector_size;
+    }
+    return 0;
 }
 
 static int nvme_blkdev_write(blkdev_t *dev, uint64 lba, uint32 count, const void *buf) {
     nvme_ctrl_t *ctrl = (nvme_ctrl_t *)dev->data;
-    return nvme_write(ctrl, lba, (uint16)count, buf);
+    
+    while (count > 0) {
+        uint32 chunk = count > 0xFFFF ? 0xFFFF : count;
+        int res = nvme_write(ctrl, lba, (uint16)chunk, buf);
+        if (res != 0) return res;
+        
+        lba += chunk;
+        count -= chunk;
+        buf = (const uint8 *)buf + chunk * ctrl->sector_size;
+    }
+    return 0;
 }
 
 static blkdev_ops_t nvme_blkdev_ops = {
@@ -409,6 +488,7 @@ static void nvme_init_ctrl(pci_device_t *pci) {
     ctrl->admin_q.cq = P2V(acq_phys);
     ctrl->admin_q.cq_phase = 1;
     wait_queue_init(&ctrl->admin_q.wq);
+    spinlock_init(&ctrl->admin_q.lock);
     
     ctrl->admin_q.db_sq = NVME_REG_DBL(0, false, ctrl->dstrd);
     ctrl->admin_q.db_cq = NVME_REG_DBL(0, true, ctrl->dstrd);
