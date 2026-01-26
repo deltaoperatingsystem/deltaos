@@ -57,7 +57,8 @@ static int64 sys_spawn(const char *path, int argc, char **argv) {
     
     //allocate buffer for exec binary
     size buf_size = st.size;
-    if (buf_size == 0) {
+    #define MAX_EXEC_BUFFER (32 * 1024 * 1024) //32MB limit
+    if (buf_size == 0 || buf_size > MAX_EXEC_BUFFER) {
         handle_close(h);
         return -1;
     }
@@ -140,7 +141,7 @@ static int64 sys_spawn(const char *path, int argc, char **argv) {
         }
 
         size interp_buf_size = ist.size;
-        if (interp_buf_size == 0) {
+        if (interp_buf_size == 0 || interp_buf_size > MAX_EXEC_BUFFER) {
             handle_close(ih);
             process_destroy(proc);
             kfree(buf);
