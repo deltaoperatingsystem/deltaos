@@ -130,6 +130,17 @@ static void recompute_layout(uint16 screen_w, uint16 screen_h) {
     }
 }
 
+/**
+ * Create a new window for a client process, allocate and register its surface and channel,
+ * add the client to the manager, acknowledge the requester, and trigger a layout recompute.
+ *
+ * If the maximum client count is reached or any resource allocation/registration step fails,
+ * the function aborts and leaves the window manager state unchanged for that request.
+ *
+ * @param server Pointer to the server handle used to send the ACK back to the requester.
+ * @param res  The channel receive result identifying the requesting client (contains sender_pid).
+ * @param req  The client's CREATE request containing the desired surface width and height.
+ */
 void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t req) {
     INFO("window_create from pid=%u requested %u x %u\n", res.sender_pid, req.u.create.width, req.u.create.height);
     if (num_clients == 16) {
@@ -141,7 +152,7 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
     size needed = (size)req.u.create.width * (size)req.u.create.height * sizeof(uint32);
     handle_t client_vmo = vmo_create(needed, VMO_FLAG_RESIZABLE, RIGHT_MAP);
     if (client_vmo == INVALID_HANDLE) {
-        ERROR("vmo_create failed for pid=%u size=%zu\n\033[37m", res.sender_pid, needed);
+        ERROR("vmo_create failed for pid=%u size=%zu\n", res.sender_pid, needed);
         return;
     }
     snprintf(path, sizeof(path), "$gui/%u/surface", res.sender_pid);
@@ -150,7 +161,7 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
 
     uint32 *surface = vmo_map(client_vmo, NULL, 0, needed, RIGHT_MAP);
     if (!surface) {
-        ERROR("vmo_map failed for pid=%u size=%zu\n\033[37m", res.sender_pid, needed);
+        ERROR("vmo_map failed for pid=%u size=%zu\n", res.sender_pid, needed);
         handle_close(client_vmo);
         return;
     }
@@ -158,7 +169,7 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
     handle_t wm_end = INVALID_HANDLE, client_end = INVALID_HANDLE;
     channel_create(&wm_end, &client_end);
     if (wm_end == INVALID_HANDLE || client_end == INVALID_HANDLE) {
-        ERROR("channel_create failed for pid=%u\n\033[37m", res.sender_pid);
+        ERROR("channel_create failed for pid=%u\n", res.sender_pid);
         vmo_unmap(surface, needed);
         handle_close(client_vmo);
         return;
@@ -191,7 +202,15 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
     recompute_layout(1280, 800);
 }
 
-void window_commit(handle_t client_handle, channel_recv_result_t res) {
+/**
+ * Handle a COMMIT message from a client and mark that client's surface as needing redraw if it is ready.
+ *
+ * If the sender PID matches a tracked client whose status is READY, the client's dirty flag is set.
+ * If the client is known but not READY, the commit is ignored. If no client matches the sender PID, a warning is emitted.
+ *
+ * @param res Result of a channel receive containing the sender PID and message metadata.
+ */
+void window_commit(channel_recv_result_t res) {
     for (int i = 0; i < num_clients; i++) {
         if (clients[i].pid == res.sender_pid) {
             INFO("Received COMMIT from pid=%u idx=%d\n", res.sender_pid, i);
@@ -201,23 +220,22 @@ void window_commit(handle_t client_handle, channel_recv_result_t res) {
             }
 
             clients[i].dirty = true;
-            wm_server_msg_t resp = (wm_server_msg_t){ .type = ACK, .u.ack = true };
-            int rc = channel_send(client_handle, &resp, sizeof(resp));
-            if (rc != 0) {
-                WARN("Failed to ACK COMMIT to pid=%u (rc=%d) - tearing down\n", res.sender_pid, rc);
-                for (int j = 0; j < num_clients; j++) {
-                    if (clients[j].pid == res.sender_pid) {
-                        client_teardown_by_index(j);
-                        return;
-                    }
-                }
-            }
             return;
         }
     }
     WARN("COMMIT from unknown pid=%u\n", res.sender_pid);
 }
 
+/**
+ * Process incoming messages from the WM server channel and all connected client channels.
+ *
+ * Polls the server channel for CREATE requests and dispatches them to window_create.
+ * Iterates each connected client channel and handles client message types:
+ * ACK (logged), COMMIT (forwards to window_commit), RESIZE (remaps client surface and marks it dirty, or tears down on failure),
+ * KBD (logged as unexpected), and DESTROY (tears down the client). Channels reporting errors or closed peers cause client teardown.
+ *
+ * @param server Pointer to the server channel handle ($gui/wm) to poll for incoming messages.
+ */
 void server_listen(handle_t *server) {
     wm_client_msg_t msg;
     channel_recv_result_t res;
@@ -255,7 +273,7 @@ void server_listen(handle_t *server) {
                 break;
 
             case COMMIT:
-                window_commit(clients[i].handle, cres);
+                window_commit(cres);
                 break;
 
             case RESIZE:
@@ -274,7 +292,7 @@ void server_listen(handle_t *server) {
                 size needed = (size)clients[i].surface_w * (size)clients[i].surface_h * sizeof(uint32);
                 clients[i].surface = vmo_map(clients[i].vmo, NULL, 0, needed, RIGHT_MAP);
                 if (!clients[i].surface) {
-                    ERROR("vmo_map failed for pid=%u idx=%d\n\033[37m", clients[i].pid, i);
+                    ERROR("vmo_map failed for pid=%u idx=%d\n", clients[i].pid, i);
                     client_remove_at(i--);
                     break;
                 }
