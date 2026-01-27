@@ -19,7 +19,7 @@ uint16 px_get_surface_w(px_surface_t *surface);
 uint16 px_get_surface_h(px_surface_t *surface);
 
 //constructors
-static inline px_rect_t px_make_rect(uint16 x, uint16 y, uint16 w, uint16 h, uint32 c) {
+static inline px_rect_t px_create_rect(uint16 x, uint16 y, uint16 w, uint16 h, uint32 c) {
     return (px_rect_t){.x=x,.y=y,.w=w,.h=h,.c=c};
 }
 

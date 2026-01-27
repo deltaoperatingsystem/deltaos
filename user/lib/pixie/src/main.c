@@ -1,6 +1,7 @@
 #include <system.h>
 #include <io.h>
 #include <mem.h>
+#include <pixie.h>
 
 typedef struct px_surface {
     uint32 *data;
@@ -12,12 +13,6 @@ typedef struct px_window {
     px_surface_t *surface;
     handle_t ch;
 } px_window_t;
-
-typedef struct px_rect {
-    uint16 x, y;
-    uint16 w, h;
-    uint32 c;
-} px_rect_t;
 
 #define MAX_TRIES 5
 
@@ -65,16 +60,23 @@ px_window_t *px_create_window(char *name, uint16 width, uint16 height) {
 
     snprintf(path, sizeof(path), "$gui/%d/surface", getpid());
     win->surface = malloc(sizeof(px_surface_t));
-    if (!win->surface) return NULL;
+    if (!win->surface) {
+        free(win);
+        return NULL;
+    }
 
     win->surface->w = res.u.configure.w;
     win->surface->h = res.u.configure.h;
     
     win->surface->handle = get_obj(INVALID_HANDLE, path, RIGHT_WRITE | RIGHT_MAP);
     
-    vmo_resize(win->surface->handle, win->surface->w * win->surface->h * sizeof(uint32));
-    win->surface->data = vmo_map(win->surface->handle, NULL, 0,
-        win->surface->w * win->surface->h * sizeof(uint32), RIGHT_WRITE | RIGHT_MAP);
+    size surface_size = (size)win->surface->w * (size)win->surface->h * sizeof(uint32);
+    vmo_resize(win->surface->handle, surface_size);
+    win->surface->data = vmo_map(win->surface->handle, NULL, 0, surface_size, RIGHT_WRITE | RIGHT_MAP);
+    if (!win->surface->data) {
+        free(win->surface); free(win);
+        return NULL;
+    }
 
     req = (wm_client_msg_t){ .type = RESIZE, .u.resize.width = win->surface->w, .u.resize.height = win->surface->h };
     channel_send(win->ch, &req, sizeof(req));
