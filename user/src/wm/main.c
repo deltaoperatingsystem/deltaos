@@ -141,7 +141,7 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
     size needed = (size)req.u.create.width * (size)req.u.create.height * sizeof(uint32);
     handle_t client_vmo = vmo_create(needed, VMO_FLAG_RESIZABLE, RIGHT_MAP);
     if (client_vmo == INVALID_HANDLE) {
-        ERROR("vmo_create failed for pid=%u size=%zu\n\033[37m", res.sender_pid, needed);
+        ERROR("vmo_create failed for pid=%u size=%zu\n", res.sender_pid, needed);
         return;
     }
     snprintf(path, sizeof(path), "$gui/%u/surface", res.sender_pid);
@@ -150,7 +150,7 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
 
     uint32 *surface = vmo_map(client_vmo, NULL, 0, needed, RIGHT_MAP);
     if (!surface) {
-        ERROR("vmo_map failed for pid=%u size=%zu\n\033[37m", res.sender_pid, needed);
+        ERROR("vmo_map failed for pid=%u size=%zu\n", res.sender_pid, needed);
         handle_close(client_vmo);
         return;
     }
@@ -158,7 +158,7 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
     handle_t wm_end = INVALID_HANDLE, client_end = INVALID_HANDLE;
     channel_create(&wm_end, &client_end);
     if (wm_end == INVALID_HANDLE || client_end == INVALID_HANDLE) {
-        ERROR("channel_create failed for pid=%u\n\033[37m", res.sender_pid);
+        ERROR("channel_create failed for pid=%u\n", res.sender_pid);
         vmo_unmap(surface, needed);
         handle_close(client_vmo);
         return;
@@ -191,7 +191,7 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
     recompute_layout(1280, 800);
 }
 
-void window_commit(handle_t client_handle, channel_recv_result_t res) {
+void window_commit(channel_recv_result_t res) {
     for (int i = 0; i < num_clients; i++) {
         if (clients[i].pid == res.sender_pid) {
             INFO("Received COMMIT from pid=%u idx=%d\n", res.sender_pid, i);
@@ -201,17 +201,6 @@ void window_commit(handle_t client_handle, channel_recv_result_t res) {
             }
 
             clients[i].dirty = true;
-            wm_server_msg_t resp = (wm_server_msg_t){ .type = ACK, .u.ack = true };
-            int rc = channel_send(client_handle, &resp, sizeof(resp));
-            if (rc != 0) {
-                WARN("Failed to ACK COMMIT to pid=%u (rc=%d) - tearing down\n", res.sender_pid, rc);
-                for (int j = 0; j < num_clients; j++) {
-                    if (clients[j].pid == res.sender_pid) {
-                        client_teardown_by_index(j);
-                        return;
-                    }
-                }
-            }
             return;
         }
     }
@@ -255,7 +244,7 @@ void server_listen(handle_t *server) {
                 break;
 
             case COMMIT:
-                window_commit(clients[i].handle, cres);
+                window_commit(cres);
                 break;
 
             case RESIZE:
@@ -274,7 +263,7 @@ void server_listen(handle_t *server) {
                 size needed = (size)clients[i].surface_w * (size)clients[i].surface_h * sizeof(uint32);
                 clients[i].surface = vmo_map(clients[i].vmo, NULL, 0, needed, RIGHT_MAP);
                 if (!clients[i].surface) {
-                    ERROR("vmo_map failed for pid=%u idx=%d\n\033[37m", clients[i].pid, i);
+                    ERROR("vmo_map failed for pid=%u idx=%d\n", clients[i].pid, i);
                     client_remove_at(i--);
                     break;
                 }
