@@ -201,17 +201,21 @@ void window_commit(handle_t client_handle, channel_recv_result_t res) {
             }
 
             clients[i].dirty = true;
-            wm_server_msg_t resp = (wm_server_msg_t){ .type = ACK, .u.ack = true };
-            int rc = channel_send(client_handle, &resp, sizeof(resp));
-            if (rc != 0) {
-                WARN("Failed to ACK COMMIT to pid=%u (rc=%d) - tearing down\n", res.sender_pid, rc);
-                for (int j = 0; j < num_clients; j++) {
-                    if (clients[j].pid == res.sender_pid) {
-                        client_teardown_by_index(j);
-                        return;
-                    }
-                }
-            }
+
+            //I've commented this out cause it kills the window if the client doesn't respond :(
+
+            (void)client_handle;
+            // wm_server_msg_t resp = (wm_server_msg_t){ .type = ACK, .u.ack = true };
+            //    int rc = channel_send(client_handle, &resp, sizeof(resp));
+            //    if (rc != 0) {
+            //        WARN("Failed to ACK COMMIT to pid=%u (rc=%d) - tearing down\n", res.sender_pid, rc);
+            //        for (int j = 0; j < num_clients; j++) {
+            //            if (clients[j].pid == res.sender_pid) {
+            //                client_teardown_by_index(j);
+            //                return;
+            //            }
+            //        }
+            // }
             return;
         }
     }
