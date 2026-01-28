@@ -14,12 +14,36 @@
 #include <obj/object.h>
 #include <drivers/blkdev.h>
 #include <drivers/gpt.h>
+#include <fs/fs.h>
 #include <arch/amd64/int/apic.h>
 
 #define NVME_QUEUE_SIZE 64
 
 static nvme_ctrl_t *ctrls[4];
 static uint32 ctrl_count = 0;
+
+static ssize nvme_read_op(object_t *obj, void *buf, size len, size offset);
+static ssize nvme_write_op(object_t *obj, const void *buf, size len, size offset);
+static int nvme_stat(object_t *obj, stat_t *st);
+static int nvme_discover_namespaces(nvme_ctrl_t *ctrl);
+
+
+static object_ops_t nvme_ops = {
+    .read = nvme_read_op,
+    .write = nvme_write_op,
+    .close = NULL, 
+    .readdir = NULL,
+    .lookup = NULL,
+    .stat = nvme_stat
+};
+
+static int nvme_blkdev_read(blkdev_t *dev, uint64 lba, uint32 count, void *buf);
+static int nvme_blkdev_write(blkdev_t *dev, uint64 lba, uint32 count, const void *buf);
+
+static blkdev_ops_t nvme_blkdev_ops = {
+    .read = nvme_blkdev_read,
+    .write = nvme_blkdev_write,
+};
 
 static void nvme_trim(char *str, size len) {
     for (int i = len - 1; i >= 0; i--) {
@@ -140,6 +164,7 @@ static int nvme_identify(nvme_ctrl_t *ctrl) {
     }
     
     nvme_identify_ctrl_t *id = (nvme_identify_ctrl_t *)ptr_virt;
+    uint32 nn = id->nn;
     
     char model[41];
     char serial[21];
@@ -148,27 +173,76 @@ static int nvme_identify(nvme_ctrl_t *ctrl) {
     nvme_trim(model, 40);
     nvme_trim(serial, 20);
 
-    printf("[nvme] Model: %s SN: %s\n", model, serial);
+    printf("[nvme] Model: %s SN: %s (Namespaces: %u)\n", model, serial, nn);
     
-    //identify namespace 1
+    ctrl->ns = kzalloc(nn * sizeof(nvme_ns_t));
+    ctrl->num_ns = nn; //store total count for discovery
+    
+    pmm_free(ptr_phys, 1);
+    return 0;
+}
+
+static int nvme_discover_namespaces(nvme_ctrl_t *ctrl) {
+    void *ptr_phys = pmm_alloc(1);
+    if (!ptr_phys) return -1;
+    void *ptr_virt = P2V(ptr_phys);
     memset(ptr_virt, 0, 4096);
-    cmd.nsid = 1;
-    cmd.cdw10 = 0; //identify namespace
-    if (nvme_submit_admin(ctrl, &cmd, NULL) != 0) {
-        pmm_free(ptr_phys, 1);
-        return -1;
+    
+    uintptr phys = (uintptr)ptr_phys;
+    uint32 nn = ctrl->num_ns;
+    uint32 active_ns = 0;
+    
+    nvme_sqe_t cmd = {0};
+    cmd.opcode = NVME_OP_IDENTIFY;
+    
+    //identify all namespaces
+    for (uint32 i = 1; i <= nn; i++) {
+        memset(ptr_virt, 0, 4096);
+        cmd.nsid = i;
+        cmd.cdw10 = 0; //identify namespace
+        cmd.prp1 = phys;
+        
+        if (nvme_submit_admin(ctrl, &cmd, NULL) != 0) continue;
+        
+        nvme_identify_ns_t *id_ns = (nvme_identify_ns_t *)ptr_virt;
+        if (id_ns->ns_size == 0) continue; //inactive
+        
+        nvme_ns_t *ns = &ctrl->ns[active_ns++];
+        ns->ctrl = ctrl;
+        ns->nsid = i;
+        ns->sector_count = id_ns->ns_size;
+        
+        uint8 flbas = id_ns->flbas & 0xF;
+        uint32 lbaf = id_ns->lbaf[flbas];
+        ns->sector_size = 1 << ((lbaf >> 16) & 0xFF);
+        
+        printf("[nvme] Namespace %u: %llu sectors, %u bytes/sector\n", i, ns->sector_count, ns->sector_size);
+
+        //register object
+        object_t *obj = object_create(OBJECT_DEVICE, &nvme_ops, ns);
+        ns->obj = obj;
+        if (obj) {
+            char name[64];
+            snprintf(name, sizeof(name), "$devices/disks/nvme%un%u", ctrl->ctrl_idx, i);
+            ns_register(name, obj);
+            printf("[nvme] Registered %s\n", name);
+        }
+
+        //scan GPT
+        blkdev_t *blkdev = kzalloc(sizeof(blkdev_t));
+        if (blkdev) {
+            char *blkname = kzalloc(32);
+            snprintf(blkname, 32, "nvme%un%u", ctrl->ctrl_idx, i);
+            blkdev->name = blkname;
+            blkdev->sector_size = ns->sector_size;
+            blkdev->sector_count = ns->sector_count;
+            blkdev->ops = &nvme_blkdev_ops;
+            blkdev->data = ns;
+            gpt_scan(blkdev);
+        }
     }
     
-    nvme_identify_ns_t *ns = (nvme_identify_ns_t *)ptr_virt;
-    ctrl->nsid = 1;
-    ctrl->sector_count = ns->ns_size;
-    
-    uint8 flbas = ns->flbas & 0xF;
-    uint32 lbaf = ns->lbaf[flbas];
-    ctrl->sector_size = 1 << ((lbaf >> 16) & 0xFF);
-    
-    printf("[nvme] Namespace 1: %llu sectors, %u bytes per sector\n", ctrl->sector_count, ctrl->sector_size);
-    
+    ctrl->num_ns = active_ns;
     pmm_free(ptr_phys, 1);
     return 0;
 }
@@ -235,16 +309,17 @@ static int nvme_io_submit(nvme_ctrl_t *ctrl, nvme_sqe_t *cmd) {
     return nvme_submit_cmd(ctrl, &ctrl->io_q[qidx], cmd, NULL);
 }
 
-int nvme_read(nvme_ctrl_t *ctrl, uint64 lba, uint16 count, void *buf) {
+int nvme_read(nvme_ns_t *ns, uint64 lba, uint16 count, void *buf) {
+    nvme_ctrl_t *ctrl = ns->ctrl;
     nvme_sqe_t cmd = {0};
     cmd.opcode = NVME_OP_READ;
-    cmd.nsid = ctrl->nsid;
+    cmd.nsid = ns->nsid;
     
     uintptr phys = V2P(buf);
     cmd.prp1 = phys;
     
     //check if we need more than one PRP
-    uint32 bytes = count * ctrl->sector_size;
+    uint32 bytes = count * ns->sector_size;
     uint32 offset_in_page = (uintptr)buf & 0xFFF;
     
     void *prp_list_phys = NULL;
@@ -276,15 +351,16 @@ int nvme_read(nvme_ctrl_t *ctrl, uint64 lba, uint16 count, void *buf) {
     return result;
 }
 
-int nvme_write(nvme_ctrl_t *ctrl, uint64 lba, uint16 count, const void *buf) {
+int nvme_write(nvme_ns_t *ns, uint64 lba, uint16 count, const void *buf) {
+    nvme_ctrl_t *ctrl = ns->ctrl;
     nvme_sqe_t cmd = {0};
     cmd.opcode = NVME_OP_WRITE;
-    cmd.nsid = ctrl->nsid;
+    cmd.nsid = ns->nsid;
     
     uintptr phys = V2P(buf);
     cmd.prp1 = phys;
     
-    uint32 bytes = count * ctrl->sector_size;
+    uint32 bytes = count * ns->sector_size;
     uint32 offset_in_page = (uintptr)buf & 0xFFF;
     
     void *prp_list_phys = NULL;
@@ -299,7 +375,6 @@ int nvme_write(nvme_ctrl_t *ctrl, uint64 lba, uint16 count, const void *buf) {
             for (uint32 i = 0; i < num_pages - 1; i++) {
                 prp_list[i] = (phys & ~0xFFFULL) + (i + 1) * 4096;
             }
-            prp_list_phys = (void *)V2P(prp_list);
             cmd.prp2 = (uintptr)prp_list_phys;
         }
     }
@@ -315,16 +390,16 @@ int nvme_write(nvme_ctrl_t *ctrl, uint64 lba, uint16 count, const void *buf) {
 
 //object operations
 static ssize nvme_read_op(object_t *obj, void *buf, size len, size offset) {
-    nvme_ctrl_t *ctrl = (nvme_ctrl_t *)obj->data;
-    if (!ctrl) return -1;
+    nvme_ns_t *ns = (nvme_ns_t *)obj->data;
+    if (!ns) return -1;
     
-    if (offset % ctrl->sector_size != 0) return -1;
-    if (len % ctrl->sector_size != 0) return -1;
+    if (offset % ns->sector_size != 0) return -1;
+    if (len % ns->sector_size != 0) return -1;
     
-    uint64 lba = offset / ctrl->sector_size;
-    uint32 count = len / ctrl->sector_size;
+    uint64 lba = offset / ns->sector_size;
+    uint32 count = len / ns->sector_size;
     
-    if (lba + count > ctrl->sector_count) return -1;
+    if (lba + count > ns->sector_count) return -1;
     if (count > 0xFFFF) return -1; 
     
     //allocate kernel bounce buffer for DMA
@@ -332,7 +407,7 @@ static ssize nvme_read_op(object_t *obj, void *buf, size len, size offset) {
     if (!kbuf_phys) return -1;
     void *kbuf = P2V(kbuf_phys);
     
-    int result = nvme_read(ctrl, lba, (uint16)count, kbuf);
+    int result = nvme_read(ns, lba, (uint16)count, kbuf);
     if (result == 0) {
         memcpy(buf, kbuf, len);  //copy to userspace
     }
@@ -342,16 +417,16 @@ static ssize nvme_read_op(object_t *obj, void *buf, size len, size offset) {
 }
 
 static ssize nvme_write_op(object_t *obj, const void *buf, size len, size offset) {
-    nvme_ctrl_t *ctrl = (nvme_ctrl_t *)obj->data;
-    if (!ctrl) return -1;
+    nvme_ns_t *ns = (nvme_ns_t *)obj->data;
+    if (!ns) return -1;
     
-    if (offset % ctrl->sector_size != 0) return -1;
-    if (len % ctrl->sector_size != 0) return -1;
+    if (offset % ns->sector_size != 0) return -1;
+    if (len % ns->sector_size != 0) return -1;
     
-    uint64 lba = offset / ctrl->sector_size;
-    uint32 count = len / ctrl->sector_size;
+    uint64 lba = offset / ns->sector_size;
+    uint32 count = len / ns->sector_size;
     
-    if (lba + count > ctrl->sector_count) return -1;
+    if (lba + count > ns->sector_count) return -1;
     if (count > 0xFFFF) return -1; 
 
     //allocate kernel bounce buffer for DMA
@@ -360,10 +435,19 @@ static ssize nvme_write_op(object_t *obj, const void *buf, size len, size offset
     void *kbuf = P2V(kbuf_phys);
     
     memcpy(kbuf, buf, len);  //copy from userspace
-    int result = nvme_write(ctrl, lba, (uint16)count, kbuf);
+    int result = nvme_write(ns, lba, (uint16)count, kbuf);
     
     pmm_free(kbuf_phys, (len + 4095) / 4096);
     return (result == 0) ? (ssize)len : -1;
+}
+
+static int nvme_stat(object_t *obj, stat_t *st) {
+    nvme_ns_t *ns = (nvme_ns_t *)obj->data;
+    if (!ns || !st) return -1;
+    memset(st, 0, sizeof(stat_t));
+    st->type = FS_TYPE_DEVICE;
+    st->size = ns->sector_count * ns->sector_size;
+    return 0;
 }
 
 static int nvme_enable_msix(nvme_ctrl_t *ctrl) {
@@ -405,49 +489,36 @@ static int nvme_enable_msix(nvme_ctrl_t *ctrl) {
     return 0;
 }
 
-static object_ops_t nvme_ops = {
-    .read = nvme_read_op,
-    .write = nvme_write_op,
-    .close = NULL, 
-    .readdir = NULL,
-    .lookup = NULL
-};
-
 //blkdev wrappers for GPT
 static int nvme_blkdev_read(blkdev_t *dev, uint64 lba, uint32 count, void *buf) {
-    nvme_ctrl_t *ctrl = (nvme_ctrl_t *)dev->data;
+    nvme_ns_t *ns = (nvme_ns_t *)dev->data;
     
     while (count > 0) {
         uint32 chunk = count > 0xFFFF ? 0xFFFF : count;
-        int res = nvme_read(ctrl, lba, (uint16)chunk, buf);
+        int res = nvme_read(ns, lba, (uint16)chunk, buf);
         if (res != 0) return res;
         
         lba += chunk;
         count -= chunk;
-        buf = (uint8 *)buf + chunk * ctrl->sector_size;
+        buf = (uint8 *)buf + chunk * ns->sector_size;
     }
     return 0;
 }
 
 static int nvme_blkdev_write(blkdev_t *dev, uint64 lba, uint32 count, const void *buf) {
-    nvme_ctrl_t *ctrl = (nvme_ctrl_t *)dev->data;
+    nvme_ns_t *ns = (nvme_ns_t *)dev->data;
     
     while (count > 0) {
         uint32 chunk = count > 0xFFFF ? 0xFFFF : count;
-        int res = nvme_write(ctrl, lba, (uint16)chunk, buf);
+        int res = nvme_write(ns, lba, (uint16)chunk, buf);
         if (res != 0) return res;
         
         lba += chunk;
         count -= chunk;
-        buf = (const uint8 *)buf + chunk * ctrl->sector_size;
+        buf = (const uint8 *)buf + chunk * ns->sector_size;
     }
     return 0;
 }
-
-static blkdev_ops_t nvme_blkdev_ops = {
-    .read = nvme_blkdev_read,
-    .write = nvme_blkdev_write,
-};
 
 static void nvme_init_ctrl(pci_device_t *pci) {
     if (ctrl_count >= 4) return;
@@ -456,6 +527,7 @@ static void nvme_init_ctrl(pci_device_t *pci) {
     if (!ctrl) return;
     
     ctrl->pci = pci;
+    ctrl->ctrl_idx = ctrl_count;
     pci_enable_mmio(pci);
     pci_enable_bus_master(pci);
     
@@ -511,34 +583,14 @@ static void nvme_init_ctrl(pci_device_t *pci) {
     nvme_enable_msix(ctrl);
     if (nvme_identify(ctrl) != 0) return;
     if (nvme_setup_io_queues(ctrl) != 0) return;
+    if (nvme_discover_namespaces(ctrl) != 0) return;
     
-    object_t *obj = object_create(OBJECT_DEVICE, &nvme_ops, ctrl);
-    if (obj) {
-        char name[64];
-        snprintf(name, sizeof(name), "$devices/disks/nvme%un1", ctrl_count);
-        ns_register(name, obj);
-        printf("[nvme] Registered %s\n", name);
+    if (!ns_lookup("$devices/disks")) {
+        ns_register("$devices/disks", ns_create_dir("$devices/disks/"));
     }
-    
-    void *test_buf = pmm_alloc(1);
-    if (test_buf) {
-        printf("[nvme] Performing test read to verify interrupts...\n");
-        nvme_read(ctrl, 0, 1, P2V(test_buf));
-        pmm_free(test_buf, 1);
-    }
-    
+
     ctrls[ctrl_count++] = ctrl;
-    printf("[nvme] Controller initialized successfully\n");
-    
-    blkdev_t *blkdev = kzalloc(sizeof(blkdev_t));
-    if (blkdev) {
-        blkdev->name = "nvme0n1";
-        blkdev->sector_size = ctrl->sector_size;
-        blkdev->sector_count = ctrl->sector_count;
-        blkdev->ops = &nvme_blkdev_ops;
-        blkdev->data = ctrl;
-        gpt_scan(blkdev);
-    }
+    printf("[nvme] Controller %u initialized successfully\n", ctrl->ctrl_idx);
 }
 
 void nvme_init(void) {

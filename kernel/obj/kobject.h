@@ -16,6 +16,7 @@
 #define OBJECT_PORT     14   //async notification port
 #define OBJECT_EVENT    15   //event object (signalable)
 #define OBJECT_JOB      16   //job (process group)
+#define OBJECT_NS_DIR   17   //namespace directory
 
 //type name helper
 static inline const char *object_type_name(uint32 type) {
@@ -32,8 +33,10 @@ static inline const char *object_type_name(uint32 type) {
         case 14: return "port";
         case 15: return "event";
         case 16: return "job";
+        case 17: return "ns_dir";
         default: return "unknown";
     }
 }
+
 
 #endif

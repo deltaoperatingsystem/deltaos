@@ -728,6 +728,10 @@ static int64 sys_remove(const char *path) {
     return handle_remove(path);
 }
 
+static int64 sys_fstat(handle_t h, stat_t *st) {
+    return handle_fstat(h, st);
+}
+
 int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
                        uint64 arg4, uint64 arg5, uint64 arg6) {
     switch (num) {
@@ -773,6 +777,7 @@ int64 syscall_dispatch(uint64 num, uint64 arg1, uint64 arg2, uint64 arg3,
         case SYS_GET_TICKS: return (int64)arch_timer_get_ticks();
         case SYS_MKDIR: return sys_mkdir((const char *)arg1, (uint32)arg2);
         case SYS_REMOVE: return sys_remove((const char *)arg1);
+        case SYS_FSTAT: return sys_fstat((handle_t)arg1, (stat_t *)arg2);
         
         default: return -1;
     }

@@ -7,6 +7,9 @@
 #include <obj/namespace.h>
 #include <lib/io.h>
 #include <lib/string.h>
+#include <fs/fs.h>
+
+static int part_stat_op(object_t *obj, stat_t *st);
 
 //check if GUID is null
 static bool guid_is_null(const uint8 *guid) {
@@ -94,12 +97,22 @@ static ssize part_write_op(object_t *obj, const void *buf, size len, size offset
     return (result == 0) ? (ssize)len : -1;
 }
 
+static int part_stat_op(object_t *obj, stat_t *st) {
+    blkdev_t *dev = (blkdev_t *)obj->data;
+    if (!dev || !st) return -1;
+    memset(st, 0, sizeof(stat_t));
+    st->type = FS_TYPE_DEVICE;
+    st->size = dev->sector_count * dev->sector_size;
+    return 0;
+}
+
 static object_ops_t partition_object_ops = {
     .read = part_read_op,
     .write = part_write_op,
     .close = NULL,
     .readdir = NULL,
     .lookup = NULL,
+    .stat = part_stat_op
 };
 
 int gpt_scan(blkdev_t *dev) {

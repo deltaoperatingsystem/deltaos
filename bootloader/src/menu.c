@@ -65,10 +65,11 @@ static void draw_menu(void) {
         }
     }
     
-    uint32_t bottom_y = fb->height - char_h * 3;
+    uint32_t bottom_y = fb->height - char_h * 4;
     con_set_color(COLOR_GRAY, 0);
     con_print_at(char_w * 2, bottom_y, "Use the arrow keys to select which entry is highlighted.");
     con_print_at(char_w * 2, bottom_y + char_h, "Press enter to boot the selected entry");
+    con_print_at(char_w * 2, bottom_y + char_h * 2, "Press 'g' to change graphics resolution");
 }
 
 int menu_run(int timeout, int default_index) {
@@ -135,6 +136,8 @@ int menu_run(int timeout, int default_index) {
                 }
             } else if (key.UnicodeChar == 0x0D || key.UnicodeChar == '\r') {  //enter
                 return selected;
+            } else if (key.UnicodeChar == 'g' || key.UnicodeChar == 'G') {
+                return MENU_GOP_REQUEST;
             }
         } else {
             //no key, wait a bit

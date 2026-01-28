@@ -16,9 +16,38 @@ pagemap_t *mmu_get_kernel_pagemap(void) {
     return &kernel_pagemap;
 }
 
+static void mmu_write_msr(uint32 msr, uint64 val) {
+    uint32 lo = val & 0xFFFFFFFF;
+    uint32 hi = val >> 32;
+    __asm__ volatile("wrmsr" :: "c"(msr), "a"(lo), "d"(hi));
+}
+
+static uint64 mmu_read_msr(uint32 msr) {
+    uint32 lo, hi;
+    __asm__ volatile("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
+    return ((uint64)hi << 32) | lo;
+}
+
 static uint64 *get_next_level(uint64 *current_table, uint32 index, bool allocate, bool user);
 
+static void mmu_init_pat(void) {
+    //configure PAT (page attribute table)
+    //index 0 (PAT=0, PCD=0, PWT=0) -> WB (write back) - default
+    //index 1 (PAT=0, PCD=0, PWT=1) -> WT (write through) - default
+    //index 2 (PAT=0, PCD=1, PWT=0) -> UC- (uncached minus) - default
+    //index 3 (PAT=0, PCD=1, PWT=1) -> UC (uncached) - default
+    //index 4 (PAT=1, PCD=0, PWT=0) -> WC (write combining) - custom
+    // and so on so for
+    
+    uint64 pat = mmu_read_msr(MSR_IA32_PAT);
+    pat &= ~(0x7ULL << 32); //clear PA4
+    pat |= (0x1ULL << 32);  //set PA4 to 0x01 (WC)
+    mmu_write_msr(MSR_IA32_PAT, pat);
+}
+
 void mmu_init(void) {
+    mmu_init_pat();
+    
     pagemap_t *map = mmu_get_kernel_pagemap();
     uint64 *pml4 = (uint64 *)P2V(map->top_level);
     
@@ -110,6 +139,9 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
     if (flags & MMU_FLAG_NOCACHE) pte_flags |= (AMD64_PTE_PCD | AMD64_PTE_PWT);
     if (!(flags & MMU_FLAG_EXEC)) pte_flags |= AMD64_PTE_NX;
     
+    //check for write combining
+    bool is_wc = (flags & MMU_FLAG_WC) != 0;
+    
     bool user = (flags & MMU_FLAG_USER) != 0;
     //printf("[mmu] map_range virt=0x%lx phys=0x%lx pages=%zu flags=0x%lx\n", virt, phys, pages, flags);
 
@@ -136,7 +168,15 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
         bool mapped_huge = false;
         if (pages - i >= 512 && (cur_virt % 0x200000 == 0) && (cur_phys % 0x200000 == 0)) {
             //overwrite existing entry (whether it was a PT or a huge page)
-            pd[PD_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | pte_flags | AMD64_PTE_HUGE;
+            uint64 huge_flags = pte_flags | AMD64_PTE_HUGE;
+            if (is_wc) {
+                //for huge pages (2MB), PAT bit is bit 12
+                huge_flags |= (1ULL << 12);
+                //make sure PCD/PWT are clear
+                huge_flags &= ~(AMD64_PTE_PCD | AMD64_PTE_PWT);
+            }
+            
+            pd[PD_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | huge_flags;
             
             //thoroughly invalidate the entire 2MB range in TLB
             for (int j = 0; j < 512; j++) {
@@ -150,6 +190,7 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
         if (!mapped_huge) {
             //if the PD entry is already a HUGE page we must split/overwrite it to map a 4KB page
             if (pd[PD_IDX(cur_virt)] & AMD64_PTE_HUGE) {
+                 // ... splitting logic same as before ...       
                 uint64 old_entry = pd[PD_IDX(cur_virt)];
                 uintptr base_phys = old_entry & AMD64_PTE_ADDR_MASK;
                 uint64 flags = old_entry & ~AMD64_PTE_ADDR_MASK & ~AMD64_PTE_HUGE;
@@ -179,11 +220,21 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
                 printf("[mmu] ERR: failed to allocate PT for virt 0x%lx\n", cur_virt);
                 return;
             }
-            pt[PT_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | pte_flags;
+            
+            uint64 leaf_flags = pte_flags;
+            if (is_wc) {
+                //for 4KB pages, PAT bit is bit 7 (AMD64_PTE_PAT)
+                leaf_flags |= AMD64_PTE_PAT;
+                //make sure PCD/PWT are clear
+                leaf_flags &= ~(AMD64_PTE_PCD | AMD64_PTE_PWT);
+            }
+            
+            pt[PT_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | leaf_flags;
             __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt) : "memory");
             i++;
         }
     }
+    
     
     //check that all pages are actually mapped
     for (size v = 0; v < pages; v++) {
@@ -245,6 +296,11 @@ uintptr mmu_virt_to_phys(pagemap_t *map, uintptr virt) {
             return (entry & AMD64_PTE_ADDR_MASK) + (virt & 0x1FFFFF);
         }
         return 0;
+    }
+
+    uint64 pd_entry = pd[PD_IDX(virt)];
+    if ((pd_entry & AMD64_PTE_PRESENT) && (pd_entry & AMD64_PTE_HUGE)) {
+        return (pd_entry & AMD64_PTE_ADDR_MASK) + (virt & 0x1FFFFF);
     }
 
     uint64 *pt = get_next_level(pd, PD_IDX(virt), false, false);

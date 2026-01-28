@@ -50,10 +50,12 @@
 //interface
 bool apic_is_supported(void);
 bool apic_init(void);
+void apic_set_force_pic(bool force);
 void apic_send_eoi(void);
 bool apic_is_enabled(void);
 uint32 apic_get_id(void);
 uint32 apic_read(uint32 reg);
 void apic_write(uint32 reg, uint32 val);
+void apic_timer_init(uint32 hz);
 
 #endif

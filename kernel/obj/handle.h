@@ -52,6 +52,9 @@ int handle_readdir(handle_t h, void *entries, uint32 count);
 //stat a path (without opening)
 int handle_stat(const char *path, stat_t *st);
 
+//stat a handle
+int handle_fstat(handle_t h, stat_t *st);
+
 //remove a path
 int handle_remove(const char *path);
 

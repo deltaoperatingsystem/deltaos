@@ -88,6 +88,9 @@ typedef struct stat {
     uint64 ctime;
     uint64 mtime;
     uint64 atime;
+    uint32 width;
+    uint32 height;
+    uint32 pitch;
 } stat_t;
 
 #endif

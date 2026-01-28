@@ -78,7 +78,8 @@ char *strtok(char *str, const char *delim) {
     return start;
 }
 
-void *memset(void *s, int c, size n) {
+//weak symbol allows arch-specific override
+__attribute__((weak)) void *memset(void *s, int c, size n) {
     uint8 *p = (uint8 *)s;
     uint8 val = (uint8)c;
     
@@ -100,7 +101,7 @@ void *memset(void *s, int c, size n) {
     return s;
 }
 
-void *memcpy(void *dest, const void *src, size n) {
+__attribute__((weak)) void *memcpy(void *dest, const void *src, size n) {
     uint8 *d = (uint8 *)dest;
     const uint8 *s = (const uint8 *)src;
     
@@ -115,7 +116,7 @@ void *memcpy(void *dest, const void *src, size n) {
     return dest;
 }
 
-void *memmove(void *dest, const void *src, size n) {
+__attribute__((weak)) void *memmove(void *dest, const void *src, size n) {
     uint8 *d = (uint8 *)dest;
     const uint8 *s = (const uint8 *)src;
 

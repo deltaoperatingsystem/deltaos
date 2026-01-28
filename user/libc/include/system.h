@@ -91,6 +91,7 @@ int ns_register(const char *path, handle_t h);
 
 //metadata
 int stat(const char *path, stat_t *st);
+int fstat(handle_t h, stat_t *st);
 
 //directory reading
 int readdir(handle_t h, dirent_t *entries, uint32 count, uint32 *index);

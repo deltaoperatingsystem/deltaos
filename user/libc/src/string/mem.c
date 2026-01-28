@@ -1,22 +1,23 @@
 #include <string.h>
-
 #include <types.h>
-#include <sys/syscall.h>
 
-void *memcpy(void *dest, const void *src, size n) {
+//weak symbols allow architecture-specific override
+//while keeping the base libc portable
+
+__attribute__((weak)) void *memcpy(void *dest, const void *src, size n) {
     unsigned char *d = dest;
     const unsigned char *s = src;
     for (size i = 0; i < n; i++) d[i] = s[i];
     return dest;
 }
 
-void *memset(void *s, int c, size n) {
+__attribute__((weak)) void *memset(void *s, int c, size n) {
     unsigned char *p = s;
     for (size i = 0; i < n; i++) p[i] = (unsigned char)c;
     return s;
 }
 
-void *memmove(void *dest, const void *src, size n) {
+__attribute__((weak)) void *memmove(void *dest, const void *src, size n) {
     unsigned char *d = dest;
     const unsigned char *s = src;
     if (d < s) {

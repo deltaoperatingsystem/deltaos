@@ -43,6 +43,7 @@
 #define SYS_GET_TICKS       57  //get timer ticks since boot
 #define SYS_MKDIR           58  //create directory
 #define SYS_REMOVE          59  //remove file or directory
+#define SYS_FSTAT           60  //get file status by handle
 
 #define SYS_MAX             64
 

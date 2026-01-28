@@ -15,7 +15,10 @@ LDFLAGS := -nostdlib
 
 CRT0 := libc/src/crt0.o
 
-LIBC_SRCS := $(shell find libc -name '*.c')
+ARCH ?= amd64
+
+LIBC_SRCS := $(shell find libc -name '*.c' | grep -v 'libc/src/arch/')
+LIBC_SRCS += $(shell find libc/src/arch/$(ARCH) -name '*.c' 2>/dev/null)
 LIBC_OBJS := $(LIBC_SRCS:.c=.o)
 
 SRC_SRCS := $(shell find src -name '*.c' 2>/dev/null)

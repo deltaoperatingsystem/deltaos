@@ -10,6 +10,7 @@
 #include "../src/config.h"
 #include "../src/elf.h"
 #include "../src/paging.h"
+#include "../src/graphics_menu.h"
 #include <crc32.h>
 #include <stdio.h>
 
@@ -368,7 +369,18 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     }
     
     //show menu and get selection
-    int selection = menu_run(have_config ? boot_config.timeout : 0, have_config ? boot_config.default_entry : 0);
+    int selection;
+    for (;;) {
+        selection = menu_run(have_config ? boot_config.timeout : 0, have_config ? boot_config.default_entry : 0);
+        if (selection == MENU_GOP_REQUEST) {
+            gfx_menu_run(gop);
+            //reset have_config timeout so it doesn't auto-boot while we are adjusting settings
+            if (have_config) boot_config.timeout = 0; 
+            continue;
+        }
+        break;
+    }
+
     if (selection < 0) {
         gfx_clear(COLOR_BG);
         con_set_color(COLOR_RED, 0);
