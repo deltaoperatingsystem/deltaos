@@ -9,6 +9,7 @@
 #define MMU_FLAG_USER       (1ULL << 2)
 #define MMU_FLAG_NOCACHE    (1ULL << 3)
 #define MMU_FLAG_EXEC       (1ULL << 4)
+#define MMU_FLAG_WC         (1ULL << 5)
 
 //amd64 page table entry bits
 #define AMD64_PTE_PRESENT   (1ULL << 0)
@@ -18,9 +19,13 @@
 #define AMD64_PTE_PCD       (1ULL << 4)
 #define AMD64_PTE_ACCESSED  (1ULL << 5)
 #define AMD64_PTE_DIRTY     (1ULL << 6)
+#define AMD64_PTE_PAT       (1ULL << 7) //PAT bit for 4KB pages
 #define AMD64_PTE_HUGE      (1ULL << 7)
 #define AMD64_PTE_GLOBAL    (1ULL << 8)
 #define AMD64_PTE_NX        (1ULL << 63)
+
+//MSRs
+#define MSR_IA32_PAT        0x277
 
 #define AMD64_PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
 

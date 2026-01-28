@@ -10,6 +10,10 @@
 
 #define PIC_EOI         0x20
 
+static inline void io_wait(void) {
+    outb(0x80, 0);
+}
+
 void pic_send_eoi(uint8 irq) {
     if (irq >= 8) outb(PIC2_CMD, PIC_EOI);
     outb(PIC1_CMD, PIC_EOI);
@@ -37,15 +41,23 @@ void pic_disable(void) {
 
 void pic_remap(uint8 vector1, uint8 vector2) {
 	outb(PIC1_CMD, ICW1_INIT | ICW1_ICW4);  // starts the initialization sequence (in cascade mode)
+	io_wait();
 	outb(PIC2_CMD, ICW1_INIT | ICW1_ICW4);
+	io_wait();
 
 	outb(PIC1_DATA, vector1);                 // ICW2: Master PIC vector offset
+	io_wait();
 	outb(PIC2_DATA, vector2);                 // ICW2: Slave PIC vector offset
+	io_wait();
 	outb(PIC1_DATA, 1 << CASCADE_IRQ);        // ICW3: tell Master PIC that there is a slave PIC at IRQ2
+	io_wait();
 	outb(PIC2_DATA, 2);                       // ICW3: tell Slave PIC its cascade identity (0000 0010)
+	io_wait();
 	
 	outb(PIC1_DATA, ICW4_8086);               // ICW4: have the PICs use 8086 mode (and not 8080 mode)
+	io_wait();
 	outb(PIC2_DATA, ICW4_8086);
+	io_wait();
 
 	// Disable it for now
     pic_disable();
@@ -60,6 +72,7 @@ void pic_set_mask(uint8 irqline) {
         irqline -= 8;
     }
     uint8 value = inb(port) | (1 << irqline);
+    io_wait();
     outb(port, value);
 }
 
@@ -72,5 +85,6 @@ void pic_clear_mask(uint8 irqline) {
         irqline -= 8;
     }
     uint8 value = inb(port) & ~(1 << irqline);
+    io_wait();
     outb(port, value);
 }

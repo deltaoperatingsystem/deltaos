@@ -39,6 +39,7 @@
 #define SYS_GET_TICKS       57  //get timer ticks since boot
 #define SYS_MKDIR           58
 #define SYS_REMOVE          59
+#define SYS_FSTAT           60
 
 #define SYS_MAX             64
 

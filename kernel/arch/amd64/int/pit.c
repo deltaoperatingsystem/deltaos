@@ -1,6 +1,8 @@
 #include <arch/amd64/types.h>
 #include <arch/amd64/io.h>
 #include <arch/amd64/interrupts.h>
+#include <lib/io.h>
+#include <arch/amd64/int/apic.h>
 
 #define PIT_CMD   0x43
 #define PIT_CH0   0x40
@@ -31,6 +33,11 @@ uint32 arch_timer_getfreq(void) {
 }
 
 void arch_timer_init(uint32 hz) {
-    arch_timer_setfreq(hz);
-    interrupt_unmask(0);
+    if (apic_is_enabled()) {
+        apic_timer_init(hz);
+    } else {
+        printf("[pit] initializing @ %u Hz...\n", hz);
+        arch_timer_setfreq(hz);
+        interrupt_unmask(0);
+    }
 }

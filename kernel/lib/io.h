@@ -18,4 +18,6 @@ void debug_write(const char *buf, size count);
 void set_outmode(enum output_mode m);
 void io_enable_serial(void);
 
+void kpanic(void *frame, const char *fmt, ...);
+
 #endif

@@ -3,6 +3,7 @@
 #include <arch/timer.h>
 #include <boot/db.h>
 #include <lib/io.h>
+#include <lib/string.h>
 #include <drivers/serial.h>
 #include <mm/pmm.h>
 #include <mm/mm.h>
@@ -11,6 +12,7 @@
 #include <obj/handle.h>
 #include <proc/process.h>
 #include <drivers/pci.h>
+#include <arch/amd64/int/apic.h>
 
 extern void kernel_main(const char *cmdline);
 extern void enable_sse(void);
@@ -33,6 +35,24 @@ void arch_init(struct db_boot_info *boot_info) {
     const char *cmdline = db_get_cmdline();
     if (cmdline) {
         printf("[amd64] cmdline = '%s'\n", cmdline);
+        
+        //parse early command-line arguments that affect initialization
+        //check for -PIC flag to force PIC mode
+        char cmdline_buf[256];
+        size len = strlen(cmdline);
+        if (len >= sizeof(cmdline_buf)) len = sizeof(cmdline_buf) - 1;
+        memcpy(cmdline_buf, cmdline, len);
+        cmdline_buf[len] = '\0';
+        
+        char *arg = strtok(cmdline_buf, " ");
+        while (arg) {
+            if (strcmp(arg, "-PIC") == 0 || strcmp(arg, "--pic") == 0) {
+                apic_set_force_pic(true);
+                printf("[amd64] PIC mode forced via command line\n");
+                break;
+            }
+            arg = strtok(NULL, " ");
+        }
     }
 
     pmm_init();
@@ -40,7 +60,7 @@ void arch_init(struct db_boot_info *boot_info) {
     kheap_init();
     handle_init();
     proc_init();
-
+    
     enable_sse();
     puts("[amd64] SSE enabled\n");
     
@@ -52,9 +72,9 @@ void arch_init(struct db_boot_info *boot_info) {
     arch_interrupts_enable();
     puts("[amd64] interrupts enabled\n");
     
-    //initialize timer at 100Hz
-    arch_timer_init(100);
-    puts("[amd64] timer initialized @ 100Hz\n");
+    //initialize timer at 1000Hz
+    arch_timer_init(1000);
+    puts("[amd64] timer initialized @ 1000Hz\n");
     
     pci_init();
     

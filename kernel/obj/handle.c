@@ -2,6 +2,7 @@
 #include <obj/namespace.h>
 #include <proc/process.h>
 #include <fs/fs.h>
+#include <obj/kobject.h>
 #include <lib/string.h>
 #include <lib/io.h>
 #include <lib/path.h>
@@ -85,38 +86,28 @@ handle_t handle_open(const char *path, handle_rights_t rights) {
         if (!root) return INVALID_HANDLE;
     }
     
-        if (root->type == OBJECT_DIR && root->data) {
-            fs_t *fs = (fs_t *)root->data;
-            if (fs->ops && fs->ops->lookup) {
-                //skip the slash if present
-                const char *fs_path = (*slash == '/') ? (slash + 1) : slash;
-                
-                //if path is empty or "." it refers to the root of the filesystem
-                if (*fs_path == '\0' || (fs_path[0] == '.' && fs_path[1] == '\0')) {
-                    handle_t h = process_grant_handle(proc, root, rights);
-                    object_deref(root);
-                    return h;
-                }
-                
-                //normalize: handle trailing "/." or "/"
-                char clean_path[256];
-                strncpy(clean_path, fs_path, sizeof(clean_path) - 1);
-                size clen = strlen(clean_path);
-                if (clen > 2 && clean_path[clen-1] == '.' && clean_path[clen-2] == '/') {
-                    clean_path[clen-2] = '\0';
-                } else if (clen > 1 && clean_path[clen-1] == '/') {
-                    clean_path[clen-1] = '\0';
-                }
-                
-                object_t *file = fs->ops->lookup(fs, clean_path);
-                object_deref(root);
-                if (!file) return INVALID_HANDLE;
-                
-                handle_t h = process_grant_handle(proc, file, rights);
-                object_deref(file);  //grant_handle refs it
-                return h;
-            }
-        } else {
+    //if it has a lookup operation then use it to find the child
+    if (root->ops && root->ops->lookup) {
+        //skip the slash if present
+        const char *child_path = (*slash == '/') ? (slash + 1) : slash;
+        
+        //if path is empty or "." it refers to the root/prefix itself
+        if (*child_path == '\0' || (child_path[0] == '.' && child_path[1] == '\0')) {
+            handle_t h = process_grant_handle(proc, root, rights);
+            object_deref(root);
+            return h;
+        }
+
+        //if it IS an OBJECT_DIR with fs_t data it's a mount point
+        //and we might want to use the fs_t specifically but better to just call lookup
+        object_t *file = root->ops->lookup(root, child_path);
+        object_deref(root);
+        if (!file) return INVALID_HANDLE;
+        
+        handle_t h = process_grant_handle(proc, file, rights);
+        object_deref(file);
+        return h;
+    } else {
         handle_t h = process_grant_handle(proc, root, rights);
         object_deref(root);
         return h;
@@ -321,15 +312,47 @@ int handle_stat(const char *path, stat_t *st) {
     if (!root) return -1;
     
     int result = -1;
-    if (root->type == OBJECT_DIR && root->data) {
+    
+    const char *child_path = (*slash == '/') ? (slash + 1) : slash;
+    
+    if (*child_path == '\0' || (child_path[0] == '.' && child_path[1] == '\0')) {
+        if (root->ops && root->ops->stat) {
+            result = root->ops->stat(root, st);
+        }
+    } else if (root->ops && root->ops->lookup) {
+        object_t *child = root->ops->lookup(root, child_path);
+        if (child) {
+            if (child->ops && child->ops->stat) {
+                result = child->ops->stat(child, st);
+            }
+            object_deref(child);
+        }
+    } else if (root->type == OBJECT_DIR && root->data) {
         fs_t *fs = (fs_t *)root->data;
         if (fs->ops && fs->ops->stat) {
-            const char *fs_path = (*slash == '/') ? (slash + 1) : slash;
-            result = fs->ops->stat(fs, fs_path, st);
+            result = fs->ops->stat(fs, child_path, st);
         }
     }
     
     object_deref(root);
+    return result;
+}
+
+int handle_fstat(handle_t h, stat_t *st) {
+    if (!st) return -1;
+    
+    process_t *proc = get_handle_owner();
+    if (!proc) return -1;
+    
+    object_t *obj = process_get_handle(proc, h);
+    if (!obj) return -1;
+    
+    int result = -1;
+    if (obj->ops && obj->ops->stat) {
+        result = obj->ops->stat(obj, st);
+    }
+    
+    object_deref(obj);
     return result;
 }
 

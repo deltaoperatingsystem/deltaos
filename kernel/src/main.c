@@ -18,6 +18,7 @@
 #include <mm/mm.h>
 #include <mm/kheap.h>
 #include <obj/handle.h>
+#include <obj/namespace.h>
 #include <obj/rights.h>
 #include <proc/process.h>
 #include <proc/thread.h>
@@ -230,6 +231,8 @@ void kernel_main(const char *cmdline) {
     parse_cmdline(cmdline);
     set_outmode(SERIAL);
     printf("kernel_main started\n");
+    
+    ns_register("$devices", ns_create_dir("$devices/"));
     
     //initialize drivers
     fb_init();

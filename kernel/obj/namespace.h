@@ -19,4 +19,7 @@ int ns_list(void *entries, uint32 count, uint32 *index);
 //initialize namespace
 void ns_init(void);
 
+//create a virtual directory object for the namespace
+object_t *ns_create_dir(const char *prefix);
+
 #endif

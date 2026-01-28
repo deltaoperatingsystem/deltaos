@@ -82,8 +82,47 @@ typedef struct {
     char   sn[20];
     char   mn[40];
     char   fr[8];
-    //shit ton of other fields we just need basic ones for now
-    uint8  reserved[4096 - 72];
+    uint8  rab;
+    uint8  ieee[3];
+    uint8  mic;
+    uint8  mdts;
+    uint16 ctrl_id;
+    uint32 ver;
+    uint32 rtd3r;
+    uint32 rtd3e;
+    uint32 oaes;
+    uint32 ctratt;
+    uint8  reserved0[12];
+    uint8  fguid[16];
+    uint8  reserved1[128];
+    uint16 oacs;
+    uint8  acl;
+    uint8  aerl;
+    uint8  frmw;
+    uint8  lpa;
+    uint8  elpe;
+    uint8  npss;
+    uint8  avcc;
+    uint16 apsta;
+    uint16 wctemp;
+    uint16 cctemp;
+    uint16 mtfa;
+    uint32 hmpre;
+    uint32 hmmin;
+    uint8  tnvmcap[16];
+    uint8  unvmcap[16];
+    uint32 rpmbs;
+    uint16 edstt;
+    uint8  dptr;
+    uint8  nmfc;
+    uint16 ows;
+    uint8  reserved2[2];
+    uint8  reserved_gap[512 - 325]; //bring us to offset 512
+    uint8  sqes;       //512
+    uint8  cqes;       //513
+    uint16 maxcmd;     //514
+    uint32 nn;         //516: Number of Namespaces
+    uint8  reserved3[4096 - 520];
 } __attribute__((packed)) nvme_identify_ctrl_t;
 
 typedef struct {
@@ -135,7 +174,17 @@ typedef struct {
     spinlock_t  lock;
 } nvme_queue_t;
 
+typedef struct nvme_ctrl nvme_ctrl_t;
+
 typedef struct {
+    nvme_ctrl_t *ctrl;
+    uint32      nsid;
+    uint64      sector_count;
+    uint32      sector_size;
+    void        *obj; // object_t*
+} nvme_ns_t;
+
+struct nvme_ctrl {
     pci_device_t *pci;
     void        *regs;
     size        dstrd;
@@ -148,15 +197,17 @@ typedef struct {
     uint16      num_io_queues;
     
     size        max_transfer_shift;
-    uint32      nsid;
-    uint64      sector_count;
-    uint32      sector_size;
+    
+    //Namespaces
+    nvme_ns_t   *ns;
+    uint32      num_ns;
     
     //MSI-X 
     uint16      msix_cap_ptr;
     msix_table_entry_t *msix_table;
     uint64      int_count;
-} nvme_ctrl_t;
+    uint32      ctrl_idx;
+};
 
 void nvme_init(void);
 void nvme_msix_handler(nvme_ctrl_t *ctrl, uint16 qid);

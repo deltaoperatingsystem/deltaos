@@ -27,6 +27,9 @@ typedef struct stat {
     uint64 ctime;       //creation time (ticks or unix timestamp)
     uint64 mtime;       //modification time
     uint64 atime;       //access time
+    uint32 width;       //device-specific width (e.g. framebuffer)
+    uint32 height;      //device-specific height
+    uint32 pitch;       //device-specific pitch (bytes per row)
 } stat_t;
 
 struct fs;

@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define MENU_MAX_ENTRIES 16
+#define MENU_GOP_REQUEST -2
 
 typedef struct {
     const char *name;

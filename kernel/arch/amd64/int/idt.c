@@ -43,54 +43,11 @@ static void irq0_handler(int from_usermode) {
 
 void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_frame_t *frame) {
     if (vector < 32) {
-        uint64 cs = frame->cs;
-        
-        set_outmode(SERIAL);
-        printf("\n--- CPU EXCEPTION OCCURED ---\n");
-        printf("Vector:     0x%lX\n", vector);
-        printf("Error code: 0x%lX\n", error_code);
-        printf("RIP:        0x%lX (CS: 0x%lX)\n", rip, cs);
-        
-        // If we came from usermode, the CPU pushed user RSP and SS
-        if (cs & 3) {
-            printf("RSP:        0x%lX (SS: 0x%lX)\n", frame->rsp, frame->ss);
-        }
-        
-        //page fault (vector 0xe) - decode error code and print details
-        if (vector == 0xe) {
-            uint64 cr2, cr3;
-            __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
-            __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
-            
-            printf("\n--- Page Fault Details ---\n");
-            printf("CR2 (faulting addr): 0x%llx\n", cr2);
-            printf("CR3 (page table):    0x%llx\n", cr3);
-            
-            //decode error code bits
-            printf("\nError code breakdown:\n");
-            printf("  [P]  Present:       %s\n", (error_code & 1) ? "YES (protection violation)" : "NO (page not present)");
-            printf("  [W]  Write:         %s\n", (error_code & 2) ? "WRITE" : "READ");
-            printf("  [U]  User:          %s\n", (error_code & 4) ? "USER mode" : "SUPERVISOR mode");
-            printf("  [R]  Reserved:      %s\n", (error_code & 8) ? "YES" : "NO");
-            printf("  [I]  Instr fetch:   %s\n", (error_code & 16) ? "YES (NX violation?)" : "NO");
-            
-            //debug: walk page tables for faulting address
-            printf("\n--- Page Table Walk ---\n");
-            pagemap_t *kernel_map = mmu_get_kernel_pagemap();
-            mmu_debug_walk(kernel_map, cr2, "kernel");
-            
-            pagemap_t current_map = { .top_level = cr3 };
-            mmu_debug_walk(&current_map, cr2, "current");
-        }
-        
-        puts("\n--- END OF EXCEPTION ---\n");
-        
-        //halt on exception
-        for(;;) __asm__ volatile ("hlt");
+        kpanic(frame, "CPU EXCEPTION (vector 0x%lX, err 0x%lX) at RIP=0x%lX", vector, error_code, rip);
     } else {
         uint8 irq = vector - 32;
 
-        if (apic_is_enabled()) {
+        if (apic_is_enabled() && ioapic_is_enabled()) {
             apic_send_eoi();
         } else {
             pic_send_eoi(irq);
@@ -125,7 +82,7 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
 }
 
 void interrupt_mask(uint8 irq) {
-    if (apic_is_enabled()) {
+    if (apic_is_enabled() && ioapic_is_enabled()) {
         ioapic_mask_irq(irq);
     } else {
         pic_set_mask(irq);
@@ -133,12 +90,16 @@ void interrupt_mask(uint8 irq) {
 }
 
 void interrupt_unmask(uint8 irq) {
-    if (apic_is_enabled()) {
-        ioapic_unmask_irq(irq);
-        //handle ISA override: IRQ 0 (PIT) -> GSI 2
-        //we map GSI 2 to Vector 32 (IRQ0 handler) and unmask it
+    if (apic_is_enabled() && ioapic_is_enabled()) {
         if (irq == 0) {
+            //handle ISA override: IRQ 0 (PIT) -> GSI 2
+            //on ISA systems, PIT (IRQ 0) is usually routed through GSI 2 not GSI 0
+            //but on some hardware it might be GSI 0 sooo we unmasking both to be safe yk
+            ioapic_set_irq(0, 32 + 0, 0, false);
             ioapic_set_irq(2, 32 + 0, 0, false);
+        } else {
+            //for other IRQs, use the standard mapping
+            ioapic_unmask_irq(irq);
         }
     } else {
         pic_clear_mask(irq);
@@ -181,6 +142,7 @@ void arch_interrupts_init(void) {
         printf("[amd64] APIC/IOAPIC initialized\n");
     } else {
         //fallback to PIC
+        interrupt_unmask(2); //unmask cascade IRQ 2 for slave PIC
         interrupt_unmask(1); //keyboard
         interrupt_unmask(12); //mouse
         printf("[amd64] Using legacy PIC\n");

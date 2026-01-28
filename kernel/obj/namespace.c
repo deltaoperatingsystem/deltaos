@@ -60,6 +60,95 @@ void ns_init(void) {
     entry_count = 0;
 }
 
+static int ns_dir_stat(object_t *obj, stat_t *st) {
+    (void)obj;
+    if (!st) return -1;
+    memset(st, 0, sizeof(stat_t));
+    st->type = FS_TYPE_DIR;
+    return 0;
+}
+
+static object_t *ns_dir_lookup(object_t *obj, const char *name) {
+    const char *prefix = (const char *)obj->data;
+    char full_path[128];
+    snprintf(full_path, sizeof(full_path), "%s%s", prefix, name);
+    return ns_lookup(full_path);
+}
+
+static int ns_dir_readdir(object_t *obj, void *entries_ptr, uint32 count, uint32 *index) {
+    const char *prefix = (const char *)obj->data;
+    size prefix_len = strlen(prefix);
+    dirent_t *entries = (dirent_t *)entries_ptr;
+    
+    uint32 filled = 0;
+    uint32 current_idx = 0;
+    uint32 skip = *index;
+    
+    //iterate all buckets
+    for (uint32 b = 0; b < bucket_count && filled < count; b++) {
+        for (ns_entry_t *e = buckets[b]; e && filled < count; e = e->next) {
+            //check if name starts with prefix
+            if (strncmp(e->name, prefix, prefix_len) == 0) {
+                //exclude the prefix itself if it was registered
+                if (strlen(e->name) == prefix_len) {
+                    current_idx++;
+                    continue;
+                }
+
+                if (current_idx >= skip) {
+                    const char *subname = e->name + prefix_len;
+                    //handle nested directories by only returning the next component
+                    const char *slash = strchr(subname, '/');
+                    if (slash) {
+                        //it's a "directory" in the flat namespace
+                        size entry_len = slash - subname;
+                        if (entry_len >= sizeof(entries[filled].name)) 
+                            entry_len = sizeof(entries[filled].name) - 1;
+                        
+                        memcpy(entries[filled].name, subname, entry_len);
+                        entries[filled].name[entry_len] = '\0';
+                        entries[filled].type = OBJECT_DIR;
+                    } else {
+                        //it's a leaf node
+                        strncpy(entries[filled].name, subname, sizeof(entries[filled].name) - 1);
+                        entries[filled].name[sizeof(entries[filled].name) - 1] = '\0';
+                        entries[filled].type = e->obj->type;
+                    }
+                    
+                    //de-duplicate (if e.g. disks/nvme0n1 and disks/nvme0n2 both result in "disks")
+                    bool duplicate = false;
+                    for (uint32 j = 0; j < filled; j++) {
+                        if (strcmp(entries[j].name, entries[filled].name) == 0) {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!duplicate) {
+                        filled++;
+                    }
+                }
+                current_idx++;
+            }
+        }
+    }
+    
+    *index = skip + filled;
+    return filled;
+}
+
+static object_ops_t ns_dir_ops = {
+    .readdir = ns_dir_readdir,
+    .lookup = ns_dir_lookup,
+    .read = NULL,
+    .write = NULL,
+    .stat = ns_dir_stat
+};
+
+object_t *ns_create_dir(const char *prefix) {
+    return object_create(OBJECT_NS_DIR, &ns_dir_ops, (void *)prefix);
+}
+
 int ns_register(const char *name, object_t *obj) {
     if (!name || !obj || !buckets) return -1;
     

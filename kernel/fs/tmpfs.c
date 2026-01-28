@@ -388,12 +388,18 @@ static int tmpfs_root_readdir(object_t *obj, void *buf, uint32 count, uint32 *in
     return found;
 }
 
+static object_t *tmpfs_root_lookup(object_t *obj, const char *name) {
+    fs_t *fs = (fs_t *)obj->data;
+    if (!fs || !fs->ops || !fs->ops->lookup) return NULL;
+    return fs->ops->lookup(fs, name);
+}
+
 static object_ops_t tmpfs_root_ops = {
     .read = tmpfs_root_read,
     .write = NULL,
     .close = NULL,
     .readdir = tmpfs_root_readdir,
-    .lookup = NULL
+    .lookup = tmpfs_root_lookup
 };
 
 static object_t *tmpfs_root_obj = NULL;

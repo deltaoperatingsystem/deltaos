@@ -1,10 +1,12 @@
 #include <drivers/fb.h>
+#include <fs/fs.h>
 #include <boot/db.h>
 #include <lib/io.h>
 #include <mm/mm.h>
 #include <mm/kheap.h>
 #include <obj/object.h>
 #include <obj/namespace.h>
+#include <arch/mmu.h>
 
 static uint32 *framebuffer = NULL;  //VRAM (slow, uncached)
 static uint32 *backbuffer = NULL;   //RAM (fast, cached)
@@ -32,8 +34,9 @@ static ssize fb_obj_write(object_t *obj, const void *buf, size len, size offset)
     if (offset >= fb_size) return 0;
     if (offset + len > fb_size) len = fb_size - offset;
     
-    //write to backbuffer
+    //write to backbuffer/frontbuffer
     uint8 *target = backbuffer ? (uint8*)backbuffer : (uint8*)framebuffer;
+    
     memcpy(target + offset, buf, len);
     
     //auto-flip when writing from start (full frame write)
@@ -42,9 +45,22 @@ static ssize fb_obj_write(object_t *obj, const void *buf, size len, size offset)
     return len;
 }
 
+static int fb_obj_stat(object_t *obj, stat_t *st) {
+    (void)obj;
+    if (!st) return -1;
+    st->type = FS_TYPE_DEVICE;
+    st->size = fb_size;
+    st->width = fb_w;
+    st->height = fb_h;
+    st->pitch = fb_pitch;
+    st->ctime = st->mtime = st->atime = 0;
+    return 0;
+}
+
 static object_ops_t fb_object_ops = {
     .read = fb_obj_read,
-    .write = fb_obj_write
+    .write = fb_obj_write,
+    .stat = fb_obj_stat
 };
 
 static object_t *fb_object = NULL;
@@ -63,16 +79,22 @@ void fb_init(void) {
     fb_pitch = fb->pitch;
     fb_size = fb_h * fb_pitch;
 
+    //remap VRAM as write-combining (huge performance boost on real hardware)
+    mmu_map_range(mmu_get_kernel_pagemap(), (uintptr)framebuffer, fb->address, 
+                  (fb_size + 0xFFF) / 0x1000, 
+                  MMU_FLAG_WRITE | MMU_FLAG_WC);
+
     fb_object = object_create(OBJECT_DEVICE, &fb_object_ops, NULL);
     if (fb_object) ns_register("$devices/fb0", fb_object);
     
-    printf("[fb] initialised: %dx%d@0x%X\n", fb_w, fb_h, fb->address);
+    printf("[fb] initialised: %dx%d@0x%X (WC mapped)\n", fb_w, fb_h, fb->address);
 }
 
 void fb_init_backbuffer(void) {
     if (!framebuffer) return;
     
     backbuffer = kmalloc(fb_size);
+    
     if (!backbuffer) {
         printf("[fb] WARN: failed to allocate %zu byte backbuffer, using direct VRAM\n", fb_size);
         return;
