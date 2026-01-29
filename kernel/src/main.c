@@ -232,7 +232,11 @@ void kernel_main(const char *cmdline) {
     set_outmode(SERIAL);
     printf("kernel_main started\n");
     
-    ns_register("$devices", ns_create_dir("$devices/"));
+    object_t *devs = ns_create_dir("$devices/");
+    if (devs) {
+        ns_register("$devices", devs);
+        object_deref(devs);
+    }
     
     //initialize drivers
     fb_init();

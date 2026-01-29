@@ -70,6 +70,11 @@ static int ns_dir_stat(object_t *obj, stat_t *st) {
 
 static object_t *ns_dir_lookup(object_t *obj, const char *name) {
     const char *prefix = (const char *)obj->data;
+    size prefix_len = strlen(prefix);
+    size name_len = strlen(name);
+    
+    if (prefix_len + name_len >= 128) return NULL;
+    
     char full_path[128];
     snprintf(full_path, sizeof(full_path), "%s%s", prefix, name);
     return ns_lookup(full_path);
@@ -133,8 +138,13 @@ static int ns_dir_readdir(object_t *obj, void *entries_ptr, uint32 count, uint32
         }
     }
     
-    *index = skip + filled;
+    *index = skip + current_idx;
     return filled;
+}
+
+static int ns_dir_close(object_t *obj) {
+    if (obj->data) kfree(obj->data);
+    return 0;
 }
 
 static object_ops_t ns_dir_ops = {
@@ -142,11 +152,19 @@ static object_ops_t ns_dir_ops = {
     .lookup = ns_dir_lookup,
     .read = NULL,
     .write = NULL,
-    .stat = ns_dir_stat
+    .stat = ns_dir_stat,
+    .close = ns_dir_close
 };
 
 object_t *ns_create_dir(const char *prefix) {
-    return object_create(OBJECT_NS_DIR, &ns_dir_ops, (void *)prefix);
+    size len = strlen(prefix) + 1;
+    char *copy = kmalloc(len);
+    if (!copy) return NULL;
+    memcpy(copy, prefix, len);
+
+    object_t *obj = object_create(OBJECT_NS_DIR, &ns_dir_ops, copy);
+    if (!obj) kfree(copy);
+    return obj;
 }
 
 int ns_register(const char *name, object_t *obj) {

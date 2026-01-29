@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
     
     handle_t dir = get_obj(INVALID_HANDLE, path, RIGHT_READ);
     if (dir == INVALID_HANDLE) {
-        printf("lsblk: cannot access '%s'\n", path);
+        printf("stdv: cannot access '%s'\n", path);
         return 1;
     }
     
@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
         if (n <= 0) break;
         
         for (int i = 0; i < n; i++) {
-            char full_path[128];
+            char full_path[256];
             snprintf(full_path, sizeof(full_path), "%s/%s", path, entries[i].name);
             
             stat_t st;

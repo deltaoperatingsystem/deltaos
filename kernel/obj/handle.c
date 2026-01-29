@@ -352,7 +352,6 @@ int handle_fstat(handle_t h, stat_t *st) {
         result = obj->ops->stat(obj, st);
     }
     
-    object_deref(obj);
     return result;
 }
 

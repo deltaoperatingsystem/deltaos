@@ -72,8 +72,8 @@ void pic_set_mask(uint8 irqline) {
         irqline -= 8;
     }
     uint8 value = inb(port) | (1 << irqline);
-    io_wait();
     outb(port, value);
+    io_wait();
 }
 
 void pic_clear_mask(uint8 irqline) {
@@ -85,6 +85,6 @@ void pic_clear_mask(uint8 irqline) {
         irqline -= 8;
     }
     uint8 value = inb(port) & ~(1 << irqline);
-    io_wait();
     outb(port, value);
+    io_wait();
 }

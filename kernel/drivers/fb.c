@@ -48,6 +48,7 @@ static ssize fb_obj_write(object_t *obj, const void *buf, size len, size offset)
 static int fb_obj_stat(object_t *obj, stat_t *st) {
     (void)obj;
     if (!st) return -1;
+    memset(st, 0, sizeof(stat_t));
     st->type = FS_TYPE_DEVICE;
     st->size = fb_size;
     st->width = fb_w;

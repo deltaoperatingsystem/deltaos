@@ -45,6 +45,7 @@ static void draw_gfx_menu(EFI_GRAPHICS_OUTPUT_PROTOCOL *gop, uint32_t selected_m
             con_print_at(char_w * 4, y, buf);
         }
         
+        gBS->FreePool(info);
         display_count++;
     }
     

@@ -176,6 +176,11 @@ static int nvme_identify(nvme_ctrl_t *ctrl) {
     printf("[nvme] Model: %s SN: %s (Namespaces: %u)\n", model, serial, nn);
     
     ctrl->ns = kzalloc(nn * sizeof(nvme_ns_t));
+    if (!ctrl->ns) {
+        printf("[nvme] ERR: failed to allocate namespace array\n");
+        pmm_free(ptr_phys, 1);
+        return -1;
+    }
     ctrl->num_ns = nn; //store total count for discovery
     
     pmm_free(ptr_phys, 1);
@@ -228,17 +233,21 @@ static int nvme_discover_namespaces(nvme_ctrl_t *ctrl) {
             printf("[nvme] Registered %s\n", name);
         }
 
-        //scan GPT
+        //scan GPT - blkdev/blkname must persist as they're used by partitions
         blkdev_t *blkdev = kzalloc(sizeof(blkdev_t));
         if (blkdev) {
             char *blkname = kzalloc(32);
-            snprintf(blkname, 32, "nvme%un%u", ctrl->ctrl_idx, i);
-            blkdev->name = blkname;
-            blkdev->sector_size = ns->sector_size;
-            blkdev->sector_count = ns->sector_count;
-            blkdev->ops = &nvme_blkdev_ops;
-            blkdev->data = ns;
-            gpt_scan(blkdev);
+            if (blkname) {
+                snprintf(blkname, 32, "nvme%un%u", ctrl->ctrl_idx, i);
+                blkdev->name = blkname;
+                blkdev->sector_size = ns->sector_size;
+                blkdev->sector_count = ns->sector_count;
+                blkdev->ops = &nvme_blkdev_ops;
+                blkdev->data = ns;
+                gpt_scan(blkdev);
+            } else {
+                kfree(blkdev);
+            }
         }
     }
     
@@ -580,14 +589,18 @@ static void nvme_init_ctrl(pci_device_t *pci) {
         return;
     }
     
-    nvme_enable_msix(ctrl);
     if (nvme_identify(ctrl) != 0) return;
+    nvme_enable_msix(ctrl);
     if (nvme_setup_io_queues(ctrl) != 0) return;
-    if (nvme_discover_namespaces(ctrl) != 0) return;
     
-    if (!ns_lookup("$devices/disks")) {
+    object_t *disks_dir = ns_lookup("$devices/disks");
+    if (!disks_dir) {
         ns_register("$devices/disks", ns_create_dir("$devices/disks/"));
+    } else {
+        object_deref(disks_dir);
     }
+
+    if (nvme_discover_namespaces(ctrl) != 0) return;
 
     ctrls[ctrl_count++] = ctrl;
     printf("[nvme] Controller %u initialized successfully\n", ctrl->ctrl_idx);

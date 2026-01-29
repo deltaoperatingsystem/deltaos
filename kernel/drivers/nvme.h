@@ -77,76 +77,52 @@ typedef struct {
 
 //identify structures 
 typedef struct {
-    uint16 vid;
-    uint16 ssvid;
-    char   sn[20];
-    char   mn[40];
-    char   fr[8];
-    uint8  rab;
-    uint8  ieee[3];
-    uint8  mic;
-    uint8  mdts;
-    uint16 ctrl_id;
-    uint32 ver;
-    uint32 rtd3r;
-    uint32 rtd3e;
-    uint32 oaes;
-    uint32 ctratt;
-    uint8  reserved0[12];
-    uint8  fguid[16];
-    uint8  reserved1[128];
-    uint16 oacs;
-    uint8  acl;
-    uint8  aerl;
-    uint8  frmw;
-    uint8  lpa;
-    uint8  elpe;
-    uint8  npss;
-    uint8  avcc;
-    uint16 apsta;
-    uint16 wctemp;
-    uint16 cctemp;
-    uint16 mtfa;
-    uint32 hmpre;
-    uint32 hmmin;
-    uint8  tnvmcap[16];
-    uint8  unvmcap[16];
-    uint32 rpmbs;
-    uint16 edstt;
-    uint8  dptr;
-    uint8  nmfc;
-    uint16 ows;
-    uint8  reserved2[2];
-    uint8  reserved_gap[512 - 325]; //bring us to offset 512
+    uint16 vid;         //0
+    uint16 ssvid;       //2
+    char   sn[20];      //4
+    char   mn[40];      //24
+    char   fr[8];       //64
+    uint8  rab;         //72
+    uint8  ieee[3];     //73
+    uint8  mic;         //76
+    uint8  mdts;        //77
+    uint16 ctrl_id;     //78
+    uint32 ver;         //80
+    uint32 rtd3r;       //84
+    uint32 rtd3e;       //88
+    uint32 oaes;        //92
+    uint32 ctratt;      //96
+    uint16 rrls;        //100
+    uint8  reserved0[26]; //102
+    uint8  tnvmcap[16];   //128
+    uint8  unvmcap[16];   //144
+    uint8  reserved1[352]; //160
     uint8  sqes;       //512
     uint8  cqes;       //513
     uint16 maxcmd;     //514
-    uint32 nn;         //516: Number of Namespaces
+    uint32 nn;         //516
     uint8  reserved3[4096 - 520];
 } __attribute__((packed)) nvme_identify_ctrl_t;
 
 typedef struct {
-    uint64 ns_size;    //total size in logical blocks 
-    uint64 ns_cap;
-    uint64 ns_use;
-    uint8  features;
-    uint8  nlbaf;      //number of LBA formats 
-    uint8  flbas;      //formatted LBA size 
-    uint8  mc;
-    uint8  dpc;
-    uint8  dps;
-    uint8  nmic;
-    uint8  rescap;
-    uint8  fpi;
-    uint8  dlfeat;
-    uint8  awun;
-    uint8  awupf;
-    uint8  acwu;
-    uint8  reserved1[2];
-    uint32 nzapa;
-    uint8  reserved2[85];
-    //LBA formats start at byte 128 
-    uint32 lbaf[16];
+    uint64 ns_size;    //0
+    uint64 ns_cap;     //8
+    uint64 ns_use;     //16
+    uint8  features;   //24
+    uint8  nlbaf;      //25
+    uint8  flbas;      //26
+    uint8  mc;         //27
+    uint8  dpc;        //28
+    uint8  dps;        //29
+    uint8  nmic;       //30
+    uint8  rescap;     //31
+    uint8  fpi;        //32
+    uint8  dlfeat;     //33
+    uint16 awun;       //34
+    uint16 awupf;      //36
+    uint16 acwu;       //38
+    uint8  reserved1[88]; //40
+    uint32 lbaf[16];   //128
     uint8  reserved3[4096 - 192];
 } __attribute__((packed)) nvme_identify_ns_t;
 

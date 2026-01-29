@@ -34,6 +34,7 @@ uint32 arch_timer_getfreq(void) {
 
 void arch_timer_init(uint32 hz) {
     if (apic_is_enabled()) {
+        timer_freq = hz;
         apic_timer_init(hz);
     } else {
         printf("[pit] initializing @ %u Hz...\n", hz);
