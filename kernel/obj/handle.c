@@ -40,6 +40,8 @@ static int resolve_full_path(const char *path, char *out, size out_max) {
         if (strlen(path) >= out_max) return -1;
         strcpy(out, path);
     }
+
+    path_normalize(out);
     return 0;
 }
 
@@ -267,26 +269,7 @@ int handle_stat(const char *path, stat_t *st) {
     if (!proc) return -1;
     
     char full_path[512];
-    
-    //resolve relative paths
-    if (path[0] != '/' && path[0] != '$') {
-        size cwd_len = strlen(proc->cwd);
-        size path_len = strlen(path);
-        if (cwd_len + 1 + path_len >= sizeof(full_path)) return -1;
-        
-        memcpy(full_path, proc->cwd, cwd_len);
-        if (proc->cwd[cwd_len - 1] != '/') {
-            full_path[cwd_len] = '/';
-            cwd_len++;
-        }
-        memcpy(full_path + cwd_len, path, path_len + 1);
-    } else {
-        strncpy(full_path, path, sizeof(full_path) - 1);
-        full_path[sizeof(full_path) - 1] = '\0';
-    }
-    
-    //normalize (so handle . and ..)
-    path_normalize(full_path);
+    if (resolve_full_path(path, full_path, sizeof(full_path)) < 0) return -1;
     
     //namespace resolution
     const char *final_path = full_path;
