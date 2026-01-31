@@ -18,13 +18,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # needed to count commits
+          fetch-depth: 0
 
-      - name: Get PR number
+      - name: Extract PR metadata
         id: pr
-        run: echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+        run: |
+          echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          echo "title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+          echo "author=${{ github.event.pull_request.user.login }}" >> $GITHUB_OUTPUT
 
-      - name: Count commits
+      - name: Count commits on main
         id: commits
         run: echo "count=$(git rev-list --count HEAD)" >> $GITHUB_OUTPUT
 
@@ -37,6 +40,17 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           prerelease: true
+          generate_release_notes: true
           name: "Prerelease ${{ steps.tag.outputs.tag }}"
+          body: |
+            ### Pull Request
+            **#${{ steps.pr.outputs.number }} — ${{ steps.pr.outputs.title }}**
+
+            **Author:** @${{ steps.pr.outputs.author }}
+
+            This prerelease was automatically generated after merging the PR above.
+
+            GitHub's auto-generated release notes follow below.
+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
