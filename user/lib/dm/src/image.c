@@ -89,10 +89,7 @@ int dm_load_image(const void *file, size file_size, dm_image_t *out) {
             free(out->pixels);
             return DM_ERR_DECODE;
         }
-    } else {
-        return DM_ERR_UNKNOWN_COMP;
-    }
-
+    } 
 
     return DM_OK;
 }

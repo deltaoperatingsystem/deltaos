@@ -171,6 +171,7 @@ bool px_draw_pixel(px_surface_t *surface, uint32 x, uint32 y, uint32 colour) {
 }
 
 bool px_draw_image(px_surface_t *surface, px_image_t *image, uint32 x, uint32 y) {
+    if (!surface) return false;
     if (!image) return false;
     px_image_t src = *image;
     for (uint32 i = 0; i < src.height; i++) {
