@@ -17,6 +17,7 @@ typedef struct px_window {
 
 typedef struct px_image {
     uint32 width, height;
+    uint8 pixel_format;
     uint8 bpp;
     uint8 *pixels;
 } px_image_t;
@@ -146,6 +147,7 @@ px_image_t *px_load_image(char *path) {
     out->width = image.width;
     out->height = image.height;
     out->pixels = image.pixels;
+    out->pixel_format = image.pixel_format;
 
     return out;
 }
@@ -160,13 +162,20 @@ bool px_draw_image(px_surface_t *surface, px_image_t *image, uint32 x, uint32 y)
     px_image_t src = *image;
     for (uint32 i = 0; i < src.height; i++) {
         for (uint32 j = 0; j < src.width; j++) {
-            uint8 r = *src.pixels++;
-            uint8 g = *src.pixels++;
-            uint8 b = *src.pixels++;
-            src.pixels++; // ignore extra A channel
+            uint8 r, g, b;
+
+            switch (image->pixel_format) {
+                case DM_PIXEL_RGBA32: {
+                    r = *src.pixels++;
+                    g = *src.pixels++;
+                    b = *src.pixels++;
+                    src.pixels++; // ignore extra A channel
+                    break;
+                }
+                default: return false;
+            }
 
             uint32 colour = PX_RGB(r, g, b);
-
             px_draw_pixel(surface, j + x, i + y, colour);
         }
     }

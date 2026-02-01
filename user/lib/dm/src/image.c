@@ -70,6 +70,7 @@ int dm_load_image(const void *file, size file_size, dm_image_t *out) {
 
     out->width = img->width;
     out->height = img->height;
+    out->pixel_format = img->pixel_format;
     out->bpp = bpp;
     out->pixels = malloc(raw_size);
     if (!out->pixels) return DM_ERR_OOM;

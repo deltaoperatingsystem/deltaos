@@ -6,6 +6,7 @@
 typedef struct {
     uint32 width, height;
     uint8 bpp;
+    uint8 pixel_format;
     uint8 *pixels;
 } dm_image_t;
 
