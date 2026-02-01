@@ -163,9 +163,11 @@ px_image_t *px_load_image(char *path) {
 }
 
 bool px_draw_pixel(px_surface_t *surface, uint32 x, uint32 y, uint32 colour) {
+    if (!surface) return false;
     if (x >= surface->w || y >= surface->h) return false;
     surface->data[y * surface->w + x] = colour;
     surface->dirty = true;
+    return true;
 }
 
 bool px_draw_image(px_surface_t *surface, px_image_t *image, uint32 x, uint32 y) {

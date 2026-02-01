@@ -32,6 +32,7 @@ int dm_rle_decode(const uint8 *src, size src_size, uint8 *dst, size dst_size, ui
 
 int dm_load_image(const void *file, size file_size, dm_image_t *out) {
     if (file_size < sizeof(dm_hdr_t)) return DM_ERR_TRUNCATED;
+    if (!out) return DM_ERR_OVERFLOW;
 
     const dm_hdr_t *hdr = file;
     if (!hdr) return DM_ERR_TRUNCATED;
