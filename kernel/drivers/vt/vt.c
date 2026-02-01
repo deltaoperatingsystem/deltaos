@@ -250,6 +250,8 @@ void vt_putc(vt_t *vt, char c) {
     if (c == '\n') {
         mark_dirty(vt, vt->cursor_row);
         vt_newline(vt);
+    } else if (c == '\f') {
+        vt_clear(vt);
     } else if (c == '\r') {
         vt->cursor_col = 0;
     } else if (c == '\t') {

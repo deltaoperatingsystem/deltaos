@@ -1,6 +1,7 @@
 #include <drivers/console.h>
 #include <drivers/serial.h>
 #include <drivers/vt/vt.h>
+#include <obj/klog.h>
 #include <stdarg.h>
 #include <arch/types.h>
 #include <arch/cpu.h>
@@ -98,6 +99,8 @@ static void ctx_putc(print_ctx_t *ctx, char c) {
     } else {
         //direct output (using locked version to avoid re-acquiring console_lock)
         putc_locked(c);
+        //also log to klog for debugging
+        klog_putc(c);
     }
 }
 

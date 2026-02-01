@@ -19,6 +19,8 @@
 #include <mm/kheap.h>
 #include <obj/handle.h>
 #include <obj/namespace.h>
+#include <obj/kernel_info.h>
+#include <obj/klog.h>
 #include <obj/rights.h>
 #include <proc/process.h>
 #include <proc/thread.h>
@@ -248,6 +250,8 @@ void kernel_main(const char *cmdline) {
     nvme_init();
     serial_init_object();
     rtc_init();
+    kernel_info_init();
+    klog_init();
     
     //initialize filesystems
     tmpfs_init();

@@ -17,6 +17,7 @@
 #define OBJECT_EVENT    15   //event object (signalable)
 #define OBJECT_JOB      16   //job (process group)
 #define OBJECT_NS_DIR   17   //namespace directory
+#define OBJECT_INFO     18   //kernel info object
 
 //type name helper
 static inline const char *object_type_name(uint32 type) {
@@ -34,6 +35,7 @@ static inline const char *object_type_name(uint32 type) {
         case 15: return "event";
         case 16: return "job";
         case 17: return "ns_dir";
+        case 18: return "info";
         default: return "unknown";
     }
 }

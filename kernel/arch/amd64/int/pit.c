@@ -9,7 +9,7 @@
 #define PIT_BASE  1193182U
 
 static volatile uint64 timer_ticks = 0;
-static volatile uint32 timer_freq = 0;
+volatile uint32 timer_freq = 0;
 
 void arch_timer_tick(void) {
     timer_ticks++;

@@ -3,13 +3,13 @@
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        puts("Usage: cat <file>\n");
+        puts("Usage: read <file>\n");
         return 1;
     }
     
     handle_t file = get_obj(INVALID_HANDLE, argv[1], RIGHT_READ);
     if (file == INVALID_HANDLE) {
-        printf("cat: cannot open '%s'\n", argv[1]);
+        printf("read: cannot open '%s'\n", argv[1]);
         return 1;
     }
     
