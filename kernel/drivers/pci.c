@@ -363,11 +363,11 @@ static void pci_register_device(pci_device_t *pdev) {
     }
     
     //log discovery
-    printf("[pci] %02X:%02X.%X %04X:%04X %s (class %02X/%02X)\n",
+    printf("[pci] %02X:%02X.%X %04X:%04X %s (class %02X/%02X PI %02X)\n",
            pdev->bus, pdev->dev, pdev->func,
            pdev->vendor_id, pdev->device_id,
            pci_class_name(pdev->class_code),
-           pdev->class_code, pdev->subclass);
+           pdev->class_code, pdev->subclass, pdev->prog_if);
 }
 
 //probe a single device/function

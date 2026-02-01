@@ -9,6 +9,7 @@
 //timer hz 
 extern uint32 timer_freq;
 extern size max_pages;
+extern size free_pages;
 
 static ssize info_obj_read(object_t *obj, void *buf, size len, size offset) {
     uint32 category = (uintptr)obj->data;
@@ -26,7 +27,7 @@ static ssize info_obj_read(object_t *obj, void *buf, size len, size offset) {
     } else if (category == KERNEL_INFO_MEM) {
         kernel_info_mem_t info;
         info.total_pages = max_pages;
-        info.free_pages = 0; //TODO: implement free page counting
+        info.free_pages = free_pages;
         
         if (offset >= sizeof(info)) return 0;
         if (offset + len > sizeof(info)) len = sizeof(info) - offset;
@@ -58,6 +59,7 @@ static void register_info(const char *name, uint32 category) {
 }
 
 void kernel_info_init(void) {
+    //klog_init dependency - this must create $kernel before klog_init runs
     object_t *kernel_dir = ns_create_dir("$kernel/");
     if (kernel_dir) {
         ns_register("$kernel", kernel_dir);

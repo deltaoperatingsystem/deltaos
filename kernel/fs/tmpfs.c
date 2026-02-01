@@ -394,12 +394,21 @@ static object_t *tmpfs_root_lookup(object_t *obj, const char *name) {
     return fs->ops->lookup(fs, name);
 }
 
+static int tmpfs_root_stat(object_t *obj, stat_t *st) {
+    (void)obj;
+    if (!st) return -1;
+    memset(st, 0, sizeof(stat_t));
+    st->type = FS_TYPE_DIR;
+    return 0;
+}
+
 static object_ops_t tmpfs_root_ops = {
     .read = tmpfs_root_read,
     .write = NULL,
     .close = NULL,
     .readdir = tmpfs_root_readdir,
-    .lookup = tmpfs_root_lookup
+    .lookup = tmpfs_root_lookup,
+    .stat = tmpfs_root_stat
 };
 
 static object_t *tmpfs_root_obj = NULL;

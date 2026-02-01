@@ -28,15 +28,21 @@ int main(int argc, char *argv[]) {
     
     //read and print in chunks
     char buf[512];
+    int status = 0;
     
     while (1) {
         int n = handle_read(log, buf, sizeof(buf) - 1);
-        if (n <= 0) break;
+        if (n < 0) {
+            puts("klog: error reading from $kernel/log\n");
+            status = 1;
+            break;
+        }
+        if (n == 0) break;
         
         buf[n] = '\0';
         puts(buf);
     }
     
     handle_close(log);
-    return 0;
+    return status;
 }
