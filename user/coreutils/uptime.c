@@ -15,7 +15,9 @@ int main(int argc, char *argv[]) {
     if (h != INVALID_HANDLE) {
         kernel_info_timer_t info;
         if (handle_read(h, &info, sizeof(info)) == sizeof(info)) {
-            hz = info.timer_hz;
+            if (info.timer_hz > 0) {
+                hz = info.timer_hz;
+            }
         }
         handle_close(h);
     }

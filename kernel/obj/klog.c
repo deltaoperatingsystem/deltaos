@@ -3,6 +3,7 @@
 #include <obj/namespace.h>
 #include <lib/spinlock.h>
 #include <lib/string.h>
+#include <drivers/serial.h>
 #include <fs/fs.h>
 #include <arch/cpu.h>
 
@@ -106,7 +107,10 @@ static object_ops_t klog_ops = {
 void klog_init(void) {
     object_t *obj = object_create(OBJECT_INFO, &klog_ops, NULL);
     if (obj) {
-        ns_register("$kernel/log", obj);
+        if (ns_register("$kernel/log", obj) != 0) {
+            //can't use klog yet so we just fail silently or print to serial if available
+            serial_write("[klog] ERR: failed to register $kernel/log\n");
+        }
         object_deref(obj);
     }
 }

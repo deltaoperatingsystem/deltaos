@@ -13,6 +13,7 @@ size max_pages = 0;
 #define BITMAP_TEST(bit)  (bitmap[(bit) / 8] & (1 << ((bit) % 8)))
 
 static size last_free_page = 0;
+size free_pages = 0;
 
 void pmm_init(void) {
     struct db_tag_memory_map *mmap = db_get_memory_map();
@@ -98,7 +99,10 @@ void pmm_init(void) {
             size page_count = current->length / PAGE_SIZE;
             for (size j = 0; j < page_count; j++) {
                 if (start_page + j < max_pages) {
-                    BITMAP_CLEAR(start_page + j);
+                    if (BITMAP_TEST(start_page + j)) {
+                        BITMAP_CLEAR(start_page + j);
+                        free_pages++;
+                    }
                 }
             }
         }
@@ -110,7 +114,10 @@ void pmm_init(void) {
     size bitmap_page_count = bitmap_size / PAGE_SIZE;
     if (bitmap_size % PAGE_SIZE) bitmap_page_count++;
     for (size i = 0; i < bitmap_page_count; i++) {
-        BITMAP_SET(bitmap_start_page + i);
+        if (!BITMAP_TEST(bitmap_start_page + i)) {
+            BITMAP_SET(bitmap_start_page + i);
+            free_pages--;
+        }
     }
 
     //reserve the kernel physical segments
@@ -120,7 +127,12 @@ void pmm_init(void) {
         size k_count = kphys->phys_length / PAGE_SIZE;
         if (kphys->phys_length % PAGE_SIZE) k_count++;
         for (size i = 0; i < k_count; i++) {
-            if (k_start + i < max_pages) BITMAP_SET(k_start + i);
+            if (k_start + i < max_pages) {
+                if (!BITMAP_TEST(k_start + i)) {
+                    BITMAP_SET(k_start + i);
+                    free_pages--;
+                }
+            }
         }
     }
 
@@ -131,7 +143,12 @@ void pmm_init(void) {
         size info_count = info->total_size / PAGE_SIZE;
         if (info->total_size % PAGE_SIZE) info_count++;
         for (size i = 0; i < info_count; i++) {
-            if (info_start + i < max_pages) BITMAP_SET(info_start + i);
+            if (info_start + i < max_pages) {
+                if (!BITMAP_TEST(info_start + i)) {
+                    BITMAP_SET(info_start + i);
+                    free_pages--;
+                }
+            }
         }
     }
     
@@ -142,12 +159,20 @@ void pmm_init(void) {
         size rd_count = initrd->length / PAGE_SIZE;
         if (initrd->length % PAGE_SIZE) rd_count++;
         for (size i = 0; i < rd_count; i++) {
-            if (rd_start + i < max_pages) BITMAP_SET(rd_start + i);
+            if (rd_start + i < max_pages) {
+                if (!BITMAP_TEST(rd_start + i)) {
+                    BITMAP_SET(rd_start + i);
+                    free_pages--;
+                }
+            }
         }
     }
 
     //reserve page 0
-    BITMAP_SET(0);
+    if (!BITMAP_TEST(0)) {
+        BITMAP_SET(0);
+        free_pages--;
+    }
 
     serial_write("[pmm] initialized, bitmap @ ");
     serial_write_hex((uintptr)bitmap);
@@ -159,8 +184,8 @@ void *pmm_alloc(size pages) {
 
     irq_state_t flags = arch_irq_save();
 
-    uint64 consecutive = 0;
-    uint64 start_bit = 0;
+    size consecutive = 0;
+    size start_bit = 0;
 
     //word skipping optimization
     uword *bitmap_words = (uword *)bitmap;
@@ -176,13 +201,14 @@ void *pmm_alloc(size pages) {
         }
 
         if (!BITMAP_TEST(i)) {
-            if (consecutive == 0) start_bit = (uint64)i;
+            if (consecutive == 0) start_bit = i;
             consecutive++;
             if (consecutive == pages) {
                 for (size j = 0; j < pages; j++) {
-                    BITMAP_SET((size)start_bit + j);
+                    BITMAP_SET(start_bit + j);
                 }
-                last_free_page = (size)start_bit + pages;
+                free_pages -= pages;
+                last_free_page = start_bit + pages;
                 void *res = (void *)(uintptr)(start_bit * PAGE_SIZE);
                 arch_irq_restore(flags);
                 return res;
@@ -207,13 +233,14 @@ void *pmm_alloc(size pages) {
             }
 
             if (!BITMAP_TEST(i)) {
-                if (consecutive == 0) start_bit = (uint64)i;
+                if (consecutive == 0) start_bit = i;
                 consecutive++;
                 if (consecutive == pages) {
                     for (size j = 0; j < pages; j++) {
-                        BITMAP_SET((size)start_bit + j);
+                        BITMAP_SET(start_bit + j);
                     }
-                    last_free_page = (size)start_bit + pages;
+                    free_pages -= pages;
+                    last_free_page = start_bit + pages;
                     void *res = (void *)(uintptr)(start_bit * PAGE_SIZE);
                     arch_irq_restore(flags);
                     return res;
@@ -238,7 +265,9 @@ void pmm_free(void *ptr, size pages) {
 
     for (size i = 0; i < pages; i++) {
         if (start_bit + i < max_pages) {
+            if (!BITMAP_TEST(start_bit + i)) continue;
             BITMAP_CLEAR(start_bit + i);
+            free_pages++;
         }
     }
 
