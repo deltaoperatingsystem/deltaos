@@ -488,6 +488,21 @@ void render_surfaces(handle_t fb_handle, uint32 *fb_backbuffer) {
     handle_write(fb_handle, fb_backbuffer, FB_BACKBUFFER_SIZE);
 }
 
+//mouse button flags
+#define MOUSE_BTN_LEFT      0x01
+#define MOUSE_BTN_RIGHT     0x02
+#define MOUSE_BTN_MIDDLE    0x04
+
+//mouse event (pushed by driver)
+typedef struct {
+    int16 dx; //x movement delta
+    int16 dy; //y movement delta
+    uint8 buttons; //button state (MOUSE_BTN_*)
+    uint8 _pad[3];
+} mouse_event_t;
+
+handle_t mouse_h = INVALID_HANDLE;
+
 void handle_input() {
     if (focused == -1) return;
     kbd_event_t ev;
@@ -501,11 +516,37 @@ void handle_input() {
             .u.kbd = { .data = ev },
         };
         int rc = channel_send(clients[focused].handle, &msg, sizeof(msg));
-        if (rc != 0) {
+        if (rc != 0 && rc != -3) {
             WARN("Failed to forward keyboard to pid=%u idx=%d rc=%d - tearing down\n", clients[focused].pid, focused, rc);
             client_teardown_by_index(focused);
         } else {
-            INFO("Forwarded keyboard to pid=%u idx=%d key=%u down=%u\n", clients[focused].pid, focused, ev.codepoint, ev.pressed);
+            INFO("Forwarded keyboard to pid=%u idx=%d key=%c down=%u\n", clients[focused].pid, focused, ev.codepoint, ev.pressed);
+        }
+    }
+    mouse_event_t m;
+    if (mouse_h == INVALID_HANDLE) {
+        WARN("Attempting to open mouse handle...\n"); 
+        mouse_h = get_obj(INVALID_HANDLE, "$devices/mouse/channel", RIGHT_READ);
+    }
+    if (channel_try_recv(mouse_h, &m, sizeof(m)) == sizeof(mouse_event_t)) {
+        if (focused < 0 || focused >= num_clients) {
+            WARN("Got mouse event but focused index invalid: %d\n", focused);
+            return;
+        }
+        wm_server_msg_t msg = {
+            .type = MOUSE,
+            .u.mouse = {
+                .x = m.dx,
+                .y = m.dy,
+                .buttons = m.buttons
+            }
+        };
+        int rc = channel_send(clients[focused].handle, &msg, sizeof(msg));
+        if (rc != 0 && rc != -3) {
+            WARN("Failed to forward mouse to pid=%u idx=%d rc=%d - tearing down\n", clients[focused].pid, focused, rc);
+            client_teardown_by_index(focused);
+        } else {
+            INFO("Forwarded mouse to pid=%u idx=%d dx=%d dy=%d buttons=%u\n", clients[focused].pid, focused, m.dx, m.dy, m.buttons);
         }
     }
 }

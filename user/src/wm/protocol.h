@@ -11,6 +11,7 @@ typedef enum {
     CONFIGURE,
     RESIZE,
     KBD,
+    MOUSE,
 } wm_msg_type_t;
 
 typedef struct {
@@ -35,6 +36,10 @@ typedef struct {
         struct {
             kbd_event_t data;
         } kbd;
+        struct {
+            int16 x, y;
+            uint8 buttons;
+        } mouse;
     } u;
 } wm_server_msg_t;
 
