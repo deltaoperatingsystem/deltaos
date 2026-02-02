@@ -359,6 +359,7 @@ static int load_wallpaper(void) {
     size img_pixels = (size)img.width * (size)img.height * sizeof(uint32);
     if (img.width == 0 || img.height == 0) {
         WARN("wallpaper has zero dimension; ignoring\n");
+        free(img.pixels);
         free(filebuf);
         wallpaper.loaded = false;
         return -1;
@@ -367,6 +368,7 @@ static int load_wallpaper(void) {
     uint32 *tmp_pixels = malloc(img_pixels);
     if (!tmp_pixels) {
         WARN("malloc for tmp wallpaper pixels failed\n");
+        free(img.pixels);
         free(filebuf);
         wallpaper.loaded = false;
         return -1;
@@ -374,6 +376,7 @@ static int load_wallpaper(void) {
 
     if (img.pixel_format != DM_PIXEL_RGBA32) {
         WARN("wallpaper pixel format unsupported (need RGBA32); got %d\n", img.pixel_format);
+        free(img.pixels);
         free(tmp_pixels);
         free(filebuf);
         wallpaper.loaded = false;
@@ -382,6 +385,7 @@ static int load_wallpaper(void) {
 
     memcpy(tmp_pixels, img.pixels, img_pixels);
 
+    free(img.pixels);
     free(filebuf);
 
     if ((uint32)img.width == (uint32)FB_W && (uint32)img.height == (uint32)FB_H) {
