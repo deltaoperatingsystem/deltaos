@@ -4,9 +4,10 @@
 #include <mem.h>
 #include <io.h>
 #include <keyboard.h>
-#include "fb.h"
-#include "protocol.h"
 #include <dm.h>
+#include "protocol.h"
+#include "cursor.h"
+#include "fb.h"
 
 #ifndef DEBUG
 static bool debug = false;
@@ -441,7 +442,7 @@ static void render_wallpaper(uint32 *fb_backbuffer) {
     memcpy(fb_backbuffer, wallpaper.pixels, FB_BACKBUFFER_SIZE);
 }
 
-void render_surfaces(handle_t fb_handle, uint32 *fb_backbuffer) {
+void render_surfaces(uint32 *fb_backbuffer) {
     render_wallpaper(fb_backbuffer);
 
     for (int i = 0; i < num_clients; i++) {
@@ -483,9 +484,6 @@ void render_surfaces(handle_t fb_handle, uint32 *fb_backbuffer) {
 
         c->dirty = false;
     }
-
-    handle_seek(fb_handle, 0, HANDLE_SEEK_SET);
-    handle_write(fb_handle, fb_backbuffer, FB_BACKBUFFER_SIZE);
 }
 
 //mouse button flags
@@ -502,6 +500,8 @@ typedef struct {
 } mouse_event_t;
 
 handle_t mouse_h = INVALID_HANDLE;
+uint32 mouse_x = FB_W / 2;
+uint32 mouse_y = FB_H / 2;
 
 void handle_input() {
     if (focused == -1) return;
@@ -529,6 +529,25 @@ void handle_input() {
         mouse_h = get_obj(INVALID_HANDLE, "$devices/mouse/channel", RIGHT_READ);
     }
     if (channel_try_recv(mouse_h, &m, sizeof(m)) == sizeof(mouse_event_t)) {
+        //first do our things (focus on click, etc)
+        mouse_x += m.dx;
+        mouse_y += m.dy;
+
+        if (m.buttons & MOUSE_BTN_LEFT) {
+            for (int i = num_clients - 1; i >= 0; --i) {
+                if (clients[i].win_w <= 0 || clients[i].win_h <= 0) continue;
+                if (mouse_x >= clients[i].x &&
+                    mouse_y >= clients[i].y &&
+                    mouse_x <  clients[i].x + clients[i].win_w &&
+                    mouse_y <  clients[i].y + clients[i].win_h) {
+                    INFO("Focusing on client %u\n", i);
+                    focused = i;
+                    break;
+                }
+            }
+        }
+   
+        //now we forward if possible
         if (focused < 0 || focused >= num_clients) {
             WARN("Got mouse event but focused index invalid: %d\n", focused);
             return;
@@ -551,6 +570,16 @@ void handle_input() {
     }
 }
 
+void render_mouse(uint32 *fb) {
+    for (int i = 0; i < cursor_get_width(); i++) {
+        for (int j = 0; j < cursor_get_height(); j++) {
+            uint32 c = cursor_get_pixel(i, j);
+            if (c == 0) continue;
+            fb_putpixel(fb, i + mouse_x, j + mouse_y, c);
+        }
+    }
+}
+
 int main(void) {
     handle_t fb_handle = INVALID_HANDLE;
     uint32 *fb_backbuffer = NULL;
@@ -565,12 +594,17 @@ int main(void) {
     INFO("Setup server channel\n");
 
     load_wallpaper();
-    render_surfaces(fb_handle, fb_backbuffer);
+    render_surfaces(fb_backbuffer);
 
     while (1) {
         server_listen(&server_handle);
         handle_input();
-        render_surfaces(fb_handle, fb_backbuffer);
+        render_surfaces(fb_backbuffer);
+        render_mouse(fb_backbuffer);
+
+        //present the frame!
+        handle_seek(fb_handle, 0, HANDLE_SEEK_SET);
+        handle_write(fb_handle, fb_backbuffer, FB_BACKBUFFER_SIZE);
 
         yield();
     }
