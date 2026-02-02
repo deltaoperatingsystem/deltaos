@@ -6,6 +6,7 @@
 #include <keyboard.h>
 #include "fb.h"
 #include "protocol.h"
+#include <dm.h>
 
 #ifndef DEBUG
 static bool debug = false;
@@ -14,6 +15,10 @@ static bool debug = true;
 #endif
 
 #define FB_BACKBUFFER_SIZE  (1280 * 800 * sizeof(uint32))
+
+#define SCREEN_WIDTH    1280
+#define SCREEN_HEIGHT   800
+
 #define ASSERT(expr, msg, ...) do { if (expr) { dprintf("\033[31m[wm]: ERROR: "); dprintf(msg, ##__VA_ARGS__); dprintf("\033[0m"); return; } } while (0)
 #define ERROR(msg, ...) do { dprintf("\033[31m[wm]: ERROR: "); dprintf(msg, ##__VA_ARGS__); dprintf("\033[0m"); } while (0)
 #define WARN(msg, ...) do { if (debug == true) { dprintf("\033[33m[wm]: WARN: "); dprintf(msg, ##__VA_ARGS__); dprintf("\033[0m"); } } while (0)
@@ -31,6 +36,17 @@ static inline int min(int a, int b) {
 static void client_remove_at(int idx);
 static void recompute_layout(uint16 screen_w, uint16 screen_h);
 static void client_teardown_by_index(int idx);
+
+static struct {
+    uint32 *pixels;
+    uint16 width;
+    uint16 height;
+    bool loaded;
+} wallpaper = { .pixels = NULL, .width = 0, .height = 0, .loaded = false };
+
+static int load_wallpaper(void);
+static void free_wallpaper(void);
+static void render_wallpaper(uint32 *fb_backbuffer);
 
 void fb_setup(handle_t *h, uint32 **backbuffer) {
     *h = get_obj(INVALID_HANDLE, "$devices/fb0", RIGHT_READ | RIGHT_WRITE);
@@ -84,7 +100,7 @@ static void client_remove_at(int idx) {
     }
 
     c->status = EMPTY;
-    recompute_layout(1280, 800);
+    recompute_layout(SCREEN_WIDTH, SCREEN_HEIGHT);
     INFO("Client removed. remaining=%d focused=%d\n", num_clients, focused);
 }
 
@@ -188,7 +204,7 @@ void window_create(handle_t *server, channel_recv_result_t res, wm_client_msg_t 
     INFO("CREATE handled for pid=%u idx=%d\n", res.sender_pid, num_clients - 1);
 
     if (focused == -1) focused = 0;
-    recompute_layout(1280, 800);
+    recompute_layout(SCREEN_WIDTH, SCREEN_HEIGHT);
 }
 
 void window_commit(channel_recv_result_t res) {
@@ -288,9 +304,145 @@ void server_listen(handle_t *server) {
     }
 }
 
+static void scale_nearest_neighbour(const uint32 *src, int sw, int sh, uint32 *dst, int dw, int dh) {
+    for (int y = 0; y < dh; y++) {
+        int sy = (y * sh) / dh;
+        if (sy >= sh) sy = sh - 1;
+        for (int x = 0; x < dw; x++) {
+            int sx = (x * sw) / dw;
+            if (sx >= sw) sx = sw - 1;
+            dst[y * dw + x] = src[sy * sw + sx];
+        }
+    }
+}
+
+static int load_wallpaper(void) {
+    handle_t h = get_obj(INVALID_HANDLE, "$files/wallpaper.dm", RIGHT_READ);
+    if (h == INVALID_HANDLE) {
+        WARN("No wallpaper present at $files/wallpaper.dm; using solid background\n");
+        wallpaper.loaded = false;
+        return -1;
+    }
+
+    stat_t st;
+    if (fstat(h, &st) != 0) {
+        WARN("fstat on wallpaper handle failed; using solid background\n");
+        handle_close(h);
+        wallpaper.loaded = false;
+        return -1;
+    }
+
+    uint8 *filebuf = malloc(st.size);
+    if (!filebuf) {
+        WARN("malloc for wallpaper file failed\n");
+        handle_close(h);
+        wallpaper.loaded = false;
+        return -1;
+    }
+    if (handle_read(h, filebuf, st.size) != (ssize)st.size) {
+        WARN("handle_read for wallpaper failed\n");
+        free(filebuf);
+        handle_close(h);
+        wallpaper.loaded = false;
+        return -1;
+    }
+    handle_close(h);
+
+    dm_image_t img;
+    if (dm_load_image(filebuf, st.size, &img) != 0) {
+        WARN("dm_load_image failed for wallpaper; using solid background\n");
+        free(filebuf);
+        wallpaper.loaded = false;
+        return -1;
+    }
+
+    size img_pixels = (size)img.width * (size)img.height * sizeof(uint32);
+    if (img.width == 0 || img.height == 0) {
+        WARN("wallpaper has zero dimension; ignoring\n");
+        free(img.pixels);
+        free(filebuf);
+        wallpaper.loaded = false;
+        return -1;
+    }
+
+    uint32 *tmp_pixels = malloc(img_pixels);
+    if (!tmp_pixels) {
+        WARN("malloc for tmp wallpaper pixels failed\n");
+        free(img.pixels);
+        free(filebuf);
+        wallpaper.loaded = false;
+        return -1;
+    }
+
+    if (img.pixel_format != DM_PIXEL_RGBA32) {
+        WARN("wallpaper pixel format unsupported (need RGBA32); got %d\n", img.pixel_format);
+        free(img.pixels);
+        free(tmp_pixels);
+        free(filebuf);
+        wallpaper.loaded = false;
+        return -1;
+    }
+
+    memcpy(tmp_pixels, img.pixels, img_pixels);
+
+    free(img.pixels);
+    free(filebuf);
+
+    if ((uint32)img.width == (uint32)FB_W && (uint32)img.height == (uint32)FB_H) {
+        wallpaper.pixels = tmp_pixels;
+        wallpaper.width = FB_W;
+        wallpaper.height = FB_H;
+        wallpaper.loaded = true;
+    } else {
+        uint32 *scaled = malloc((size)FB_W * (size)FB_H * sizeof(uint32));
+        if (!scaled) {
+            WARN("malloc for scaled wallpaper failed\n");
+            free(tmp_pixels);
+            wallpaper.loaded = false;
+            return -1;
+        }
+        scale_nearest_neighbour(tmp_pixels, img.width, img.height, scaled, FB_W, FB_H);
+        free(tmp_pixels);
+        wallpaper.pixels = scaled;
+        wallpaper.width = FB_W;
+        wallpaper.height = FB_H;
+        wallpaper.loaded = true;
+    }
+
+    //convert from RGBA32 to ARGB32
+    for (int i = 0; i < wallpaper.height * wallpaper.width; i++) {
+        uint8 r = (uint8)(wallpaper.pixels[i]);
+        uint8 g = (uint8)(wallpaper.pixels[i] >> 8);
+        uint8 b = (uint8)(wallpaper.pixels[i] >> 16);
+        wallpaper.pixels[i] = FB_RGB(r, g, b);
+    }
+
+    INFO("Wallpaper loaded (scaled to %ux%u)\n", wallpaper.width, wallpaper.height);
+    return 0;
+}
+
+static void free_wallpaper(void) {
+    if (wallpaper.pixels) {
+        free(wallpaper.pixels);
+        wallpaper.pixels = NULL;
+    }
+    wallpaper.loaded = false;
+    wallpaper.width = wallpaper.height = 0;
+}
+
+static void render_wallpaper(uint32 *fb_backbuffer) {
+    if (!fb_backbuffer) return;
+
+    if (!wallpaper.loaded || !wallpaper.pixels) {
+        memset(fb_backbuffer, 0x00, FB_BACKBUFFER_SIZE);
+        return;
+    }
+
+    memcpy(fb_backbuffer, wallpaper.pixels, FB_BACKBUFFER_SIZE);
+}
+
 void render_surfaces(handle_t fb_handle, uint32 *fb_backbuffer) {
-    if (num_clients < 1) return;
-    memset(fb_backbuffer, 0x00, FB_BACKBUFFER_SIZE);
+    render_wallpaper(fb_backbuffer);
 
     for (int i = 0; i < num_clients; i++) {
         wm_client_t *c = &clients[i];
@@ -371,6 +523,9 @@ int main(void) {
     server_setup(&server_handle, &client_handle);
     INFO("Setup server channel\n");
 
+    load_wallpaper();
+    render_surfaces(fb_handle, fb_backbuffer);
+
     while (1) {
         server_listen(&server_handle);
         handle_input();
@@ -378,6 +533,8 @@ int main(void) {
 
         yield();
     }
+
+    free_wallpaper();
     __builtin_unreachable();
     return 0;
 }
