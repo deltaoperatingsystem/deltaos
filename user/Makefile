@@ -57,7 +57,6 @@ endef
 $(foreach t,$(LIB_TOPS),$(eval $(call LOAD_LIB_PROJECT_CONFIG,$t)))
 
 all: ld libc.so libraries $(USER_BINS) coreutils
-	cp wallpaper.dm ../initrd/wallpaper.dm
 
 coreutils: libc.so
 	$(MAKE) -C coreutils
