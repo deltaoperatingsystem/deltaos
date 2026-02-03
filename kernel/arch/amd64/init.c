@@ -13,6 +13,7 @@
 #include <proc/process.h>
 #include <drivers/pci.h>
 #include <arch/amd64/int/apic.h>
+#include <arch/amd64/acpi.h>
 
 extern void kernel_main(const char *cmdline);
 extern void enable_sse(void);
@@ -59,6 +60,7 @@ void arch_init(struct db_boot_info *boot_info) {
     vmm_init();
     kheap_init();
     handle_init();
+    acpi_init();
     proc_init();
     
     enable_sse();
