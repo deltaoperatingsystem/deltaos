@@ -8,7 +8,7 @@
 #include <lib/io.h>
 #include <lib/string.h>
 #include <drivers/serial.h>
-#include <arch/amd64/acpi.h>
+#include <arch/amd64/acpi/acpi.h>
 
 static bool apic_available = false;
 static bool force_pic_mode = false;
@@ -36,6 +36,10 @@ bool apic_is_supported(void) {
 
 uint32 apic_get_id(void) {
     return (apic_read(APIC_ID) >> 24) & 0xFF;
+}
+
+uint32 arch_cpu_index(void) {
+    return apic_get_id();
 }
 
 void apic_set_force_pic(bool force) {

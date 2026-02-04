@@ -1,4 +1,4 @@
-#include <arch/amd64/acpi.h>
+#include <arch/amd64/acpi/acpi.h>
 #include <boot/db.h>
 #include <mm/mm.h>
 #include <lib/string.h>
