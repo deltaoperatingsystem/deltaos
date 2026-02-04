@@ -85,13 +85,43 @@ typedef struct acpi_madt_int_src_override {
     uint16 flags;
 } __attribute__((packed)) acpi_madt_int_src_override_t;
 
+//MCFG
+#define ACPI_MCFG_SIGNATURE "MCFG"
+
+typedef struct acpi_mcfg_entry {
+    uint64 base_address;
+    uint16 pci_segment_group;
+    uint8 start_bus;
+    uint8 end_bus;
+    uint32 reserved;
+} __attribute__((packed)) acpi_mcfg_entry_t;
+
+typedef struct acpi_mcfg {
+    acpi_header_t header;
+    uint64 reserved;
+    acpi_mcfg_entry_t entries[];
+} __attribute__((packed)) acpi_mcfg_t;
+
 void acpi_init(void);
 void *acpi_find_table(const char *signature);
 
-// System configuration derived from ACPI
+//system configuration derived from ACPI
 extern uint32 acpi_cpu_count;
 extern uint8 acpi_cpu_ids[64];
 extern uint32 acpi_ioapic_addr;
 extern uint32 acpi_lapic_addr;
+
+typedef struct acpi_iso {
+    uint8 irq_source;
+    uint32 gsi;
+    uint16 flags;
+} acpi_iso_t;
+
+extern acpi_iso_t acpi_isos[16];
+extern uint32 acpi_iso_count;
+
+extern uint64 acpi_mcfg_addr;
+extern uint8 acpi_mcfg_start_bus;
+extern uint8 acpi_mcfg_end_bus;
 
 #endif

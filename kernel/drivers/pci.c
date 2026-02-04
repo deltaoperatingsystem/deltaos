@@ -1,7 +1,6 @@
-//this is an inherently amd64/x86 driver because it relies on port I/O
-
 #include <drivers/pci.h>
 #include <drivers/pci_protocol.h>
+#include <arch/pci.h>
 #include <arch/io.h>
 #include <mm/kheap.h>
 #include <obj/object.h>
@@ -11,10 +10,6 @@
 #include <proc/process.h>
 #include <lib/io.h>
 #include <lib/string.h>
-
-//PCI config space ports
-#define PCI_CONFIG_ADDR  0xCF8
-#define PCI_CONFIG_DATA  0xCFC
 
 //PCI command register bits
 #define PCI_CMD_IO_SPACE     (1 << 0)
@@ -60,26 +55,14 @@ static const char *pci_class_name(uint8 class_code) {
 
 static void pci_scan_bus(uint8 bus);
 
-
-//build config address
-static uint32 pci_make_addr(uint8 bus, uint8 dev, uint8 func, uint8 offset) {
-    return (1u << 31)           //enable bit
-         | ((uint32)bus << 16)
-         | ((uint32)dev << 11)
-         | ((uint32)func << 8)
-         | (offset & 0xFC);
-}
-
 //raw config space read (dword aligned)
 static uint32 pci_read_dword(uint8 bus, uint8 dev, uint8 func, uint8 offset) {
-    outl(PCI_CONFIG_ADDR, pci_make_addr(bus, dev, func, offset));
-    return inl(PCI_CONFIG_DATA);
+    return arch_pci_read(bus, dev, func, offset, 4);
 }
 
 //raw config space write (dword aligned)
 static void pci_write_dword(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint32 value) {
-    outl(PCI_CONFIG_ADDR, pci_make_addr(bus, dev, func, offset));
-    outl(PCI_CONFIG_DATA, value);
+    arch_pci_write(bus, dev, func, offset, 4, value);
 }
 
 //public config read with size support

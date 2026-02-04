@@ -8,6 +8,7 @@
 #include <lib/io.h>
 #include <lib/string.h>
 #include <drivers/serial.h>
+#include <arch/amd64/acpi.h>
 
 static bool apic_available = false;
 static bool force_pic_mode = false;
@@ -66,6 +67,13 @@ bool apic_init(void) {
     }
 
     apic_base_phys = apic_base_msr & 0xFFFFFFFFFFFFF000ULL; //standard mask for bits 12-63
+
+    //verify against ACPI if available
+    if (acpi_lapic_addr != 0 && acpi_lapic_addr != (uint32)apic_base_phys) {
+        printf("[apic] WARNING: Physical address mismatch! MSR=0x%lx, ACPI=0x%x. Preferring ACPI.\n", 
+               apic_base_phys, acpi_lapic_addr);
+        apic_base_phys = acpi_lapic_addr;
+    }
 
     //map APIC registers using HHDM and ensure mapping exists
     apic_base_virt = (volatile uint32 *)P2V(apic_base_phys);

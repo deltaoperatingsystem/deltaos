@@ -91,16 +91,7 @@ void interrupt_mask(uint8 irq) {
 
 void interrupt_unmask(uint8 irq) {
     if (apic_is_enabled() && ioapic_is_enabled()) {
-        if (irq == 0) {
-            //handle ISA override: IRQ 0 (PIT) -> GSI 2
-            //on ISA systems, PIT (IRQ 0) is usually routed through GSI 2 not GSI 0
-            //but on some hardware it might be GSI 0 sooo we unmasking both to be safe yk
-            ioapic_set_irq(0, 32 + 0, 0, false);
-            ioapic_set_irq(2, 32 + 0, 0, false);
-        } else {
-            //for other IRQs, use the standard mapping
-            ioapic_unmask_irq(irq);
-        }
+        ioapic_unmask_irq(irq);
     } else {
         pic_clear_mask(irq);
     }

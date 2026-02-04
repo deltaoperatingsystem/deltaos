@@ -54,6 +54,24 @@ uint32 acpi_cpu_count = 0;
 uint8 acpi_cpu_ids[64];
 uint32 acpi_ioapic_addr = 0;
 uint32 acpi_lapic_addr = 0;
+acpi_iso_t acpi_isos[16];
+uint32 acpi_iso_count = 0;
+
+uint64 acpi_mcfg_addr = 0;
+uint8 acpi_mcfg_start_bus = 0;
+uint8 acpi_mcfg_end_bus = 0;
+
+static void acpi_parse_mcfg(acpi_mcfg_t *mcfg) {
+    int entries = (mcfg->header.length - sizeof(acpi_mcfg_t)) / sizeof(acpi_mcfg_entry_t);
+    if (entries > 0) {
+        //we currently only supbport one ECAM segment
+        acpi_mcfg_addr = mcfg->entries[0].base_address;
+        acpi_mcfg_start_bus = mcfg->entries[0].start_bus;
+        acpi_mcfg_end_bus = mcfg->entries[0].end_bus;
+        printf("[acpi] MCFG: ECAM at 0x%lx (Buses %u-%u)\n", 
+               acpi_mcfg_addr, acpi_mcfg_start_bus, acpi_mcfg_end_bus);
+    }
+}
 
 static void acpi_parse_madt(acpi_madt_t *madt) {
     acpi_lapic_addr = madt->local_apic_address;
@@ -78,6 +96,16 @@ static void acpi_parse_madt(acpi_madt_t *madt) {
             case ACPI_MADT_TYPE_IO_APIC: {
                 acpi_madt_io_apic_t *ioapic = (acpi_madt_io_apic_t *)entry;
                 acpi_ioapic_addr = ioapic->io_apic_address;
+                break;
+            }
+            case ACPI_MADT_TYPE_INT_SRC_OVERRIDE: {
+                acpi_madt_int_src_override_t *iso = (acpi_madt_int_src_override_t *)entry;
+                if (acpi_iso_count < 16) {
+                    acpi_isos[acpi_iso_count].irq_source = iso->irq_source;
+                    acpi_isos[acpi_iso_count].gsi = iso->global_system_interrupt;
+                    acpi_isos[acpi_iso_count].flags = iso->flags;
+                    acpi_iso_count++;
+                }
                 break;
             }
         }
@@ -128,5 +156,10 @@ void acpi_init(void) {
         acpi_parse_madt(madt);
     } else {
         serial_write("[acpi] ERR: MADT not found\n");
+    }
+
+    acpi_mcfg_t *mcfg = acpi_find_table(ACPI_MCFG_SIGNATURE);
+    if (mcfg) {
+        acpi_parse_mcfg(mcfg);
     }
 }

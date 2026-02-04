@@ -6,6 +6,7 @@
 #include <lib/io.h>
 #include <lib/string.h>
 #include <drivers/serial.h>
+#include <arch/amd64/acpi.h>
 
 static bool ioapic_available = false;
 static volatile uint32 *ioapic_base = NULL;
@@ -26,9 +27,18 @@ static inline void ioapic_write(uint8 reg, uint32 val) {
     __asm__ volatile ("mfence" ::: "memory");
 }
 
+static uint32 ioapic_get_gsi(uint8 irq) {
+    for (uint32 i = 0; i < acpi_iso_count; i++) {
+        if (acpi_isos[i].irq_source == irq) {
+            return acpi_isos[i].gsi;
+        }
+    }
+    return irq;
+}
+
 bool ioapic_init(void) {
     serial_write("[ioapic] Mapping registers...\n");
-    uintptr phys = IOAPIC_DEFAULT_BASE;
+    uintptr phys = acpi_ioapic_addr != 0 ? acpi_ioapic_addr : IOAPIC_DEFAULT_BASE;
     ioapic_base = (volatile uint32 *)P2V(phys);
     
     vmm_kernel_map((uintptr)ioapic_base, phys, 1, MMU_FLAG_WRITE | MMU_FLAG_NOCACHE);
@@ -69,7 +79,18 @@ bool ioapic_init(void) {
     
     //mask everything initially
     for (uint8 i = 0; i < ioapic_max_redir; i++) {
+        //default mapping (GSI = index)
         ioapic_set_irq(i, 32 + i, 0, true);
+    }
+    
+    //remap specifically for overrides found in ACPI
+    for (uint32 i = 0; i < acpi_iso_count; i++) {
+        if (acpi_isos[i].gsi < ioapic_max_redir) {
+            printf("[ioapic] Applying ISO: IRQ %u -> GSI %u (flags 0x%x)\n", 
+                   acpi_isos[i].irq_source, acpi_isos[i].gsi, acpi_isos[i].flags);
+            //we only set the mapping, usually IRQ 0 -> GSI 2
+            ioapic_set_irq(acpi_isos[i].irq_source, 32 + acpi_isos[i].irq_source, 0, true);
+        }
     }
     
     ioapic_available = true;
@@ -85,22 +106,25 @@ void ioapic_set_irq(uint8 irq, uint8 vector, uint8 dest_apic_id, bool masked) {
     
     uint32 high = (uint32)apic_get_id() << 24;
     
-    // printf("[ioapic] mapping GSI %u -> vector %u (dest %u)\n", irq, vector, apic_get_id());
-    
-    ioapic_write(IOAPIC_REDTBL_BASE + irq * 2, low);
-    ioapic_write(IOAPIC_REDTBL_BASE + irq * 2 + 1, high);
+    uint32 gsi = ioapic_get_gsi(irq);
+    if (gsi >= ioapic_max_redir) return;
+
+    ioapic_write(IOAPIC_REDTBL_BASE + gsi * 2, low);
+    ioapic_write(IOAPIC_REDTBL_BASE + gsi * 2 + 1, high);
 }
 
 void ioapic_mask_irq(uint8 irq) {
-    if (irq >= ioapic_max_redir) return;
-    uint32 low = ioapic_read(IOAPIC_REDTBL_BASE + irq * 2);
-    ioapic_write(IOAPIC_REDTBL_BASE + irq * 2, low | IOAPIC_INT_MASKED);
+    uint32 gsi = ioapic_get_gsi(irq);
+    if (gsi >= ioapic_max_redir) return;
+    uint32 low = ioapic_read(IOAPIC_REDTBL_BASE + gsi * 2);
+    ioapic_write(IOAPIC_REDTBL_BASE + gsi * 2, low | IOAPIC_INT_MASKED);
 }
 
 void ioapic_unmask_irq(uint8 irq) {
-    if (irq >= ioapic_max_redir) return;
-    uint32 low = ioapic_read(IOAPIC_REDTBL_BASE + irq * 2);
-    ioapic_write(IOAPIC_REDTBL_BASE + irq * 2, low & ~IOAPIC_INT_MASKED);
+    uint32 gsi = ioapic_get_gsi(irq);
+    if (gsi >= ioapic_max_redir) return;
+    uint32 low = ioapic_read(IOAPIC_REDTBL_BASE + gsi * 2);
+    ioapic_write(IOAPIC_REDTBL_BASE + gsi * 2, low & ~IOAPIC_INT_MASKED);
 }
 
 bool ioapic_is_enabled(void) {
