@@ -9,6 +9,7 @@ void arch_set_kernel_stack(void *stack_top);
 
 
 //MI interface implementations
+uint32 arch_cpu_index(void);
 
 static inline void arch_halt(void) {
     __asm__ volatile ("hlt");

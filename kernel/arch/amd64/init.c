@@ -13,7 +13,7 @@
 #include <proc/process.h>
 #include <drivers/pci.h>
 #include <arch/amd64/int/apic.h>
-#include <arch/amd64/acpi.h>
+#include <arch/amd64/acpi/acpi.h>
 
 extern void kernel_main(const char *cmdline);
 extern void enable_sse(void);

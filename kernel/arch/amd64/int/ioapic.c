@@ -6,7 +6,7 @@
 #include <lib/io.h>
 #include <lib/string.h>
 #include <drivers/serial.h>
-#include <arch/amd64/acpi.h>
+#include <arch/amd64/acpi/acpi.h>
 
 static bool ioapic_available = false;
 static volatile uint32 *ioapic_base = NULL;

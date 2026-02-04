@@ -15,7 +15,6 @@
 #include <drivers/blkdev.h>
 #include <drivers/gpt.h>
 #include <fs/fs.h>
-#include <arch/amd64/int/apic.h>
 
 #define NVME_QUEUE_SIZE 64
 
@@ -313,7 +312,7 @@ static int nvme_setup_io_queues(nvme_ctrl_t *ctrl) {
 }
 
 static int nvme_io_submit(nvme_ctrl_t *ctrl, nvme_sqe_t *cmd) {
-    uint32 cpu = apic_get_id();
+    uint32 cpu = arch_cpu_index();
     uint16 qidx = cpu % ctrl->num_io_queues;
     return nvme_submit_cmd(ctrl, &ctrl->io_q[qidx], cmd, NULL);
 }

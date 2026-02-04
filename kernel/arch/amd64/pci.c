@@ -1,5 +1,5 @@
 #include <arch/pci.h>
-#include <arch/amd64/acpi.h>
+#include <arch/amd64/acpi/acpi.h>
 #include <arch/amd64/io.h>
 #include <mm/mm.h>
 #include <lib/io.h>

@@ -8,7 +8,7 @@
 #include <lib/io.h>
 #include <lib/string.h>
 #include <drivers/serial.h>
-#include <arch/amd64/acpi.h>
+#include <arch/amd64/acpi/acpi.h>
 
 static bool apic_available = false;
 static bool force_pic_mode = false;
@@ -175,4 +175,8 @@ void apic_timer_init(uint32 hz) {
     apic_write(APIC_TIMER_ICR, (delta * 100) / hz); //ticks_per_10ms * 100 = per second
 
     printf("[apic] timer periodic @ %u Hz (ticks per int: %u)\n", hz, (delta * 100) / hz);
+}
+
+uint32 arch_cpu_index(void) {
+    return apic_get_id();
 }
