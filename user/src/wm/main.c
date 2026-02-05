@@ -502,6 +502,7 @@ typedef struct {
 handle_t mouse_h = INVALID_HANDLE;
 uint32 mouse_x = FB_W / 2;
 uint32 mouse_y = FB_H / 2;
+mouse_event_t mprev = {0};
 
 void handle_input() {
     if (focused == -1) return;
@@ -525,7 +526,7 @@ void handle_input() {
     }
     mouse_event_t m;
     if (mouse_h == INVALID_HANDLE) {
-        WARN("Attempting to open mouse handle...\n"); 
+        INFO("Attempting to open mouse handle...\n");
         mouse_h = get_obj(INVALID_HANDLE, "$devices/mouse/channel", RIGHT_READ);
     }
     if (channel_try_recv(mouse_h, &m, sizeof(m)) == sizeof(mouse_event_t)) {
@@ -533,7 +534,7 @@ void handle_input() {
         mouse_x += m.dx;
         mouse_y += m.dy;
 
-        if (m.buttons & MOUSE_BTN_LEFT) {
+        if (m.buttons & MOUSE_BTN_LEFT && !(mprev.buttons & MOUSE_BTN_LEFT)) {
             for (int i = num_clients - 1; i >= 0; --i) {
                 if (clients[i].win_w <= 0 || clients[i].win_h <= 0) continue;
                 if (mouse_x >= clients[i].x &&
@@ -546,6 +547,8 @@ void handle_input() {
                 }
             }
         }
+
+        mprev = m;
    
         //now we forward if possible
         if (focused < 0 || focused >= num_clients) {
