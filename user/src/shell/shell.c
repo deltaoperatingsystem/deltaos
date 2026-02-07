@@ -1,6 +1,7 @@
 #include <system.h>
 #include <io.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <keyboard.h>
 
 static void cmd_help(void) {
@@ -49,6 +50,16 @@ static void cmd_cd(char *path) {
     }
 }
 
+static void cmd_mkdir(char *path) {
+    if (!path) {
+        puts("Usage: mkdir <path>\n");
+        return;
+    }
+    if (mkdir(path) < 0) {
+        printf("Failed to create path: '%s'\n", path)
+    }
+}
+
 static void cmd_pwd(void) {
     char cwd[256];
     if (getcwd(cwd, sizeof(cwd)) < 0) {
@@ -75,6 +86,8 @@ static void process_command(char *line) {
         cmd_spawn(strtok(NULL, " \t\n"));
     } else if (streq(cmd, "wm")) {
         cmd_wm();
+    } else if (streq(cmd, "mkdir")) {
+        cmd_mkdir(strtok(NULL, " \t\n"));
     } else if (streq(cmd, "exit")) {
         puts("Goodbye!\n");
         exit(0);
