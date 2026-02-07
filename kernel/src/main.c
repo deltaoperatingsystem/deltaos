@@ -220,6 +220,8 @@ static int spawn_init(void) {
     
     //free the init buffer now that it's loaded
     kfree(buf);
+
+    return 0;
 }
 
 void parse_cmdline(const char *cmdline) {
