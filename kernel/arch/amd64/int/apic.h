@@ -57,5 +57,7 @@ uint32 apic_get_id(void);
 uint32 apic_read(uint32 reg);
 void apic_write(uint32 reg, uint32 val);
 void apic_timer_init(uint32 hz);
+void apic_wait_icr_idle(void);
+void apic_send_ipi(uint8 apic_id, uint8 vector);
 
 #endif

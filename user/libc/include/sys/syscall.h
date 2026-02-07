@@ -40,8 +40,11 @@
 #define SYS_MKDIR           58
 #define SYS_REMOVE          59
 #define SYS_FSTAT           60
+#define SYS_REBOOT          61
+#define SYS_SHUTDOWN        62
+#define SYS_OBJECT_GET_INFO 63
 
-#define SYS_MAX             64
+#define SYS_MAX             256
 
 /*
  *System V AMD64 syscall ABI:
@@ -133,5 +136,8 @@ static inline long __syscall6(long num, long a1, long a2, long a3, long a4, long
     );
     return ret;
 }
+
+void reboot(void);
+void shutdown(void);
 
 #endif

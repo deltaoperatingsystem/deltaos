@@ -5,6 +5,7 @@
 #include <obj/object.h>
 #include <obj/rights.h>
 #include <proc/wait.h>
+#include <lib/spinlock.h>
 
 
 //process states
@@ -40,6 +41,7 @@ typedef struct proc_vma {
 //process structure
 typedef struct process {
     uint64 pid;
+    uint64 parent_pid;  //parent process ID (0 for init/kernel)
     char name[32];
     char cwd[256];  //current working directory
     uint32 state;
@@ -68,6 +70,8 @@ typedef struct process {
     
     //linked list for scheduler
     struct process *next;
+
+    spinlock_t lock;
 } process_t;
 
 //user address space bounds

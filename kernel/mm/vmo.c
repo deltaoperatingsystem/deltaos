@@ -7,6 +7,7 @@
 #include <proc/process.h>
 #include <lib/string.h>
 #include <lib/io.h>
+#include <lib/spinlock.h>
 
 //VMO object ops
 static ssize vmo_obj_read(object_t *obj, void *buf, size len, size offset) {
@@ -240,6 +241,7 @@ static void vmo_update_mapping_cb(process_t *proc, void *data) {
     vmo_update_data_t *ud = (vmo_update_data_t *)data;
     if (!proc->pagemap) return;
 
+    spinlock_acquire(&proc->lock);
     for (proc_vma_t *vma = proc->vma_list; vma; vma = vma->next) {
         if (vma->obj == &ud->vmo->obj) {
             size old_map_pages = (vma->length + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -289,6 +291,7 @@ static void vmo_update_mapping_cb(process_t *proc, void *data) {
             }
         }
     }
+    spinlock_release(&proc->lock);
 }
 
 int vmo_resize(process_t *proc, int32 handle, size new_size) {

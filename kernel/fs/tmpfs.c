@@ -5,15 +5,37 @@
 #include <mm/pmm.h>
 #include <lib/string.h>
 #include <lib/io.h>
+#include <drivers/rtc.h>
 
 #define TMPFS_MAX_NAME 64
 #define TMPFS_INITIAL_BUF 256
 #define TMPFS_INITIAL_CHILDREN 8
 
+//get current time as seconds since 2000-01-01
+static uint32 get_current_time(void) {
+    static const uint8 days_in_month[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    rtc_time_t t;
+    rtc_get_time(&t);
+    
+    uint32 days = 0;
+    for (uint32 y = 2000; y < t.year; y++) {
+        bool leap = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0));
+        days += leap ? 366 : 365;
+    }
+    for (uint8 m = 1; m < t.month; m++) {
+        days += days_in_month[m - 1];
+        if (m == 2 && (t.year % 4 == 0 && (t.year % 100 != 0 || t.year % 400 == 0))) days++;
+    }
+    days += t.day - 1;
+    
+    return days * 86400 + t.hour * 3600 + t.minute * 60 + t.second;
+}
+
 //tmpfs node (file or directory)
 typedef struct tmpfs_node {
     char name[TMPFS_MAX_NAME];
     uint32 type;  //FS_TYPE_FILE or FS_TYPE_DIR
+    uint32 ctime; //creation time (seconds since 2000)
     struct tmpfs_node *parent;
     
     union {
@@ -174,7 +196,7 @@ static int tmpfs_file_stat(object_t *obj, stat_t *st) {
     if (!node || !st) return -1;
     st->type = FS_TYPE_FILE;
     st->size = node->file.size;
-    st->ctime = st->mtime = st->atime = 0;
+    st->ctime = st->mtime = st->atime = node->ctime;
     return 0;
 }
 
@@ -215,7 +237,7 @@ static int tmpfs_dir_stat(object_t *obj, stat_t *st) {
     if (!node || !st) return -1;
     st->type = FS_TYPE_DIR;
     st->size = 0;
-    st->ctime = st->mtime = st->atime = 0;
+    st->ctime = st->mtime = st->atime = node->ctime;
     return 0;
 }
 
@@ -278,6 +300,7 @@ static int tmpfs_fs_create(fs_t *fs, const char *path, uint32 type) {
     
     strncpy(node->name, basename, TMPFS_MAX_NAME - 1);
     node->type = type;
+    node->ctime = get_current_time();
     
     if (type == FS_TYPE_DIR) {
         node->dir.children = kzalloc(TMPFS_INITIAL_CHILDREN * sizeof(tmpfs_node_t *));
@@ -332,9 +355,7 @@ static int tmpfs_fs_stat(fs_t *fs, const char *path, stat_t *st) {
     if (!node) return -1;
     
     st->type = node->type;
-    st->ctime = 0;  //TODO: track timestamps
-    st->mtime = 0;
-    st->atime = 0;
+    st->ctime = st->mtime = st->atime = node->ctime;
     
     if (node->type == FS_TYPE_FILE) {
         st->size = node->file.size;

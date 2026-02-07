@@ -6,11 +6,13 @@
 #include <mm/kheap.h>
 #include <lib/string.h>
 #include <lib/io.h>
+#include <lib/spinlock.h>
+#include <arch/percpu.h>
 
 #define KERNEL_STACK_SIZE 16384  //16KB
 
 static uint64 next_tid = 1;
-static thread_t *current_thread = NULL;
+static spinlock_t tid_lock = SPINLOCK_INIT;
 
 //thread object ops (called when all handles to a thread are closed)
 static int thread_obj_close(object_t *obj) {
@@ -48,7 +50,9 @@ thread_t *thread_create(process_t *proc, void (*entry)(void *), void *arg) {
     thread_t *thread = kzalloc(sizeof(thread_t));
     if (!thread) return NULL;
     
+    spinlock_acquire(&tid_lock);
     thread->tid = next_tid++;
+    spinlock_release(&tid_lock);
     thread->process = proc;
     thread->state = THREAD_STATE_READY;
     
@@ -76,10 +80,12 @@ thread_t *thread_create(process_t *proc, void (*entry)(void *), void *arg) {
     void *stack_top = (char *)thread->kernel_stack + KERNEL_STACK_SIZE;
     arch_context_init(&thread->context, stack_top, thread_entry_trampoline, thread);
     
+    spinlock_acquire(&proc->lock);
     //link into process thread list
     thread->next = proc->threads;
     proc->threads = thread;
     proc->thread_count++;
+    spinlock_release(&proc->lock);
     
     return thread;
 }
@@ -91,6 +97,7 @@ void thread_destroy(thread_t *thread) {
     
     //remove from process thread list
     if (proc) {
+        spinlock_acquire(&proc->lock);
         thread_t **tp = &proc->threads;
         while (*tp) {
             if (*tp == thread) {
@@ -100,6 +107,7 @@ void thread_destroy(thread_t *thread) {
             }
             tp = &(*tp)->next;
         }
+        spinlock_release(&proc->lock);
     }
     
     //free the thread object
@@ -123,11 +131,13 @@ object_t *thread_get_object(thread_t *thread) {
 }
 
 thread_t *thread_current(void) {
-    return current_thread;
+    percpu_t *pc = percpu_get();
+    return (thread_t *)pc->current_thread;
 }
 
 void thread_set_current(thread_t *thread) {
-    current_thread = thread;
+    percpu_t *pc = percpu_get();
+    pc->current_thread = thread;
 }
 
 static void user_thread_trampoline(void *thread_ptr) {
@@ -149,7 +159,9 @@ thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
     thread_t *thread = kzalloc(sizeof(thread_t));
     if (!thread) return NULL;
     
+    spinlock_acquire(&tid_lock);
     thread->tid = next_tid++;
+    spinlock_release(&tid_lock);
     thread->process = proc;
     thread->state = THREAD_STATE_READY;
     
@@ -180,10 +192,12 @@ thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
     void *stack_top = (char *)thread->kernel_stack + KERNEL_STACK_SIZE;
     arch_context_init(&thread->context, stack_top, user_thread_trampoline, thread);
     
+    spinlock_acquire(&proc->lock);
     //link into process thread list
     thread->next = proc->threads;
     proc->threads = thread;
     proc->thread_count++;
+    spinlock_release(&proc->lock);
     
     return thread;
 }

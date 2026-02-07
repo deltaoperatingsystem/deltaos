@@ -15,9 +15,7 @@
 
 extern void syscall_entry_simple(void);
 
-void syscall_init(void) {
-    percpu_init();
-    
+void syscall_init(void) {    
     //STAR MSR format:
     //[63:48] = SYSRET CS/SS base (SS = base+8 CS = base+16 for 64-bit)
     //[47:32] = SYSCALL CS/SS base (CS = base SS = base+8)

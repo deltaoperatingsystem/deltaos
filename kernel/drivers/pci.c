@@ -56,17 +56,17 @@ static const char *pci_class_name(uint8 class_code) {
 static void pci_scan_bus(uint8 bus);
 
 //raw config space read (dword aligned)
-static uint32 pci_read_dword(uint8 bus, uint8 dev, uint8 func, uint8 offset) {
-    return arch_pci_read(bus, dev, func, offset, 4);
+static uint32 pci_read_dword(uint8 bus, uint8 dev, uint8 func, uint16 offset) {
+    return arch_pci_read(bus, dev, func, offset & ~3, 4);
 }
 
 //raw config space write (dword aligned)
-static void pci_write_dword(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint32 value) {
-    arch_pci_write(bus, dev, func, offset, 4, value);
+static void pci_write_dword(uint8 bus, uint8 dev, uint8 func, uint16 offset, uint32 value) {
+    arch_pci_write(bus, dev, func, offset & ~3, 4, value);
 }
 
 //public config read with size support
-uint32 pci_config_read(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint8 size) {
+uint32 pci_config_read(uint8 bus, uint8 dev, uint8 func, uint16 offset, uint8 size) {
     uint32 dword = pci_read_dword(bus, dev, func, offset);
     uint32 shift = (offset & 3) * 8;
     
@@ -79,7 +79,7 @@ uint32 pci_config_read(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint8 siz
 }
 
 //public config write with size support
-void pci_config_write(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint8 size, uint32 value) {
+void pci_config_write(uint8 bus, uint8 dev, uint8 func, uint16 offset, uint8 size, uint32 value) {
     uint32 dword = pci_read_dword(bus, dev, func, offset);
     uint32 shift = (offset & 3) * 8;
     uint32 mask;

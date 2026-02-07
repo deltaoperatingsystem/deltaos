@@ -66,6 +66,9 @@ run_qemu() {
         -net none
         -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0
 	    -enable-kvm
+	-smp 2
+	-no-reboot
+	-no-shutdown
     )
 
     #handle writable variables if available

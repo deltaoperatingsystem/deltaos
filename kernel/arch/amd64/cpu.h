@@ -2,7 +2,6 @@
 #define ARCH_AMD64_CPU_H
 
 #include <arch/amd64/types.h>
-#include <arch/amd64/percpu.h>
 
 //kernel stack for ring transitions (wraps TSS RSP0)
 void arch_set_kernel_stack(void *stack_top);
@@ -10,6 +9,7 @@ void arch_set_kernel_stack(void *stack_top);
 
 //MI interface implementations
 uint32 arch_cpu_index(void);
+uint32 arch_cpu_count(void);
 
 static inline void arch_halt(void) {
     __asm__ volatile ("hlt");

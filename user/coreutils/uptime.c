@@ -1,29 +1,27 @@
 #include <system.h>
 #include <io.h>
 
-typedef struct {
-    uint32 timer_hz;
-    uint32 reserved;
-} kernel_info_timer_t;
-
 int main(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
     
-    uint32 hz = 1000; //fallback
-    handle_t h = get_obj(INVALID_HANDLE, "$kernel/timer", RIGHT_READ);
-    if (h != INVALID_HANDLE) {
-        kernel_info_timer_t info;
-        if (handle_read(h, &info, sizeof(info)) == sizeof(info)) {
-            if (info.timer_hz > 0) {
-                hz = info.timer_hz;
-            }
-        }
-        handle_close(h);
+    handle_t h = get_obj(INVALID_HANDLE, "$devices/system", RIGHT_READ);
+    if (h == INVALID_HANDLE) {
+        printf("uptime: failed to open system object\n");
+        return 1;
     }
 
-    uint64 ticks = get_ticks();
-    uint64 seconds = ticks / hz;
+    time_stats_t ts;
+    uint64 seconds;
+    
+    if (object_get_info(h, OBJ_INFO_TIME_STATS, &ts, sizeof(ts)) == 0) {
+         seconds = ts.uptime_ns / 1000000000ULL;
+    } else {
+        printf("uptime: failed to get time stats\n");
+        handle_close(h);
+        return 1;
+    }
+    handle_close(h);
     
     uint64 hours = seconds / 3600;
     seconds %= 3600;

@@ -2,6 +2,7 @@
 #include <boot/db.h>
 #include <mm/mm.h>
 #include <lib/string.h>
+#include <arch/amd64/io.h>
 #include <lib/io.h>
 #include <drivers/serial.h>
 
@@ -9,6 +10,10 @@ static void *rsdp_virt = NULL;
 static acpi_rsdt_t *rsdt = NULL;
 static acpi_xsdt_t *xsdt = NULL;
 static bool use_xsdt = false;
+static acpi_fadt_t *fadt = NULL;
+static uint16 slp_typa = 0;
+static uint16 slp_typb = 0;
+static bool can_shutdown = false;
 
 static bool acpi_checksum(acpi_header_t *header) {
     uint8 sum = 0;
@@ -60,6 +65,49 @@ uint32 acpi_iso_count = 0;
 uint64 acpi_mcfg_addr = 0;
 uint8 acpi_mcfg_start_bus = 0;
 uint8 acpi_mcfg_end_bus = 0;
+
+static void acpi_parse_fadt(acpi_fadt_t *f) {
+    fadt = f;
+    printf("[acpi] FADT: PM1a_CNT_BLK @ 0x%x, Reset Reg @ 0x%lx\n", 
+           fadt->pm1a_cnt_blk, fadt->reset_reg.address);
+
+    //find _S5 in DSDT/SSDT to get SLP_TYP
+    acpi_header_t *dsdt = (acpi_header_t *)P2V(fadt->dsdt);
+    if (fadt->header.revision >= 2 && fadt->x_dsdt != 0) {
+        dsdt = (acpi_header_t *)P2V(fadt->x_dsdt);
+    }
+
+    if (dsdt && strncmp(dsdt->signature, "DSDT", 4) == 0) {
+        uint8 *p = (uint8 *)dsdt + sizeof(acpi_header_t);
+        uint8 *end = (uint8 *)dsdt + dsdt->length;
+
+        while (p < end - 4) {
+            if (memcmp(p, "_S5_", 4) == 0) {
+                p += 4;
+                //AML: packageop, pkglength, numelements, prefix, slptypa, prefix, slptypb...
+                if (*p == 0x12) { //packageop
+                    p++;
+                    //skip pkglength
+                    if ((*p & 0xC0) == 0) p++;
+                    else if ((*p & 0xC0) == 0x40) p += 2;
+                    else if ((*p & 0xC0) == 0x80) p += 3;
+                    else if ((*p & 0xC0) == 0xC0) p += 4;
+
+                    p++; //numelements
+                    if (*p == 0x0A) p++; //byteprefix
+                    slp_typa = *p++;
+                    if (*p == 0x0A) p++; //byteprefix
+                    slp_typb = *p++;
+                    can_shutdown = true;
+                    printf("[acpi] Found _S5: SlpTypA=%u, SlpTypB=%u\n", slp_typa, slp_typb);
+                    return;
+                }
+            }
+            p++;
+        }
+    }
+    printf("[acpi] WARNING: _S5 not found, shutdown might not work\n");
+}
 
 static void acpi_parse_mcfg(acpi_mcfg_t *mcfg) {
     int entries = (mcfg->header.length - sizeof(acpi_mcfg_t)) / sizeof(acpi_mcfg_entry_t);
@@ -116,6 +164,38 @@ static void acpi_parse_madt(acpi_madt_t *madt) {
            acpi_cpu_count, acpi_lapic_addr, acpi_ioapic_addr);
 }
 
+void acpi_shutdown(void) {
+    if (!can_shutdown || !fadt) return;
+
+    printf("[acpi] Shutting down...\n");
+    
+    //PM1a_CNT_BLK: SLP_TYP (bits 10-12), SLP_EN (bit 13)
+    uint16 cnt_a = (slp_typa << 10) | (1 << 13);
+    outw(fadt->pm1a_cnt_blk, cnt_a);
+
+    if (fadt->pm1b_cnt_blk) {
+        uint16 cnt_b = (slp_typb << 10) | (1 << 13);
+        outw(fadt->pm1b_cnt_blk, cnt_b);
+    }
+}
+
+void acpi_reboot(void) {
+    if (fadt && (fadt->flags & (1 << 10))) { //Reset Register Supported
+        printf("[acpi] Rebooting via ACPI...\n");
+        if (fadt->reset_reg.address_space_id == 1) { //I/O Space
+            outb(fadt->reset_reg.address, fadt->reset_value);
+        }
+    }
+
+    //fallback to 8042 keyboard controller
+    printf("[acpi] Rebooting via 8042...\n");
+    uint8 temp;
+    do {
+        temp = inb(0x64);
+    } while (temp & 0x02);
+    outb(0x64, 0xFE);
+}
+
 void acpi_init(void) {
     struct db_tag_acpi_rsdp *tag = db_get_acpi_rsdp();
     if (!tag) {
@@ -161,5 +241,12 @@ void acpi_init(void) {
     acpi_mcfg_t *mcfg = acpi_find_table(ACPI_MCFG_SIGNATURE);
     if (mcfg) {
         acpi_parse_mcfg(mcfg);
+    }
+
+    acpi_fadt_t *f = acpi_find_table(ACPI_FADT_SIGNATURE);
+    if (f) {
+        acpi_parse_fadt(f);
+    } else {
+        serial_write("[acpi] ERR: FADT not found\n");
     }
 }

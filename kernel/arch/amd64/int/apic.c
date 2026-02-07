@@ -177,6 +177,4 @@ void apic_timer_init(uint32 hz) {
     printf("[apic] timer periodic @ %u Hz (ticks per int: %u)\n", hz, (delta * 100) / hz);
 }
 
-uint32 arch_cpu_index(void) {
-    return apic_get_id();
-}
+
