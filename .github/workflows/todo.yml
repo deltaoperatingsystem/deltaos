@@ -10,6 +10,9 @@ jobs:
     permissions:
       issues: write
       pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+
 
     steps:
       - name: Checkout code
