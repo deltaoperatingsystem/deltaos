@@ -36,7 +36,7 @@ extern void percpu_set_kernel_stack(void *stack_top);
 char *init_path;
 
 //load and execute init from initrd
-static void spawn_init(void) {
+static int spawn_init(void) {
     //open init
     printf("[init] recieved path %s\n", init_path);
     char path[64];
@@ -45,7 +45,7 @@ static void spawn_init(void) {
     if (h == INVALID_HANDLE) {
         printf("[init] failed to open %s\n", path);
         free(init_path);
-        return;
+        return 1;
     }
     free(init_path);
     
@@ -54,7 +54,7 @@ static void spawn_init(void) {
     char *buf = kzalloc(buf_size);
     if (!buf) {
         printf("[init] failed to allocate buffer\n");
-        return;
+        return 2;
     }
     
     ssize len = handle_read(h, buf, buf_size);
@@ -63,7 +63,7 @@ static void spawn_init(void) {
     if (len <= 0) {
         printf("[init] failed to read init binary\n");
         kfree(buf);
-        return;
+        return 3;
     }
     printf("[init] loaded init: %ld bytes\n", len);
     
@@ -71,7 +71,7 @@ static void spawn_init(void) {
     if (!elf_validate(buf, len)) {
         printf("[init] invalid ELF\n");
         kfree(buf);
-        return;
+        return 4;
     }
     
     //create user process
@@ -79,7 +79,7 @@ static void spawn_init(void) {
     if (!proc) {
         printf("[init] failed to create process\n");
         kfree(buf);
-        return;
+        return 5;
     }
     printf("[init] created process PID %lu\n", proc->pid);
     
@@ -90,7 +90,7 @@ static void spawn_init(void) {
         printf("[init] ELF load failed: %d\n", err);
         process_destroy(proc);
         kfree(buf);
-        return;
+        return 6;
     }
     printf("[init] entry: 0x%lX\n", info.entry);
     printf("[init] loaded %u segments:\n", info.segment_count);
@@ -122,7 +122,7 @@ static void spawn_init(void) {
             printf("[init] failed to open interpreter: %s\n", interp_fullpath);
             process_destroy(proc);
             kfree(buf);
-            return;
+            return 7;
         }
         
         size interp_buf_size = 32768; //32KB for interpreter
@@ -132,7 +132,7 @@ static void spawn_init(void) {
             handle_close(ih);
             process_destroy(proc);
             kfree(buf);
-            return;
+            return 8;
         }
 
         ssize interp_len = handle_read(ih, interp_buf, interp_buf_size);
@@ -144,7 +144,7 @@ static void spawn_init(void) {
             process_destroy(proc);
             kfree(interp_buf);
             kfree(buf);
-            return;
+            return 9;
         }
         
         //load interpreter into address space
@@ -155,7 +155,7 @@ static void spawn_init(void) {
             process_destroy(proc);
             kfree(interp_buf);
             kfree(buf);
-            return;
+            return 10;
         }
         
         interp_base = interp_info.virt_base;
@@ -177,7 +177,7 @@ static void spawn_init(void) {
     uintptr stack_phys = (uintptr)pmm_alloc(stack_size / 4096);
     if (!stack_phys) {
         printf("[init] failed to allocate stack\n");
-        return;
+        return 11;
     }
     mmu_map_range(proc->pagemap, user_stack_base - stack_size, stack_phys, 
                   stack_size / 4096, MMU_FLAG_WRITE | MMU_FLAG_USER);
@@ -211,7 +211,7 @@ static void spawn_init(void) {
     if (!thread) {
         printf("[init] failed to create thread\n");
         kfree(buf);
-        return;
+        return 12;
     }
     printf("[init] created thread TID %lu\n", thread->tid);
     
@@ -272,7 +272,10 @@ void kernel_main(const char *cmdline) {
     syscall_init();
     
     //spawn init process
-    spawn_init();
+    int res = spawn_init();
+    if (res != 0) {
+        kpanic(NULL, "FATAL: init failed to spawn! (error code %d)\n", res);
+    }
     
     //start scheduler - never returns
     printf("[kernel] starting scheduler...\n");
@@ -280,5 +283,5 @@ void kernel_main(const char *cmdline) {
     
     //should never reach here
     printf("[kernel] ERROR: scheduler returned!\n");
-    for (;;) arch_halt();
+    kpanic(NULL, "FATAL: Scheduler returned!\n");
 }
