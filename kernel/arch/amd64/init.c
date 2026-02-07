@@ -38,7 +38,7 @@ void arch_init(struct db_boot_info *boot_info) {
         printf("[amd64] cmdline = '%s'\n", cmdline);
         
         //parse early command-line arguments that affect initialization
-        //check for -PIC flag to force PIC mode
+        //check for `noapic` flag to force PIC mode
         char cmdline_buf[256];
         size len = strlen(cmdline);
         if (len >= sizeof(cmdline_buf)) len = sizeof(cmdline_buf) - 1;
@@ -47,10 +47,9 @@ void arch_init(struct db_boot_info *boot_info) {
         
         char *arg = strtok(cmdline_buf, " ");
         while (arg) {
-            if (strcmp(arg, "-PIC") == 0 || strcmp(arg, "--pic") == 0) {
+            if (strcmp(arg, "noapic") == 0) {
                 apic_set_force_pic(true);
                 printf("[amd64] PIC mode forced via command line\n");
-                break;
             }
             arg = strtok(NULL, " ");
         }
