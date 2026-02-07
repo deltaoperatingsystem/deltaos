@@ -1,4 +1,5 @@
 #include <arch/types.h>
+#include <lib/mem.h>
 
 word atoi(const char *p) {
     word k = 0;
@@ -152,4 +153,11 @@ int memcmp(const void *s1, const void *s2, size n) {
         p2++;
     }
     return 0;
+}
+
+char *strdup(const char *s) {
+    size len = strlen(s) + 1;
+    char *new = malloc(len);
+    if (new) memcpy(new, s, len);
+    return new;
 }

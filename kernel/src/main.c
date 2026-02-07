@@ -13,6 +13,7 @@
 #include <drivers/vt/vt.h>
 #include <lib/string.h>
 #include <lib/io.h>
+#include <lib/mem.h>
 #include <boot/db.h>
 #include <mm/pmm.h>
 #include <mm/mm.h>
@@ -32,15 +33,21 @@
 extern void arch_enter_usermode(arch_context_t *ctx);
 extern void percpu_set_kernel_stack(void *stack_top);
 
+char *init_path;
 
 //load and execute init from initrd
 static void spawn_init(void) {
     //open init
-    handle_t h = handle_open("$files/system/binaries/init", HANDLE_RIGHT_READ);
+    printf("[init] recieved path %s\n", init_path);
+    char path[64];
+    snprintf(path, sizeof(path), "$files/%s", init_path);
+    handle_t h = handle_open(path, HANDLE_RIGHT_READ);
     if (h == INVALID_HANDLE) {
-        printf("[init] failed to open /system/binaries/init\n");
+        printf("[init] failed to open %s\n", path);
+        free(init_path);
         return;
     }
+    free(init_path);
     
     //allocate buffer for init binary
     size buf_size = 32768;  //32KB should be enough
@@ -224,16 +231,19 @@ void parse_cmdline(const char *cmdline) {
     buf[len] = '\0';
     char *arg = strtok(buf, " ");
     while (arg) {
-        if (strcmp(arg, "debug") == 0) io_enable_serial();
+        if (strcmp(arg, "debug") == '\0') io_enable_serial();
+        else if (strcmp(arg, "init") == '=') init_path = strdup(arg + 5);
+        else printf("[cmdline] unknown option %s\n", arg);
         arg = strtok(NULL, " ");
     }
 }
 
 void kernel_main(const char *cmdline) {
+    init_path = strdup("/system/binaries/init");
     parse_cmdline(cmdline);
     set_outmode(SERIAL);
     printf("kernel_main started\n");
-    
+
     object_t *devs = ns_create_dir("$devices/");
     if (devs) {
         ns_register("$devices", devs);
