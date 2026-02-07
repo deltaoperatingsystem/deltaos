@@ -82,10 +82,26 @@ intptr sys_getcwd(char *buf, size bufsize) {
     return (intptr)cwd_len;
 }
 
+//TODO: allow for directory creation in non-$files namespaces
 intptr sys_mkdir(const char *path, uint32 mode) {
     (void)mode;
     if (!path) return -1;
-    return handle_create(path, FS_TYPE_DIR);
+
+    process_t *proc = process_current();
+    if (!proc) return -2;
+
+    if (path[0] == '$') return -4;
+
+    char full_path[256];
+    if (path[0] == '/') {
+        strncpy(full_path, path, sizeof(full_path) - 1);
+    } else {
+        snprintf(full_path, sizeof(full_path), "$files/%s/%s", proc->cwd, path);
+    }
+
+    path_normalize(full_path);
+
+    return handle_create(full_path, FS_TYPE_DIR);
 }
 
 intptr sys_remove(const char *path) {

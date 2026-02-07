@@ -95,7 +95,6 @@ find_ovmf() {
         found=$(find "$dir" -maxdepth 2 -type f -name "OVMF_CODE.4m.fd" 2>/dev/null)
         if [[ -n "$found" ]]; then
             OVMF_CODE="$found"
-            stat "$OVMF_CODE"
             return
         fi
     done
