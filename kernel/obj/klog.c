@@ -107,9 +107,9 @@ static object_ops_t klog_ops = {
 void klog_init(void) {
     object_t *obj = object_create(OBJECT_INFO, &klog_ops, NULL);
     if (obj) {
-        if (ns_register("$kernel/log", obj) != 0) {
+        if (ns_register("$devices/klog", obj) != 0) {
             //can't use klog yet so we just fail silently or print to serial if available
-            serial_write("[klog] ERR: failed to register $kernel/log\n");
+            serial_write("[klog] ERR: failed to register $devices/klog\n");
         }
         object_deref(obj);
     }

@@ -67,4 +67,13 @@ void kfree(void *p);
 void *kheap_alloc_pages(size pages);
 void kheap_free_pages(void *p, size pages);
 
+//heap statistics
+typedef struct {
+    uint64 slab_used;      //bytes allocated via slab
+    uint64 slab_capacity;  //total slab capacity
+    uint64 large_used;     //bytes in large allocations
+} kheap_stats_t;
+
+void kheap_get_stats(kheap_stats_t *stats);
+
 #endif

@@ -6,6 +6,9 @@
 //initialize scheduler
 void sched_init(void);
 
+//initialize scheduler for an AP
+void sched_init_ap(void);
+
 //add thread to run queue
 void sched_add(thread_t *thread);
 

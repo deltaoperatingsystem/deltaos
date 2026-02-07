@@ -16,6 +16,11 @@ pagemap_t *mmu_get_kernel_pagemap(void) {
     return &kernel_pagemap;
 }
 
+uint64 mmu_get_kernel_cr3(void) {
+    pagemap_t *map = mmu_get_kernel_pagemap();
+    return (uint64)map->top_level;
+}
+
 static void mmu_write_msr(uint32 msr, uint64 val) {
     uint32 lo = val & 0xFFFFFFFF;
     uint32 hi = val >> 32;
@@ -241,7 +246,7 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
         uintptr check_virt = virt + (v * PAGE_SIZE);
         uintptr resolved = mmu_virt_to_phys(map, check_virt);
         if (resolved == 0) {
-            printf("[mmu] VERIFY FAIL: page %zu at 0x%lx not mapped!\\n", v, check_virt);
+            printf("[mmu] VERIFY FAIL: page %zu at 0x%lx not mapped!\n", v, check_virt);
         }
     }
 }

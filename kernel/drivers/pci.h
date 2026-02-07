@@ -50,8 +50,8 @@ pci_device_t *pci_get_devices(void);
 uint32 pci_device_count(void);
 
 //raw config space access (for drivers)
-uint32 pci_config_read(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint8 size);
-void   pci_config_write(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint8 size, uint32 value);
+uint32 pci_config_read(uint8 bus, uint8 dev, uint8 func, uint16 offset, uint8 size);
+void   pci_config_write(uint8 bus, uint8 dev, uint8 func, uint16 offset, uint8 size, uint32 value);
 
 //enable bus mastering for a device
 void pci_enable_bus_master(pci_device_t *dev);

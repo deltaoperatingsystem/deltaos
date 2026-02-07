@@ -11,6 +11,7 @@ struct stat;
 #define OBJECT_DIR     2
 #define OBJECT_DEVICE  3
 #define OBJECT_PIPE    4
+#define OBJECT_SYSTEM  5
 
 //extended kernel object types
 #include <obj/kobject.h>
@@ -28,6 +29,7 @@ typedef struct object_ops {
     int   (*readdir)(struct object *obj, void *entries, uint32 count, uint32 *index);
     struct object *(*lookup)(struct object *obj, const char *name);  //find child by name
     int   (*stat)(struct object *obj, struct stat *st);
+    intptr (*get_info)(struct object *obj, uint32 topic, void *buf, size len);
 } object_ops_t;
 
 //base object structure
@@ -63,10 +65,10 @@ static inline ssize object_read(object_t *obj, void *buf, size len, size offset)
 }
 
 //get type name (for debugging)
-static inline const char *object_get_type_name(object_t *obj) {
-    if (!obj) return "null";
-    return object_type_name(obj->type);
-}
+const char *object_get_type_name(object_t *obj);
+
+//generic get info
+intptr object_get_info(object_t *obj, uint32 topic, void *buf, size len);
 
 #endif
 

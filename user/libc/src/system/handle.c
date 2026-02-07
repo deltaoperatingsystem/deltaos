@@ -33,3 +33,7 @@ int handle_close(int32 h) {
 int32 handle_dup(int32 h, uint32 new_rights) {
     return __syscall2(SYS_HANDLE_DUP, (long)h, (long)new_rights);
 }
+
+int object_get_info(int32 h, uint32 topic, void *ptr, uint64 len) {
+    return __syscall4(SYS_OBJECT_GET_INFO, (long)h, (long)topic, (long)ptr, (long)len);
+}

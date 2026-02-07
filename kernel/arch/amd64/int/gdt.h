@@ -16,4 +16,7 @@
 
 void gdt_init(void);
 
+//initialize GDT and TSS for an AP
+void gdt_init_ap(uint32 cpu_index);
+
 #endif

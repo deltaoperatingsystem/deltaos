@@ -102,8 +102,77 @@ typedef struct acpi_mcfg {
     acpi_mcfg_entry_t entries[];
 } __attribute__((packed)) acpi_mcfg_t;
 
+//FADT
+#define ACPI_FADT_SIGNATURE "FACP"
+
+typedef struct acpi_gas {
+    uint8 address_space_id;
+    uint8 register_bit_width;
+    uint8 register_bit_offset;
+    uint8 access_size;
+    uint64 address;
+} __attribute__((packed)) acpi_gas_t;
+
+typedef struct acpi_fadt {
+    acpi_header_t header;
+    uint32 firmware_ctrl;
+    uint32 dsdt;
+    uint8 reserved;
+    uint8 preferred_pm_profile;
+    uint16 sci_int;
+    uint32 smi_cmd;
+    uint8 acpi_enable;
+    uint8 acpi_disable;
+    uint8 s4bios_req;
+    uint8 pstate_cnt;
+    uint32 pm1a_evt_blk;
+    uint32 pm1b_evt_blk;
+    uint32 pm1a_cnt_blk;
+    uint32 pm1b_cnt_blk;
+    uint32 pm2_cnt_blk;
+    uint32 pmtmr_blk;
+    uint32 gpe0_blk;
+    uint32 gpe1_blk;
+    uint8 pm1_evt_len;
+    uint8 pm1_cnt_len;
+    uint8 pm2_cnt_len;
+    uint8 pmtmr_len;
+    uint8 gpe0_len;
+    uint8 gpe1_len;
+    uint8 gpe1_base;
+    uint8 cst_cnt;
+    uint16 p_lvl2_lat;
+    uint16 p_lvl3_lat;
+    uint16 flush_size;
+    uint16 flush_stride;
+    uint8 duty_offset;
+    uint8 duty_width;
+    uint8 day_alrm;
+    uint8 mon_alrm;
+    uint8 century;
+    uint16 iapc_boot_arch;
+    uint8 reserved2;
+    uint32 flags;
+    acpi_gas_t reset_reg;
+    uint8 reset_value;
+    uint8 reserved3[3];
+    uint64 x_firmware_ctrl;
+    uint64 x_dsdt;
+    acpi_gas_t x_pm1a_evt_blk;
+    acpi_gas_t x_pm1b_evt_blk;
+    acpi_gas_t x_pm1a_cnt_blk;
+    acpi_gas_t x_pm1b_cnt_blk;
+    acpi_gas_t x_pm2_cnt_blk;
+    acpi_gas_t x_pmtmr_blk;
+    acpi_gas_t x_gpe0_blk;
+    acpi_gas_t x_gpe1_blk;
+} __attribute__((packed)) acpi_fadt_t;
+
 void acpi_init(void);
 void *acpi_find_table(const char *signature);
+
+void acpi_shutdown(void);
+void acpi_reboot(void);
 
 //system configuration derived from ACPI
 extern uint32 acpi_cpu_count;

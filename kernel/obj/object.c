@@ -35,3 +35,20 @@ void object_deref(object_t *obj) {
         kfree(obj);
     }
 }
+
+intptr object_get_info(object_t *obj, uint32 topic, void *buf, size len) {
+    if (!obj) return -1;
+    
+    //generic info handling could go here (e.x type info)
+    
+    if (obj->ops && obj->ops->get_info) {
+        return obj->ops->get_info(obj, topic, buf, len);
+    }
+    
+    return -1;
+}
+
+const char *object_get_type_name(object_t *obj) {
+    if (!obj) return "null";
+    return object_type_name(obj->type);
+}

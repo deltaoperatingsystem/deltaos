@@ -8,13 +8,47 @@
 #include <lib/string.h>
 #include <lib/io.h>
 #include <proc/sched.h>
+#include <lib/spinlock.h>
+#include <arch/percpu.h>
+#include <syscall/syscall.h>
+
 
 static uint64 next_pid = 1;
 static process_t *process_list = NULL;
-static process_t *current_process = NULL;
 static process_t *kernel_process = NULL;
 
+
+static spinlock_t proc_lock = SPINLOCK_INIT;
+static spinlock_t pid_lock = SPINLOCK_INIT;
+
 //process object ops (called when all handles to a process are closed)
+static int process_obj_close(object_t *obj);
+
+static intptr process_obj_get_info(object_t *obj, uint32 topic, void *buf, size len) {
+    process_t *proc = (process_t *)obj->data;
+    if (!proc) return -1;
+    
+    if (topic == OBJ_INFO_PROCESS_BASIC) {
+        if (len < sizeof(process_info_basic_t)) return -1;
+        process_info_basic_t info;
+        info.pid = proc->pid;
+        info.parent_pid = proc->parent_pid;
+        strncpy(info.name, proc->name, sizeof(info.name));
+        info.status = proc->state;
+        
+        //calculate memory usage from VMA list
+        uint64 mem = 0;
+        for (proc_vma_t *vma = proc->vma_list; vma; vma = vma->next) {
+            mem += vma->length;
+        }
+        info.memory_usage = mem;
+        
+        memcpy(buf, &info, sizeof(info));
+        return 0;
+    }
+    return -1;
+}
+
 static int process_obj_close(object_t *obj) {
     (void)obj;
     return 0;
@@ -25,15 +59,21 @@ static object_ops_t process_object_ops = {
     .write = NULL,
     .close = process_obj_close,
     .readdir = NULL,
-    .lookup = NULL
+    .lookup = NULL,
+    .get_info = process_obj_get_info
 };
 
 process_t *process_find(uint64 pid) {
+    spinlock_acquire(&proc_lock);
     process_t *p = process_list;
     while (p) {
-        if (p->pid == pid) return p;
+        if (p->pid == pid) {
+            spinlock_release(&proc_lock);
+            return p;
+        }
         p = p->next;
     }
+    spinlock_release(&proc_lock);
     return NULL;
 }
 
@@ -45,7 +85,14 @@ process_t *process_create(const char *name) {
     process_t *proc = kzalloc(sizeof(process_t));
     if (!proc) return NULL;
     
+    spinlock_acquire(&pid_lock);
     proc->pid = next_pid++;
+    spinlock_release(&pid_lock);
+    
+    //set parent PID from creating process
+    process_t *parent = process_current();
+    proc->parent_pid = parent ? parent->pid : 0;
+    
     strncpy(proc->name, name, sizeof(proc->name) - 1);
     proc->state = PROC_STATE_READY;
     
@@ -75,10 +122,13 @@ process_t *process_create(const char *name) {
     proc->thread_count = 0;
     proc->exit_code = 0;
     wait_queue_init(&proc->exit_wait);
+    spinlock_init(&proc->lock);
     
     //add to process list
+    spinlock_acquire(&proc_lock);
     proc->next = process_list;
     process_list = proc;
+    spinlock_release(&proc_lock);
     
     return proc;
 }
@@ -149,6 +199,7 @@ void process_destroy(process_t *proc) {
     }
     
     //remove from process list
+    spinlock_acquire(&proc_lock);
     process_t **pp = &process_list;
     while (*pp) {
         if (*pp == proc) {
@@ -157,6 +208,7 @@ void process_destroy(process_t *proc) {
         }
         pp = &(*pp)->next;
     }
+    spinlock_release(&proc_lock);
     
     //free the process object
     if (proc->obj) {
@@ -175,6 +227,7 @@ object_t *process_get_object(process_t *proc) {
 int process_grant_handle(process_t *proc, object_t *obj, handle_rights_t rights) {
     if (!proc || !obj) return -1;
     
+    spinlock_acquire(&proc->lock);
     //find free slot
     for (uint32 i = 0; i < proc->handle_capacity; i++) {
         if (!proc->handles[i].obj) {
@@ -184,6 +237,7 @@ int process_grant_handle(process_t *proc, object_t *obj, handle_rights_t rights)
             proc->handles[i].rights = rights;
             object_ref(obj);
             proc->handle_count++;
+            spinlock_release(&proc->lock);
             return i;
         }
     }
@@ -191,7 +245,10 @@ int process_grant_handle(process_t *proc, object_t *obj, handle_rights_t rights)
     //grow table
     uint32 new_cap = proc->handle_capacity * 2;
     proc_handle_t *new_handles = krealloc(proc->handles, new_cap * sizeof(proc_handle_t));
-    if (!new_handles) return -1;
+    if (!new_handles) {
+        spinlock_release(&proc->lock);
+        return -1;
+    }
     
     //zero new entries
     for (uint32 i = proc->handle_capacity; i < new_cap; i++) {
@@ -212,6 +269,7 @@ int process_grant_handle(process_t *proc, object_t *obj, handle_rights_t rights)
     proc->handle_capacity = new_cap;
     proc->handle_count++;
     
+    spinlock_release(&proc->lock);
     return h;
 }
 
@@ -269,7 +327,11 @@ int process_replace_handle_rights(process_t *proc, int handle, handle_rights_t n
 
 int process_close_handle(process_t *proc, int handle) {
     if (!proc || handle < 0 || (uint32)handle >= proc->handle_capacity) return -1;
-    if (!proc->handles[handle].obj) return -1;
+    spinlock_acquire(&proc->lock);
+    if (!proc->handles[handle].obj) {
+        spinlock_release(&proc->lock);
+        return -1;
+    }
     
     object_deref(proc->handles[handle].obj);
     proc->handles[handle].obj = NULL;
@@ -277,16 +339,19 @@ int process_close_handle(process_t *proc, int handle) {
     proc->handles[handle].flags = 0;
     proc->handles[handle].rights = HANDLE_RIGHT_NONE;
     proc->handle_count--;
+    spinlock_release(&proc->lock);
     
     return 0;
 }
 
 process_t *process_current(void) {
-    return current_process;
+    percpu_t *pc = percpu_get();
+    return (process_t *)pc->current_process;
 }
 
 void process_set_current(process_t *proc) {
-    current_process = proc;
+    percpu_t *pc = percpu_get();
+    pc->current_process = proc;
 }
 
 process_t *process_get_kernel(void) {
@@ -318,6 +383,7 @@ uintptr process_vma_find_free(process_t *proc, size length) {
     //page-align the length
     length = (length + 0xFFF) & ~0xFFFULL;
     
+    spinlock_acquire(&proc->lock);
     //start from the hint or default
     uintptr addr = proc->vma_next_addr;
     if (addr < USER_SPACE_START) addr = USER_SPACE_START;
@@ -344,10 +410,12 @@ uintptr process_vma_find_free(process_t *proc, size length) {
         if (!conflict) {
             //found a free region
             proc->vma_next_addr = addr + length;
+            spinlock_release(&proc->lock);
             return addr;
         }
     }
     
+    spinlock_release(&proc->lock);
     return 0;  //no space found
 }
 
@@ -366,9 +434,11 @@ int process_vma_add(process_t *proc, uintptr start, size length,
     
     if (backing_obj) object_ref(backing_obj);
     
+    spinlock_acquire(&proc->lock);
     //insert at head of list
     vma->next = proc->vma_list;
     proc->vma_list = vma;
+    spinlock_release(&proc->lock);
     
     return 0;
 }
@@ -389,6 +459,7 @@ uintptr process_vma_alloc(process_t *proc, size length, uint32 flags,
 int process_vma_remove(process_t *proc, uintptr start) {
     if (!proc) return -1;
     
+    spinlock_acquire(&proc->lock);
     proc_vma_t **pp = &proc->vma_list;
     while (*pp) {
         if ((*pp)->start == start) {
@@ -397,10 +468,12 @@ int process_vma_remove(process_t *proc, uintptr start) {
             
             if (vma->obj) object_deref(vma->obj);
             kfree(vma);
+            spinlock_release(&proc->lock);
             return 0;
         }
         pp = &(*pp)->next;
     }
+    spinlock_release(&proc->lock);
     
     return -1;  //not found
 }
@@ -408,11 +481,14 @@ int process_vma_remove(process_t *proc, uintptr start) {
 proc_vma_t *process_vma_find(process_t *proc, uintptr addr) {
     if (!proc) return NULL;
     
+    spinlock_acquire(&proc->lock);
     for (proc_vma_t *vma = proc->vma_list; vma; vma = vma->next) {
         if (addr >= vma->start && addr < vma->start + vma->length) {
+            spinlock_release(&proc->lock);
             return vma;
         }
     }
+    spinlock_release(&proc->lock);
     
     return NULL;
 }
@@ -530,11 +606,11 @@ uintptr process_setup_user_stack_dynamic(uintptr stack_phys, uintptr stack_base,
 }
 
 void process_iterate(void (*cb)(process_t *proc, void *data), void *data) {
-    irq_state_t flags = arch_irq_save();
+    spinlock_acquire(&proc_lock);
     process_t *p = process_list;
     while (p) {
         cb(p, data);
         p = p->next;
     }
-    arch_irq_restore(flags);
+    spinlock_release(&proc_lock);
 }

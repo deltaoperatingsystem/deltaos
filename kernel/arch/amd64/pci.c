@@ -9,7 +9,7 @@
 #define PCI_CONFIG_DATA  0xCFC
 
 //port I/O helpers
-static uint32 pci_legacy_make_addr(uint8 bus, uint8 dev, uint8 func, uint8 offset) {
+static uint32 pci_legacy_make_addr(uint8 bus, uint8 dev, uint8 func, uint16 offset) {
     return (1u << 31) //enable bit
          | ((uint32)bus << 16)
          | ((uint32)dev << 11)
@@ -17,7 +17,7 @@ static uint32 pci_legacy_make_addr(uint8 bus, uint8 dev, uint8 func, uint8 offse
          | (offset & 0xFC);
 }
 
-static uint32 pci_legacy_read(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint8 size) {
+static uint32 pci_legacy_read(uint8 bus, uint8 dev, uint8 func, uint16 offset, uint8 size) {
     outl(PCI_CONFIG_ADDR, pci_legacy_make_addr(bus, dev, func, offset));
     uint32 dword = inl(PCI_CONFIG_DATA);
     uint32 shift = (offset & 3) * 8;
@@ -30,7 +30,7 @@ static uint32 pci_legacy_read(uint8 bus, uint8 dev, uint8 func, uint8 offset, ui
     }
 }
 
-static void pci_legacy_write(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint8 size, uint32 value) {
+static void pci_legacy_write(uint8 bus, uint8 dev, uint8 func, uint16 offset, uint8 size, uint32 value) {
     uint32 addr = pci_legacy_make_addr(bus, dev, func, offset);
     outl(PCI_CONFIG_ADDR, addr);
     
@@ -54,20 +54,21 @@ static void pci_legacy_write(uint8 bus, uint8 dev, uint8 func, uint8 offset, uin
 }
 
 //ECAM (MMIO) helpers
-static void *pci_ecam_get_addr(uint8 bus, uint8 dev, uint8 func, uint8 offset) {
+static void *pci_ecam_get_addr(uint8 bus, uint8 dev, uint8 func, uint16 offset) {
     if (acpi_mcfg_addr == 0) return NULL;
     if (bus < acpi_mcfg_start_bus || bus > acpi_mcfg_end_bus) return NULL;
     
+    //PCIE extended config space is 4096 bytes per function
     uintptr phys = acpi_mcfg_addr 
                  + ((((uintptr)bus - acpi_mcfg_start_bus) << 20)
                  | ((uintptr)dev << 15)
                  | ((uintptr)func << 12)
-                 | (uintptr)offset);
+                 | (uintptr)(offset & 0xFFF));
                  
     return P2V(phys);
 }
 
-uint32 arch_pci_read(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint8 size) {
+uint32 arch_pci_read(uint8 bus, uint8 dev, uint8 func, uint16 offset, uint8 size) {
     void *mmio_addr = pci_ecam_get_addr(bus, dev, func, offset);
     if (mmio_addr) {
         switch (size) {
@@ -81,7 +82,7 @@ uint32 arch_pci_read(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint8 size)
     return pci_legacy_read(bus, dev, func, offset, size);
 }
 
-void arch_pci_write(uint8 bus, uint8 dev, uint8 func, uint8 offset, uint8 size, uint32 value) {
+void arch_pci_write(uint8 bus, uint8 dev, uint8 func, uint16 offset, uint8 size, uint32 value) {
     void *mmio_addr = pci_ecam_get_addr(bus, dev, func, offset);
     if (mmio_addr) {
         switch (size) {

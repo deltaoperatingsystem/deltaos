@@ -149,3 +149,11 @@ void arch_interrupts_enable(void) {
 void arch_interrupts_disable(void) {
     __asm__ volatile ("cli");
 }
+
+void idt_load(void) {
+    __asm__ volatile ("lidt %0" : : "m"(idtr));
+}
+
+void *idt_get_ptr(void) {
+    return &idtr;
+}
