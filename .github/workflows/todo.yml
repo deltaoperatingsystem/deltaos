@@ -1,0 +1,81 @@
+name: Create TODO Issues
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  create_todo_issues:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Fetch PR file metadata
+        id: files
+        run: |
+          gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
+            --jq '.[] | {filename, patch}' > files.json
+
+      - name: Extract TODOs with context
+        id: todos
+        run: |
+          rm -f todos_parsed.txt
+          touch todos_parsed.txt
+
+          jq -c '.' files.json | while read -r file; do
+            filename=$(echo "$file" | jq -r '.filename')
+            patch=$(echo "$file" | jq -r '.patch')
+
+            current_line=0
+
+            while IFS= read -r line; do
+              if [[ "$line" =~ ^@@ ]]; then
+                current_line=$(echo "$line" | grep -oP '(?<=\+)[0-9]+')
+                continue
+              fi
+
+              if [[ "$line" =~ ^\+ ]]; then
+                content="${line:1}"  # strip leading '+'
+
+                if [[ "$content" =~ TODO ]]; then
+                  todo_text=$(echo "$content" | sed -n 's/.*\(TODO.*\)/\1/p')
+
+                  col=$(echo "$content" | grep -bo "TODO" | cut -d: -f1)
+                  title="TODO: ${filename}:${current_line}:${col}: ${todo_text}"
+
+                  pr=${{ github.event.pull_request.number }}
+                  repo=${{ github.repository }}
+                  link="https://github.com/${repo}/pull/${pr}/files#diff-${filename//\//-}L${current_line}"
+
+                  echo "$title|||$link" >> todos_parsed.txt
+                fi
+
+                current_line=$((current_line + 1))
+              fi
+            done <<< "$patch"
+          done
+
+      - name: Create issues
+        run: |
+          while IFS='|||' read -r title link; do
+            if [ -z "$title" ]; then
+                  continue
+            fi
+
+            existing=$(gh issue list --search "$title" --state open --json title | jq 'length')
+            if [ "$existing" -gt 0 ]; then
+                echo "Skipping duplicate: $title"
+                continue
+            fi
+
+            gh issue create \
+                --title "$title" \
+                --body "Found in PR #${{ github.event.pull_request.number }}:\n\n$link" \
+                --label "todo"
+            
+          done < todos_parsed.txt
