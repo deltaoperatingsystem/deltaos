@@ -9,7 +9,7 @@ AR := ar
 LIB_INC_DIRS := $(shell find lib -maxdepth 2 -type d -name include 2>/dev/null)
 LIB_INCLUDES := $(patsubst %,-I%,$(LIB_INC_DIRS))
 
-CFLAGS := -ffreestanding -fno-builtin -fno-stack-protector -m64 -c -O2 -Ilibc/include -std=c11 -fPIC $(LIB_INCLUDES)
+CFLAGS := -ffreestanding -fno-builtin -fno-stack-protector -m64 -c -O2 -Ilibc/include -Ilibc/include/isoc -std=c11 -fPIC $(LIB_INCLUDES)
 ASFLAGS := -m64 -c
 LDFLAGS := -nostdlib
 
