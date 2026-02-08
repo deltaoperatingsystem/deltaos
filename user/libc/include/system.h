@@ -62,8 +62,13 @@ typedef struct {
 } dirent_t;
 
 //filesystem types
-#define FS_TYPE_FILE    1
-#define FS_TYPE_DIR     2
+#define FS_TYPE_FILE    1   //regular file
+#define FS_TYPE_DIR     2   //directory
+#define FS_TYPE_SYMLINK 3   //symbolic link
+#define FS_TYPE_LINK    4   //hard link
+#define FS_TYPE_PIPE    5   //named pipe (FIFO)
+#define FS_TYPE_SOCKET  6   //socket
+#define FS_TYPE_DEVICE  7   //device node
 
 //extended channel recv with sender info
 typedef struct {

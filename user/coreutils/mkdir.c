@@ -6,7 +6,7 @@ int main(int argc, char**argv) {
         puts("Usage: mkdir <path>\n");
         return -1;
     }
-    int res = mkdir(argv[1], 0755);
+    int res = mkdir(argv[1]);
     if (res < 0) {
         printf("Failed to create path '%s' (error %d)\n", argv[1], res);
         return res;

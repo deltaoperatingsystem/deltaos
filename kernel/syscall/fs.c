@@ -83,8 +83,7 @@ intptr sys_getcwd(char *buf, size bufsize) {
 }
 
 //TODO: allow for directory creation in non-$files namespaces
-intptr sys_mkdir(const char *path, uint32 mode) {
-    (void)mode;
+intptr sys_mknode(const char *path, uint32 type) {
     if (!path) return -1;
 
     process_t *proc = process_current();
@@ -101,7 +100,7 @@ intptr sys_mkdir(const char *path, uint32 mode) {
 
     path_normalize(full_path);
 
-    return handle_create(full_path, FS_TYPE_DIR);
+    return handle_create(full_path, type);
 }
 
 intptr sys_remove(const char *path) {

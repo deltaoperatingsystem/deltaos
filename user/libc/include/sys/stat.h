@@ -3,6 +3,6 @@
 
 #include <types.h>
 
-int mkdir(const char *pathname, uint32 mode);
+int mkdir(const char *pathname);
 
 #endif

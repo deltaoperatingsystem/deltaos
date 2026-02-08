@@ -44,7 +44,7 @@ intptr syscall_dispatch(uintptr num, uintptr arg1, uintptr arg2, uintptr arg3,
         case SYS_CHDIR: return sys_chdir((const char *)arg1);
         case SYS_GETCWD: return sys_getcwd((char *)arg1, (size)arg2);
         case SYS_GET_TICKS: return sys_get_ticks();
-        case SYS_MKDIR: return sys_mkdir((const char *)arg1, (uint32)arg2);
+        case SYS_MKNODE: return sys_mknode((const char *)arg1, (uint32)arg2);
         case SYS_REMOVE: return sys_remove((const char *)arg1);
         case SYS_FSTAT: return sys_fstat((handle_t)arg1, (stat_t *)arg2);
         case SYS_REBOOT: return sys_reboot();
