@@ -8,4 +8,4 @@ nvme = true
 pci = true
 rtc = true
 serial = true
-vt = false
+vt = true
