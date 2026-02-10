@@ -245,7 +245,7 @@ void kernel_main(const char *cmdline) {
         object_deref(devs);
     }
 
-    //initialise drivers
+    //initialize drivers
     init_drivers();
     
     //initialize filesystems
