@@ -6,6 +6,7 @@ keyboard = true
 mouse = true
 nvme = true
 pci = true
+pcspeaker = true
 rtc = true
 serial = true
 vt = true

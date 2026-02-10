@@ -105,4 +105,11 @@ int channel_peer_closed(struct process *proc, int32 endpoint_handle);
 //get the channel endpoint object from a handle (returns NULL if not a channel)
 channel_endpoint_t *channel_get_endpoint(struct process *proc, int32 handle);
 
+//channel server functions (for kernel-side handlers)
+void channel_set_handler(channel_endpoint_t *ep, 
+                         void (*handler)(channel_endpoint_t *, channel_msg_t *, void *),
+                         void *ctx);
+void channel_clear_handler(channel_endpoint_t *ep);
+int channel_reply(channel_endpoint_t *ep, channel_msg_t *msg);
+
 #endif

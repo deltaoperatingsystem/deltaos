@@ -3,6 +3,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
 #include <drivers/rtc.h>
+#include <drivers/pcspeaker.h>
 #include <drivers/nvme.h>
 #include <drivers/serial.h>
 #include <drivers/vt/vt.h>
@@ -37,6 +38,9 @@ void init_drivers(void) {
 #endif
 #if DRIVER_RTC
     rtc_init();
+#endif
+#if DRIVER_PCSPEAKER
+    pcspeaker_init();
 #endif
 
     kernel_info_init();
