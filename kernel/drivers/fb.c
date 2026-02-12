@@ -7,6 +7,7 @@
 #include <obj/object.h>
 #include <obj/namespace.h>
 #include <arch/mmu.h>
+#include <drivers/init.h>
 
 static uint32 *framebuffer = NULL;  //VRAM (slow, uncached)
 static uint32 *backbuffer = NULL;   //RAM (fast, cached)
@@ -105,6 +106,9 @@ void fb_init_backbuffer(void) {
     memset(backbuffer, 0, fb_size);
     printf("[fb] backbuffer allocated: %zu bytes\n", fb_size);
 }
+
+DECLARE_DRIVER(fb_init, INIT_LEVEL_BUS);
+DECLARE_DRIVER(fb_init_backbuffer, INIT_LEVEL_DEVICE);
 
 //get the active buffer (backbuffer if available else VRAM)
 static inline uint32 *get_draw_target(void) {

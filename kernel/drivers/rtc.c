@@ -3,6 +3,7 @@
 #include <obj/object.h>
 #include <obj/namespace.h>
 #include <lib/io.h>
+#include <drivers/init.h>
 
 #define CMOS_ADDR 0x70
 #define CMOS_DATA 0x71
@@ -84,3 +85,5 @@ void rtc_init() {
     }
     puts("[rtc] initialized\n");
 }
+
+DECLARE_DRIVER(rtc_init, INIT_LEVEL_DEVICE);

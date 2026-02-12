@@ -4,6 +4,7 @@
 #include <lib/font.h>
 #include <obj/object.h>
 #include <obj/namespace.h>
+#include <drivers/init.h>
 
 #define FONT_WIDTH  8
 #define FONT_HEIGHT 16
@@ -49,6 +50,8 @@ void con_init(void) {
         ns_register("$devices/console", console_object);
     }
 }
+
+DECLARE_DRIVER(con_init, INIT_LEVEL_DEVICE);
 
 void con_clear(void) {
     fb_clear(bg_color);

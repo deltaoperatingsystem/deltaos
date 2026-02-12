@@ -24,35 +24,49 @@ struct thread;
 #define PERCPU_USER_RSP     8
 #define PERCPU_CURRENT      16
 #define PERCPU_CURRENT_PROC 24
-#define PERCPU_SELF         32
-#define PERCPU_CPU_INDEX    40
-#define PERCPU_APIC_ID      44
-#define PERCPU_STARTED      48
-#define PERCPU_TICKS        52
+#define PERCPU_PREV         32
+#define PERCPU_SELF         40
+#define PERCPU_TSS          48
+#define PERCPU_GDT          56
+#define PERCPU_IST_STACK    64
+#define PERCPU_RUN_Q_HEAD   72
+#define PERCPU_RUN_Q_TAIL   80
+#define PERCPU_IDLE         88
+#define PERCPU_CPU_INDEX    96
+#define PERCPU_APIC_ID      100
+#define PERCPU_STARTED      104
+#define PERCPU_TICKS        108
 
 //forward declarations
 struct tss;
 struct gdt_entry;
 
 typedef struct percpu {
+    //0-47: core pointers
     uint64 kernel_rsp;      // 0: kernel stack pointer (top of kernel stack)
     uint64 user_rsp;        // 8: saved user stack pointer during syscall
     void *current_thread;   //16: current thread pointer
     void *current_process;  //24: current process pointer
-    struct percpu *self;    //32: pointer to self (for accessing via GS)
-    uint32 cpu_index;       //40: logical CPU index (0 = BSP)
-    uint32 apic_id;         //44: local APIC ID
-    volatile uint32 started;//48: set to 1 when AP is fully initialized
-    uint32 tick_count;      //52: per-CPU tick count for scheduler
-    
-    struct tss *tss;        //56: pointer to this CPU's TSS
-    struct gdt_entry *gdt;  //64: ...
-    void *ist_stack;        //72: ...
+    void *prev_thread;      //32: thread we just switched from (to be cleared)
+    struct percpu *self;    //40: pointer to self (for accessing via GS)
 
-    //scheduler state
-    struct thread *run_queue_head;
-    struct thread *run_queue_tail;
-    struct thread *idle_thread;
+    //48-71: arch pointers
+    struct tss *tss;        //48: pointer to this CPU's TSS
+    struct gdt_entry *gdt;  //56: ...
+    void *ist_stack;        //64: ...
+
+    //72-95: scheduler pointers
+    struct thread *run_queue_head; //72
+    struct thread *run_queue_tail; //80
+    struct thread *idle_thread;    //88
+
+    //96-111: counters and IDs
+    uint32 cpu_index;       //96
+    uint32 apic_id;         //100
+    volatile uint32 started;//104
+    uint32 tick_count;      //108
+    
+    //112+: synchronisation
     spinlock_irq_t sched_lock;
 } percpu_t;
 

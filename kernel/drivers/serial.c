@@ -2,6 +2,7 @@
 #include <arch/io.h>
 #include <obj/object.h>
 #include <obj/namespace.h>
+#include <drivers/init.h>
 
 #define COM1_PORT 0x3F8
 #define COM1_MMIO 0
@@ -79,3 +80,5 @@ void serial_init_object(void) {
         ns_register("$devices/serial", serial_object);
     }
 }
+
+DECLARE_DRIVER(serial_init_object, INIT_LEVEL_DEVICE);

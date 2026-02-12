@@ -1,4 +1,5 @@
 #include <arch/amd64/smp/smp.h>
+#include <arch/smp.h>
 #include <arch/amd64/percpu.h>
 #include <arch/amd64/int/apic.h>
 #include <arch/amd64/int/gdt.h>
@@ -17,6 +18,9 @@
 //trampoline is assembled separately and linked
 extern uint8 _trampoline_start[];
 extern uint8 _trampoline_end[];
+
+extern void syscall_init(void);
+extern void enable_sse(void);
 
 //trampoline data structure - shared between BSP and APs
 //located at a fixed address following the trampoline code
@@ -212,11 +216,17 @@ void ap_entry(uint32 cpu_index) {
     //initialize this AP's GDT and TSS
     gdt_init_ap(cpu_index);
     
+    //enable SSE for this AP
+    enable_sse();
+    
     //initialize this AP's scheduler
     sched_init_ap();
     
     //load IDT (same as BSP)
     idt_load();
+    
+    //initialize syscall handling for this AP
+    syscall_init();
     
     //enable local APIC for this AP
     //the APIC is already enabled via MSR, just need to set spurious vector
@@ -231,11 +241,13 @@ void ap_entry(uint32 cpu_index) {
     
     printf("[smp] AP %u: initialized (APIC ID %u)\n", cpu_index, apic_id);
     
-    //enable interrupts and enter idle loop
-    //for now APs just spin - not integrated in scheduler yet
-    __asm__ volatile ("sti");
+    //start the scheduler on this AP
+    sched_start();
+}
+
+void arch_smp_send_resched(uint32 cpu_index) {
+    percpu_t *cpu = percpu_get_by_index(cpu_index);
+    if (!cpu || !cpu->started) return;
     
-    for (;;) {
-        arch_idle();
-    }
+    apic_send_ipi(cpu->apic_id, IPI_RESCHEDULE);
 }

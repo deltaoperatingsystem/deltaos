@@ -3,6 +3,7 @@
 
 #include <arch/types.h>
 #include <arch/context.h>
+#include <lib/spinlock.h>
 #include <obj/object.h>
 
 struct process;
@@ -36,6 +37,10 @@ typedef struct thread {
     //usermode state for initial entry (only for user threads)
     arch_context_t user_context;
     
+    //scheduler state
+    int cpu_id;             //ID of CPU currently running this thread (-1 if none)
+    spinlock_t lock;        //thread-specific lock for state changes
+
     //linked list within process
     struct thread *next;
     

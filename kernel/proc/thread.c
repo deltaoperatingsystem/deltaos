@@ -55,6 +55,8 @@ thread_t *thread_create(process_t *proc, void (*entry)(void *), void *arg) {
     spinlock_release(&tid_lock);
     thread->process = proc;
     thread->state = THREAD_STATE_READY;
+    thread->cpu_id = -1;
+    spinlock_init(&thread->lock);
     
     //create kernel object for this thread
     thread->obj = object_create(OBJECT_THREAD, &thread_object_ops, thread);
@@ -164,6 +166,8 @@ thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
     spinlock_release(&tid_lock);
     thread->process = proc;
     thread->state = THREAD_STATE_READY;
+    thread->cpu_id = -1;
+    spinlock_init(&thread->lock);
     
     //create kernel object for this thread
     thread->obj = object_create(OBJECT_THREAD, &thread_object_ops, thread);

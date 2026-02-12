@@ -15,4 +15,7 @@ bool smp_ap_started(uint32 cpu_index);
 //called by AP after entering long mode
 void ap_entry(uint32 cpu_index);
 
+//send rescheduling IPI to a specific CPU
+void arch_smp_send_resched(uint32 cpu_index);
+
 #endif

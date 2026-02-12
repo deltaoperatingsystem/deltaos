@@ -7,6 +7,7 @@
 #include <arch/cpu.h>
 #include <string.h>
 #include <lib/io.h>
+#include <drivers/init.h>
 
 //active VT index
 static int active_vt = 0;
@@ -129,6 +130,8 @@ void vt_init(void) {
         active_vt = 0;
     }
 }
+
+DECLARE_DRIVER(vt_init, INIT_LEVEL_FS);
 
 vt_t *vt_create(void) {
     //find free slot

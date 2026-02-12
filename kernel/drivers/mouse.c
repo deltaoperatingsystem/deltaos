@@ -10,6 +10,8 @@
 #include <mm/kheap.h>
 #include <drivers/mouse_protocol.h>
 #include <lib/io.h>
+#include <drivers/init.h>
+#include <drivers/ps2.h>
 
 //PS/2 controller ports
 #define PS2_DATA        0x60
@@ -37,12 +39,14 @@ static uint8 mouse_packet[3];
 static int mouse_cycle = 0;
 
 //wait for PS/2 controller input buffer to be ready
+//must be called with ps2_lock held
 static void ps2_wait_write(void) {
     int timeout = 100000;
     while ((inb(PS2_STATUS) & 2) && --timeout);
 }
 
 //wait for PS/2 controller output buffer to have data
+//must be called with ps2_lock held
 static void ps2_wait_read(void) {
     int timeout = 100000;
     while (!(inb(PS2_STATUS) & 1) && --timeout);
@@ -50,16 +54,21 @@ static void ps2_wait_read(void) {
 
 //send command to mouse (via PS/2 controller port 2)
 static void mouse_write(uint8 cmd) {
+    spinlock_irq_acquire(&ps2_lock);
     ps2_wait_write();
     outb(PS2_CMD, PS2_CMD_WRITE_PORT2);
     ps2_wait_write();
     outb(PS2_DATA, cmd);
+    spinlock_irq_release(&ps2_lock);
 }
 
 //read response from mouse
 static uint8 mouse_read(void) {
+    spinlock_irq_acquire(&ps2_lock);
     ps2_wait_read();
-    return inb(PS2_DATA);
+    uint8 data = inb(PS2_DATA);
+    spinlock_irq_release(&ps2_lock);
+    return data;
 }
 
 //push event to channel
@@ -107,12 +116,17 @@ static void mouse_push_event(int16 dx, int16 dy, uint8 buttons) {
 }
 
 void mouse_irq(void) {
+    spinlock_irq_acquire(&ps2_lock);
     uint8 status = inb(PS2_STATUS);
     
     //bit 5 must be set for mouse data bit 0 for data available
-    if (!(status & 0x21)) return;
+    if (!(status & 0x21)) {
+        spinlock_irq_release(&ps2_lock);
+        return;
+    }
     
     uint8 data = inb(PS2_DATA);
+    spinlock_irq_release(&ps2_lock);
     
     switch (mouse_cycle) {
         case 0:
@@ -167,6 +181,7 @@ void mouse_init(void) {
     outb(PS2_CMD, PS2_CMD_ENABLE_PORT2);
     
     //read controller config
+    spinlock_irq_acquire(&ps2_lock);
     ps2_wait_write();
     outb(PS2_CMD, PS2_CMD_READ_CONFIG);
     ps2_wait_read();
@@ -180,6 +195,7 @@ void mouse_init(void) {
     outb(PS2_CMD, PS2_CMD_WRITE_CONFIG);
     ps2_wait_write();
     outb(PS2_DATA, config);
+    spinlock_irq_release(&ps2_lock);
     
     //reset mouse to defaults
     mouse_write(MOUSE_CMD_SET_DEFAULTS);
@@ -190,7 +206,7 @@ void mouse_init(void) {
     mouse_read();  //ACK
     
     //unmask IRQ12 (mouse)
-    pic_clear_mask(12);
+    interrupt_unmask(12);
     
     //create channel for mouse events
     process_t *kproc = process_get_kernel();
@@ -209,3 +225,5 @@ void mouse_init(void) {
 
     puts("[mouse] initialised\n");
 }
+
+DECLARE_DRIVER(mouse_init, INIT_LEVEL_DEVICE);

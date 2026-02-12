@@ -8,6 +8,8 @@
 #include <arch/amd64/context.h>
 #include <arch/amd64/int/apic.h>
 #include <arch/amd64/int/ioapic.h>
+#include <arch/smp.h>
+#include <proc/sched.h>
 
 
 struct idt_entry {
@@ -33,7 +35,6 @@ struct idtr  {
 static struct idtr idtr;
 extern void *isr_stub_table[];
 extern void arch_timer_tick(void);
-extern void sched_tick(int from_usermode);
 
 static void irq0_handler(int from_usermode) {
     arch_timer_tick();
@@ -56,6 +57,11 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
         //check if we were interrupted from usermode (userspace RIP is low, kernel is high)
         int from_usermode = (rip < 0xFFFF800000000000ULL) ? 1 : 0;
         
+        if (vector == IPI_RESCHEDULE) {
+            sched_yield();
+            return;
+        }
+
         switch (irq) {
             case 0:
                 irq0_handler(from_usermode);

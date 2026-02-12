@@ -9,6 +9,7 @@
 #include <lib/string.h>
 #include <proc/sched.h>
 #include <proc/thread.h>
+#include <drivers/init.h>
 #include <arch/cpu.h>
 #include <obj/namespace.h>
 #include <obj/object.h>
@@ -614,3 +615,5 @@ void nvme_init(void) {
         pdev = pdev->next;
     }
 }
+
+DECLARE_DRIVER(nvme_init, INIT_LEVEL_DEVICE);

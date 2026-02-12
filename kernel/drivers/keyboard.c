@@ -11,6 +11,8 @@
 #include <mm/kheap.h>
 #include <lib/string.h>
 #include <drivers/keyboard_protocol.h>
+#include <drivers/ps2.h>
+#include <drivers/init.h>
 
 #define KBD_STATUS      0x64
 #define KBD_SC          0x60
@@ -91,10 +93,15 @@ static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
 }
 
 void keyboard_irq(void) {
+    spinlock_irq_acquire(&ps2_lock);
     uint8 status = inb(KBD_STATUS);
-    if (!(status & 1)) return;
+    if (!(status & 1)) {
+        spinlock_irq_release(&ps2_lock);
+        return;
+    }
 
     uint8 sc = inb(KBD_SC);
+    spinlock_irq_release(&ps2_lock);
     bool released = (sc & SC_RELEASE) != 0;
     uint8 code = sc & 0x7F;
     
@@ -120,12 +127,14 @@ void keyboard_irq(void) {
 }
 
 void keyboard_init(void) {
+    spinlock_irq_acquire(&ps2_lock);
     //flush any pending scancodes
     while (inb(KBD_STATUS) & 1) {
         inb(KBD_SC);
     }
+    spinlock_irq_release(&ps2_lock);
     
-    pic_clear_mask(0x1);
+    interrupt_unmask(1);
     
     //create channel for keyboard events
     process_t *kproc = process_get_kernel();
@@ -143,3 +152,5 @@ void keyboard_init(void) {
         }
     }
 }
+
+DECLARE_DRIVER(keyboard_init, INIT_LEVEL_DEVICE);

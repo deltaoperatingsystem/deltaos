@@ -6,6 +6,7 @@
 #include <obj/namespace.h>
 #include <obj/rights.h>
 #include <lib/string.h>
+#include <drivers/init.h>
 
 #define PIT_CMD    0x43
 #define PIT_CHAN2  0x42
@@ -41,6 +42,8 @@ void pcspeaker_init(void) {
         }
     }
 }
+
+DECLARE_DRIVER(pcspeaker_init, INIT_LEVEL_DEVICE);
 
 void pcspeaker_beep(uint32 freq) {
     if (freq == 0) {

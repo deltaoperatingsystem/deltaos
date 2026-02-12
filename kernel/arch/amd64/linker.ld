@@ -21,6 +21,13 @@ SECTIONS
         *(.rodata .rodata.*)
     }
 
+    .driver_init : ALIGN(0x8)
+    {
+        __driver_init_start = .;
+        KEEP(*(SORT(.driver_init*)))
+        __driver_init_end = .;
+    }
+
     .data : ALIGN(0x1000)
     {
         *(.data .data.*)

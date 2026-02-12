@@ -1,48 +1,23 @@
-#include <drivers/fb.h>
-#include <drivers/console.h>
-#include <drivers/keyboard.h>
-#include <drivers/mouse.h>
-#include <drivers/rtc.h>
-#include <drivers/pcspeaker.h>
-#include <drivers/nvme.h>
-#include <drivers/serial.h>
-#include <drivers/vt/vt.h>
+#include <drivers/init.h>
+#include <lib/io.h>
 #include <obj/klog.h>
 #include <obj/kernel_info.h>
 
-#include "drivers_enabled.h"
+extern driver_init_func_t __driver_init_start[];
+extern driver_init_func_t __driver_init_end[];
 
 void init_drivers(void) {
-    //initialize drivers
-#if DRIVER_FB
-    fb_init();
-    fb_init_backbuffer();
-#endif
-#if DRIVER_CONSOLE
-    con_init();
-#endif
-#if DRIVER_VT
-    vt_init();
-#endif
-#if DRIVER_KEYBOARD
-    keyboard_init();
-#endif
-#if DRIVER_MOUSE
-    mouse_init();
-#endif
-#if DRIVER_NVME
-    nvme_init();
-#endif
-#if DRIVER_SERIAL
-    serial_init_object();
-#endif
-#if DRIVER_RTC
-    rtc_init();
-#endif
-#if DRIVER_PCSPEAKER
-    pcspeaker_init();
-#endif
-
+    printf("[drivers] starting driver initialization...\n");
+    
+    for (driver_init_func_t *init = __driver_init_start; init < __driver_init_end; init++) {
+        if (*init) {
+            (*init)();
+        }
+    }
+    
+    //core services that depend on drivers being ready
     kernel_info_init();
     klog_init();
+    
+    printf("[drivers] driver initialization complete\n");
 }

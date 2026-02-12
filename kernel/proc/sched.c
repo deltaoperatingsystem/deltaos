@@ -8,6 +8,7 @@
 #include <drivers/serial.h>
 #include <lib/spinlock.h>
 #include <arch/percpu.h>
+#include <arch/smp.h>
 
 #define KERNEL_STACK_SIZE 16384  //16KB
 
@@ -23,7 +24,6 @@ extern void process_set_current(process_t *proc);
 //reap dead threads (free their resources)
 void sched_reap(void) {
     spinlock_irq_acquire(&dead_lock);
-    thread_t *current = thread_current();
     
     thread_t *list = dead_list_head;
     dead_list_head = NULL;
@@ -35,8 +35,10 @@ void sched_reap(void) {
         thread_t *dead = list;
         list = list->sched_next;
         
-        if (dead == current) {
-            //can't reap current thread yet (still using the stack)
+        //check if this thread is still "running" on any CPU (cpu_id != -1)
+        //this handles the case where CPU A is STILL on the stack of the thread 
+        //being switched out while CPU B tries to reap it
+        if (dead->cpu_id != -1) {
             dead->sched_next = NULL;
             if (!keep_head) {
                 keep_head = dead;
@@ -106,10 +108,19 @@ void sched_init_ap(void) {
     pc->idle_thread->state = THREAD_STATE_READY;
 }
 
+static uint32 last_cpu = 0;
+
 void sched_add(thread_t *thread) {
     if (!thread) return;
-    percpu_t *pc = percpu_get();
-    if (thread == pc->idle_thread) return; //don't add idle to queue
+    
+    //simple load balancing: round-robin for new threads
+    uint32 cpu_count = percpu_cpu_count();
+    uint32 target_idx = (__sync_fetch_and_add(&last_cpu, 1)) % cpu_count;
+    
+    percpu_t *pc = percpu_get_by_index(target_idx);
+    if (!pc || !pc->started) pc = percpu_get(); //fallback to current if target not ready
+    
+    if (thread == pc->idle_thread) return;
     
     spinlock_irq_acquire(&pc->sched_lock);
     
@@ -126,6 +137,11 @@ void sched_add(thread_t *thread) {
     thread->state = THREAD_STATE_READY;
     
     spinlock_irq_release(&pc->sched_lock);
+    
+    //notify target CPU if it's not us
+    if (pc != percpu_get()) {
+        arch_smp_send_resched(pc->cpu_index);
+    }
 }
 
 void sched_remove(thread_t *thread) {
@@ -189,11 +205,24 @@ static void schedule(void) {
     //reap any dead threads before scheduling
     sched_reap();
     
+    //SAFE POINT: We just entered schedule. If there was a prev_thread,
+    //it means the PREVIOUS context switch COMPLETED and we are now running
+    //the current thread. So the prev_thread is no longer using this CPU.
+    if (pc->prev_thread) {
+        thread_t *prev = (thread_t *)pc->prev_thread;
+        spinlock_acquire(&prev->lock);
+        if (prev->cpu_id == (int)pc->cpu_index) {
+            prev->cpu_id = -1;
+        }
+        spinlock_release(&prev->lock);
+        pc->prev_thread = NULL;
+    }
+
     spinlock_irq_acquire(&pc->sched_lock);
     
     thread_t *next = pc->run_queue_head ? pc->run_queue_head : pc->idle_thread;
     
-    if (!next || next == current) {
+    if (!next || (next == current && current->state == THREAD_STATE_RUNNING)) {
         spinlock_irq_release(&pc->sched_lock);
         return;
     }
@@ -228,10 +257,15 @@ static void schedule(void) {
             tp = &(*tp)->sched_next;
         }
     }
+    
     next->state = THREAD_STATE_RUNNING;
+    next->cpu_id = pc->cpu_index; //mark as running on this CPU
     
     //activate next thread
     sched_activate(next);
+    
+    //mark prev_thread for clearing after context switch
+    pc->prev_thread = current;
     
     //must release lock before context switch
     spinlock_irq_release(&pc->sched_lock);
@@ -316,17 +350,24 @@ static void sched_preempt(void) {
         }
     }
     next->state = THREAD_STATE_RUNNING;
+    next->cpu_id = pc->cpu_index;
     
     sched_activate(next);
+    
+    //mark prev_thread for clearing after context switch
+    pc->prev_thread = current;
     
     spinlock_irq_release(&pc->sched_lock);
 }
 
 void sched_tick(int from_usermode) {
-    //reap dead threads
-    sched_reap();
-    
     percpu_t *pc = percpu_get();
+    
+    //only BSP reaps for now to avoid redundant lock contention
+    if (pc->cpu_index == 0) {
+        sched_reap();
+    }
+    
     pc->tick_count++;
     if (from_usermode && pc->tick_count >= time_slice) {
         pc->tick_count = 0;
@@ -336,6 +377,7 @@ void sched_tick(int from_usermode) {
 }
 
 void sched_start(void) {
+    percpu_t *pc = percpu_get();
     thread_t *first = pick_next();
     if (!first) {
         printf("[sched] no threads to run!\n");
@@ -344,6 +386,7 @@ void sched_start(void) {
     
     sched_remove(first);
     first->state = THREAD_STATE_RUNNING;
+    first->cpu_id = pc->cpu_index;
     thread_set_current(first);
     process_set_current(first->process);
     

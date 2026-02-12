@@ -10,6 +10,7 @@
 #include <proc/process.h>
 #include <lib/io.h>
 #include <lib/string.h>
+#include <drivers/init.h>
 
 //PCI command register bits
 #define PCI_CMD_IO_SPACE     (1 << 0)
@@ -441,6 +442,8 @@ void pci_init(void) {
     
     printf("[pci] Found %d device(s)\n", device_count);
 }
+
+DECLARE_DRIVER(pci_init, INIT_LEVEL_BUS);
 
 pci_device_t *pci_find_device(uint16 vendor_id, uint16 device_id) {
     for (pci_device_t *d = device_list; d; d = d->next) {

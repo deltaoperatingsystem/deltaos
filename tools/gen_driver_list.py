@@ -2,12 +2,20 @@
 import tomllib
 from pathlib import Path
 
-DRIVER_DIR = Path("drivers")
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+KERNEL_DIR = PROJECT_ROOT / "kernel"
+DRIVER_DIR = KERNEL_DIR / "drivers"
 
 # Load registry
-registry = tomllib.loads((DRIVER_DIR / "registry.toml").read_text())["drivers"]
+registry_path = DRIVER_DIR / "registry.toml"
+if not registry_path.exists():
+    raise SystemExit(f"Error: registry.toml not found at {registry_path}")
+
+registry = tomllib.loads(registry_path.read_text())["drivers"]
 
 # Scan for all .c files under kernel/drivers/
+#we want paths relative to KERNEL_DIR for the Makefile
 driver_files = {
     f.stem: f.relative_to(DRIVER_DIR)
     for f in DRIVER_DIR.rglob("*.c")
@@ -23,19 +31,8 @@ for name, enabled in registry.items():
         enabled_sources.append(str(driver_files[name]))
         enabled_names.append(name)
 
-# Write Makefile fragment
+#write makefile fragment
 mk_out = DRIVER_DIR / "drivers_enabled.mk"
 with mk_out.open("w") as f:
     f.write("# Auto-generated. Do not edit.\n")
     f.write("DRIVERS := " + " ".join(enabled_sources) + "\n")
-
-# Write C header
-header_out = DRIVER_DIR / "drivers_enabled.h"
-with header_out.open("w") as f:
-    f.write("// Auto-generated. Do not edit.\n")
-    f.write("#ifndef DRIVERS_ENABLED_H\n#define DRIVERS_ENABLED_H\n\n")
-    for name in registry:
-        macro = f"DRIVER_{name.upper()}"
-        val = "1" if name in enabled_names else "0"
-        f.write(f"#define {macro} {val}\n")
-    f.write("\n#endif")
