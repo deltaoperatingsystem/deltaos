@@ -5,6 +5,7 @@
 #include <obj/object.h>
 #include <obj/rights.h>
 #include <proc/wait.h>
+#include <lib/spinlock.h>
 
 /*
  *channels - fuchsia-style (zircon) IPC primitive
@@ -73,6 +74,9 @@ typedef struct channel {
     
     //state
     int closed[2]; //1 if endpoint is closed
+    
+    //SMP lock (irq-safe because IRQ handlers push to channels)
+    spinlock_irq_t lock;
 } channel_t;
 
 //create a channel

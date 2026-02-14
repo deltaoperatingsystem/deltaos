@@ -3,10 +3,13 @@
 #include <obj/object.h>
 #include <obj/namespace.h>
 #include <lib/io.h>
+#include <lib/spinlock.h>
 #include <drivers/init.h>
 
 #define CMOS_ADDR 0x70
 #define CMOS_DATA 0x71
+
+static spinlock_irq_t rtc_lock = {0};
 
 #define RTC_REG_SECOND 0x00
 #define RTC_REG_MINUTE 0x02
@@ -31,6 +34,8 @@ static uint8 bcd2bin(uint8 bcd) {
 }
 
 void rtc_get_time(rtc_time_t *time) {
+    spinlock_irq_acquire(&rtc_lock);
+    
     while (rtc_is_updating());
 
     time->second = rtc_read_reg(RTC_REG_SECOND);
@@ -58,6 +63,8 @@ void rtc_get_time(rtc_time_t *time) {
     }
 
     time->year += 2000;
+    
+    spinlock_irq_release(&rtc_lock);
 }
 
 //object ops for RTC - read returns time as binary struct

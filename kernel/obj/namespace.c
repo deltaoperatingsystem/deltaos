@@ -2,6 +2,7 @@
 #include <mm/kheap.h>
 #include <lib/string.h>
 #include <lib/io.h>
+#include <lib/spinlock.h>
 #include <fs/fs.h>
 
 #define NS_INITIAL_BUCKETS 32
@@ -17,6 +18,7 @@ typedef struct ns_entry {
 static ns_entry_t **buckets = NULL;
 static uint32 bucket_count = 0;
 static uint32 entry_count = 0;
+static spinlock_t ns_lock = {0};
 
 //FNV-1a hash - fast and good distribution
 static uint32 hash_string(const char *s) {
@@ -89,6 +91,8 @@ static int ns_dir_readdir(object_t *obj, void *entries_ptr, uint32 count, uint32
     uint32 current_idx = 0;
     uint32 skip = *index;
     
+    spinlock_acquire(&ns_lock);
+    
     //iterate all buckets
     for (uint32 b = 0; b < bucket_count && filled < count; b++) {
         for (ns_entry_t *e = buckets[b]; e && filled < count; e = e->next) {
@@ -138,6 +142,8 @@ static int ns_dir_readdir(object_t *obj, void *entries_ptr, uint32 count, uint32
         }
     }
     
+    spinlock_release(&ns_lock);
+    
     *index = skip + current_idx;
     return filled;
 }
@@ -170,6 +176,8 @@ object_t *ns_create_dir(const char *prefix) {
 int ns_register(const char *name, object_t *obj) {
     if (!name || !obj || !buckets) return -1;
     
+    spinlock_acquire(&ns_lock);
+    
     //check load factor and rehash if needed
     if (entry_count * NS_LOAD_FACTOR_DEN >= bucket_count * NS_LOAD_FACTOR_NUM) {
         ns_rehash();
@@ -180,18 +188,23 @@ int ns_register(const char *name, object_t *obj) {
     //check if already exists
     for (ns_entry_t *e = buckets[idx]; e; e = e->next) {
         if (strcmp(e->name, name) == 0) {
+            spinlock_release(&ns_lock);
             return -1;  //already exists
         }
     }
     
     //create new entry
     ns_entry_t *entry = kmalloc(sizeof(ns_entry_t));
-    if (!entry) return -1;
+    if (!entry) {
+        spinlock_release(&ns_lock);
+        return -1;
+    }
     
     size name_len = strlen(name) + 1;
     entry->name = kmalloc(name_len);
     if (!entry->name) {
         kfree(entry);
+        spinlock_release(&ns_lock);
         return -1;
     }
     
@@ -204,11 +217,14 @@ int ns_register(const char *name, object_t *obj) {
     buckets[idx] = entry;
     entry_count++;
     
+    spinlock_release(&ns_lock);
     return 0;
 }
 
 int ns_unregister(const char *name) {
     if (!name || !buckets) return -1;
+    
+    spinlock_acquire(&ns_lock);
     
     uint32 idx = hash_string(name) % bucket_count;
     ns_entry_t **prev = &buckets[idx];
@@ -220,23 +236,29 @@ int ns_unregister(const char *name) {
             kfree(e->name);
             kfree(e);
             entry_count--;
+            spinlock_release(&ns_lock);
             return 0;
         }
     }
+    spinlock_release(&ns_lock);
     return -1;  //not found
 }
 
 object_t *ns_lookup(const char *name) {
     if (!name || !buckets) return NULL;
     
+    spinlock_acquire(&ns_lock);
+    
     uint32 idx = hash_string(name) % bucket_count;
     
     for (ns_entry_t *e = buckets[idx]; e; e = e->next) {
         if (strcmp(e->name, name) == 0) {
             object_ref(e->obj);
+            spinlock_release(&ns_lock);
             return e->obj;
         }
     }
+    spinlock_release(&ns_lock);
     return NULL;
 }
 
@@ -247,6 +269,8 @@ int ns_list(void *entries_ptr, uint32 count, uint32 *index) {
     uint32 filled = 0;
     uint32 skip = *index;
     uint32 seen = 0;
+    
+    spinlock_acquire(&ns_lock);
     
     //iterate all buckets and chains
     for (uint32 b = 0; b < bucket_count && filled < count; b++) {
@@ -261,6 +285,8 @@ int ns_list(void *entries_ptr, uint32 count, uint32 *index) {
             seen++;
         }
     }
+    
+    spinlock_release(&ns_lock);
     
     *index = skip + filled;  //update index for next call
     return filled;

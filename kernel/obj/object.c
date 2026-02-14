@@ -16,18 +16,18 @@ object_t *object_create(uint32 type, object_ops_t *ops, void *data) {
 
 void object_ref(object_t *obj) {
     if (!obj) return;
-    obj->refcount++;
+    __atomic_add_fetch(&obj->refcount, 1, __ATOMIC_SEQ_CST);
 }
 
 void object_deref(object_t *obj) {
     if (!obj) return;
-    if (obj->refcount == 0) {
+    uint32 old = __atomic_load_n(&obj->refcount, __ATOMIC_SEQ_CST);
+    if (old == 0) {
         printf("[object] ERR: deref on object with refcount 0\n");
         return;
     }
     
-    obj->refcount--;
-    if (obj->refcount == 0) {
+    if (__atomic_sub_fetch(&obj->refcount, 1, __ATOMIC_SEQ_CST) == 0) {
         //call close handler if present
         if (obj->ops && obj->ops->close) {
             obj->ops->close(obj);

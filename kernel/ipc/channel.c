@@ -3,6 +3,7 @@
 #include <mm/kheap.h>
 #include <lib/string.h>
 #include <lib/io.h>
+#include <lib/spinlock.h>
 #include <drivers/serial.h>
 
 static int channel_endpoint_close(object_t *obj) {
@@ -11,6 +12,8 @@ static int channel_endpoint_close(object_t *obj) {
     
     channel_t *ch = ep->channel;
     int id = ep->endpoint_id;
+    
+    spinlock_irq_acquire(&ch->lock);
     
     //mark this endpoint as closed
     ch->closed[id] = 1;
@@ -38,7 +41,10 @@ static int channel_endpoint_close(object_t *obj) {
     ch->queue_len[id] = 0;
     
     //if both endpoints closed just free the channel
-    if (ch->closed[0] && ch->closed[1]) {
+    int both_closed = ch->closed[0] && ch->closed[1];
+    spinlock_irq_release(&ch->lock);
+    
+    if (both_closed) {
         kfree(ch);
     }
     
@@ -77,6 +83,7 @@ int channel_create(process_t *proc, handle_rights_t rights,
         ch->closed[i] = 0;
         wait_queue_init(&ch->waiters[i]);
     }
+    spinlock_irq_init(&ch->lock);
     
     //grant handles to process
     int h0 = process_grant_handle(proc, &ch->endpoints[0].obj, rights);
@@ -116,26 +123,15 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     channel_t *ch = ep->channel;
     int peer_id = 1 - ep->endpoint_id;
     
-    //check if peer is closed
-    if (ch->closed[peer_id]) {
-        return -2;  //peer closed
-    }
-    
-    //check queue limit
-    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
-        return -3;  //queue full
-    }
-    
-    //check message size
+    //check message size (immutable limits, no lock needed)
     if (msg->data_len > CHANNEL_MAX_MSG_SIZE) {
         return -4;  //message too large
     }
-    
     if (msg->handle_count > CHANNEL_MAX_MSG_HANDLES) {
         return -5;  //too many handles
     }
     
-    //allocate queue entry
+    //allocate queue entry outside the lock
     channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
     if (!entry) return -1;
     
@@ -204,6 +200,40 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
         }
     }
     
+    //lock for queue manipulation
+    spinlock_irq_acquire(&ch->lock);
+    
+    //check if peer is closed
+    if (ch->closed[peer_id]) {
+        spinlock_irq_release(&ch->lock);
+        //cleanup the entry we built
+        if (entry->data) kfree(entry->data);
+        if (entry->objects) {
+            for (uint32 i = 0; i < entry->object_count; i++) {
+                if (entry->objects[i]) object_deref(entry->objects[i]);
+            }
+            kfree(entry->objects);
+        }
+        if (entry->rights) kfree(entry->rights);
+        kfree(entry);
+        return -2;  //peer closed
+    }
+    
+    //check queue limit
+    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
+        spinlock_irq_release(&ch->lock);
+        if (entry->data) kfree(entry->data);
+        if (entry->objects) {
+            for (uint32 i = 0; i < entry->object_count; i++) {
+                if (entry->objects[i]) object_deref(entry->objects[i]);
+            }
+            kfree(entry->objects);
+        }
+        if (entry->rights) kfree(entry->rights);
+        kfree(entry);
+        return -3;  //queue full
+    }
+    
     //enqueue message to peer's queue
     entry->next = NULL;
     if (ch->queue_tail[peer_id]) {
@@ -245,11 +275,15 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
             e->rights = NULL;
             kfree(e);
             
-            //call handler
+            spinlock_irq_release(&ch->lock);
+            
+            //call handler outside the lock (handler may do its own locking)
             peer_ep->handler(peer_ep, &handler_msg, peer_ep->handler_ctx);
+            return 0;
         }
     }
     
+    spinlock_irq_release(&ch->lock);
     return 0;
 }
 
@@ -263,16 +297,21 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     int my_id = ep->endpoint_id;
     
     //wait for a message (blocking)
+    spinlock_irq_acquire(&ch->lock);
     while (!ch->queue[my_id]) {
         //check if peer closed
         if (ch->closed[1 - my_id]) {
+            spinlock_irq_release(&ch->lock);
             return -2;  //peer closed, no more messages
         }
         //sleep until woken (by message arrival or peer closed)
+        spinlock_irq_release(&ch->lock);
         thread_sleep(&ch->waiters[my_id]);
+        spinlock_irq_acquire(&ch->lock);
         
         //if peer closed while we were sleeping, return error
         if (ch->closed[1 - my_id] && !ch->queue[my_id]) {
+            spinlock_irq_release(&ch->lock);
             return -2;
         }
     }
@@ -284,8 +323,9 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
         ch->queue_tail[my_id] = NULL;
     }
     ch->queue_len[my_id]--;
+    spinlock_irq_release(&ch->lock);
     
-    //copy data to caller
+    //copy data to caller (outside lock - entry is ours now)
     msg->data = entry->data;  //caller takes ownership
     msg->data_len = entry->data_len;
     msg->sender_pid = entry->sender_pid;
@@ -349,12 +389,16 @@ int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg)
     channel_t *ch = ep->channel;
     int my_id = ep->endpoint_id;
     
+    spinlock_irq_acquire(&ch->lock);
+    
     //check if queue is empty
     if (!ch->queue[my_id]) {
         //check if peer closed
         if (ch->closed[1 - my_id]) {
+            spinlock_irq_release(&ch->lock);
             return -2;  //peer closed, no more messages
         }
+        spinlock_irq_release(&ch->lock);
         return -3;  //queue empty (non-blocking)
     }
     
@@ -365,8 +409,9 @@ int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg)
         ch->queue_tail[my_id] = NULL;
     }
     ch->queue_len[my_id]--;
+    spinlock_irq_release(&ch->lock);
     
-    //copy data to caller
+    //copy data to caller (outside lock - entry is ours now)
     msg->data = entry->data;  //caller takes ownership
     msg->data_len = entry->data_len;
     msg->sender_pid = entry->sender_pid;
@@ -457,12 +502,7 @@ int channel_reply(channel_endpoint_t *ep, channel_msg_t *msg) {
     channel_t *ch = ep->channel;
     int peer_id = 1 - ep->endpoint_id;
     
-    //check if peer is closed
-    if (ch->closed[peer_id]) {
-        return -2;
-    }
-    
-    //allocate queue entry
+    //allocate queue entry outside the lock
     channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
     if (!entry) return -1;
     
@@ -501,6 +541,25 @@ int channel_reply(channel_endpoint_t *ep, channel_msg_t *msg) {
         entry->object_count = 0;
     }
     
+    //--- lock for queue manipulation ---
+    spinlock_irq_acquire(&ch->lock);
+    
+    //check if peer is closed
+    if (ch->closed[peer_id]) {
+        spinlock_irq_release(&ch->lock);
+        //cleanup
+        if (entry->data) kfree(entry->data);
+        if (entry->objects) {
+            for (uint32 i = 0; i < entry->object_count; i++) {
+                if (entry->objects[i]) object_deref(entry->objects[i]);
+            }
+            kfree(entry->objects);
+        }
+        if (entry->rights) kfree(entry->rights);
+        kfree(entry);
+        return -2;
+    }
+    
     //enqueue to peer
     entry->next = NULL;
     if (ch->queue_tail[peer_id]) {
@@ -510,6 +569,8 @@ int channel_reply(channel_endpoint_t *ep, channel_msg_t *msg) {
     }
     ch->queue_tail[peer_id] = entry;
     ch->queue_len[peer_id]++;
+    
+    spinlock_irq_release(&ch->lock);
     
     return 0;
 }

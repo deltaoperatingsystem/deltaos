@@ -5,6 +5,7 @@
 #include <mm/pmm.h>
 #include <lib/string.h>
 #include <lib/io.h>
+#include <lib/spinlock.h>
 #include <drivers/rtc.h>
 
 #define TMPFS_MAX_NAME 64
@@ -56,6 +57,7 @@ typedef struct tmpfs_node {
 
 //root directory
 static tmpfs_node_t *root = NULL;
+static spinlock_t tmpfs_lock = {0};
 
 //find child by name in directory
 static tmpfs_node_t *find_child(tmpfs_node_t *dir, const char *name) {
@@ -159,11 +161,17 @@ static tmpfs_node_t *resolve_path(const char *path, bool create_dirs, tmpfs_node
 static ssize tmpfs_file_read(object_t *obj, void *buf, size len, size offset) {
     tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
     if (!node || node->type != FS_TYPE_FILE) return -1;
-    if (offset >= node->file.size) return 0;
+    
+    spinlock_acquire(&tmpfs_lock);
+    if (offset >= node->file.size) {
+        spinlock_release(&tmpfs_lock);
+        return 0;
+    }
     
     size avail = node->file.size - offset;
     size to_read = len < avail ? len : avail;
     memcpy(buf, node->file.data + offset, to_read);
+    spinlock_release(&tmpfs_lock);
     return to_read;
 }
 
@@ -172,6 +180,8 @@ static ssize tmpfs_file_write(object_t *obj, const void *buf, size len, size off
     tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
     if (!node || node->type != FS_TYPE_FILE) return -1;
     
+    spinlock_acquire(&tmpfs_lock);
+    
     size end = offset + len;
     
     if (end > node->file.capacity) {
@@ -179,7 +189,10 @@ static ssize tmpfs_file_write(object_t *obj, const void *buf, size len, size off
         while (new_cap < end) new_cap *= 2;
         
         uint8 *new_data = krealloc(node->file.data, new_cap);
-        if (!new_data) return -1;
+        if (!new_data) {
+            spinlock_release(&tmpfs_lock);
+            return -1;
+        }
         
         node->file.data = new_data;
         node->file.capacity = new_cap;
@@ -188,6 +201,7 @@ static ssize tmpfs_file_write(object_t *obj, const void *buf, size len, size off
     memcpy(node->file.data + offset, buf, len);
     if (end > node->file.size) node->file.size = end;
     
+    spinlock_release(&tmpfs_lock);
     return len;
 }
 
@@ -270,33 +284,50 @@ static object_ops_t tmpfs_dir_ops = {
 //filesystem ops
 static object_t *tmpfs_fs_lookup(fs_t *fs, const char *path) {
     (void)fs;
+    spinlock_acquire(&tmpfs_lock);
     tmpfs_node_t *node = resolve_path(path, false, NULL, NULL);
-    if (!node) return NULL;
-    
-    if (node->type == FS_TYPE_FILE) {
-        return object_create(OBJECT_FILE, &tmpfs_file_ops, node);
-    } else if (node->type == FS_TYPE_DIR) {
-        return object_create(OBJECT_DIR, &tmpfs_dir_ops, node);
+    if (!node) {
+        spinlock_release(&tmpfs_lock);
+        return NULL;
     }
-    return NULL;
+    
+    object_t *obj = NULL;
+    if (node->type == FS_TYPE_FILE) {
+        obj = object_create(OBJECT_FILE, &tmpfs_file_ops, node);
+    } else if (node->type == FS_TYPE_DIR) {
+        obj = object_create(OBJECT_DIR, &tmpfs_dir_ops, node);
+    }
+    spinlock_release(&tmpfs_lock);
+    return obj;
 }
 
 static int tmpfs_fs_create(fs_t *fs, const char *path, uint32 type) {
     (void)fs;
     
+    spinlock_acquire(&tmpfs_lock);
+    
     tmpfs_node_t *parent = NULL;
     char basename[TMPFS_MAX_NAME];
     
     //check if already exists
-    if (resolve_path(path, false, NULL, NULL)) return -1;
+    if (resolve_path(path, false, NULL, NULL)) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
     
     //resolve path and create parent dirs
     resolve_path(path, true, &parent, basename);
-    if (!parent || parent->type != FS_TYPE_DIR) return -1;
+    if (!parent || parent->type != FS_TYPE_DIR) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
     
     //create new node
     tmpfs_node_t *node = kzalloc(sizeof(tmpfs_node_t));
-    if (!node) return -1;
+    if (!node) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
     
     strncpy(node->name, basename, TMPFS_MAX_NAME - 1);
     node->type = type;
@@ -304,7 +335,11 @@ static int tmpfs_fs_create(fs_t *fs, const char *path, uint32 type) {
     
     if (type == FS_TYPE_DIR) {
         node->dir.children = kzalloc(TMPFS_INITIAL_CHILDREN * sizeof(tmpfs_node_t *));
-        if (!node->dir.children) { kfree(node); return -1; }
+        if (!node->dir.children) {
+            kfree(node);
+            spinlock_release(&tmpfs_lock);
+            return -1;
+        }
         node->dir.capacity = TMPFS_INITIAL_CHILDREN;
         node->dir.count = 0;
     } else {
@@ -313,16 +348,24 @@ static int tmpfs_fs_create(fs_t *fs, const char *path, uint32 type) {
         node->file.capacity = 0;
     }
     
-    return add_child(parent, node);
+    int result = add_child(parent, node);
+    spinlock_release(&tmpfs_lock);
+    return result;
 }
 
 static int tmpfs_fs_remove(fs_t *fs, const char *path) {
     (void)fs;
+    
+    spinlock_acquire(&tmpfs_lock);
+    
     tmpfs_node_t *parent = NULL;
     char basename[TMPFS_MAX_NAME];
     
     tmpfs_node_t *node = resolve_path(path, false, &parent, basename);
-    if (!node || !parent) return -1;
+    if (!node || !parent) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
     
     //remove from parent
     for (uint32 i = 0; i < parent->dir.count; i++) {
@@ -344,6 +387,7 @@ static int tmpfs_fs_remove(fs_t *fs, const char *path) {
     }
     kfree(node);
     
+    spinlock_release(&tmpfs_lock);
     return 0;
 }
 

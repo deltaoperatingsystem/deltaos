@@ -89,11 +89,7 @@ static void mouse_push_event(int16 dx, int16 dy, uint8 buttons) {
     channel_t *ch = mouse_channel_ep->channel;
     int peer_id = 1 - mouse_channel_ep->endpoint_id;
     
-    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
-        kfree(event);
-        return;
-    }
-    
+    //allocate queue entry outside the lock
     channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
     if (!entry) {
         kfree(event);
@@ -104,6 +100,16 @@ static void mouse_push_event(int16 dx, int16 dy, uint8 buttons) {
     entry->data_len = sizeof(mouse_event_t);
     entry->next = NULL;
     
+    //lock the channel for queue manipulation
+    spinlock_irq_acquire(&ch->lock);
+    
+    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
+        spinlock_irq_release(&ch->lock);
+        kfree(entry);
+        kfree(event);
+        return;
+    }
+    
     if (ch->queue_tail[peer_id]) {
         ch->queue_tail[peer_id]->next = entry;
     } else {
@@ -111,6 +117,8 @@ static void mouse_push_event(int16 dx, int16 dy, uint8 buttons) {
     }
     ch->queue_tail[peer_id] = entry;
     ch->queue_len[peer_id]++;
+    
+    spinlock_irq_release(&ch->lock);
     
     thread_wake_one(&ch->waiters[peer_id]);
 }

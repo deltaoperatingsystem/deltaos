@@ -62,13 +62,7 @@ static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
     channel_t *ch = kbd_channel_ep->channel;
     int peer_id = 1 - kbd_channel_ep->endpoint_id;
     
-    //check if queue has space
-    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
-        kfree(event);  //queue full so drop event
-        return;
-    }
-    
-    //allocate queue entry
+    //allocate queue entry outside the lock
     channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
     if (!entry) {
         kfree(event);
@@ -79,6 +73,17 @@ static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
     entry->data_len = sizeof(kbd_event_t);
     entry->next = NULL;
     
+    //lock the channel for queue manipulation
+    spinlock_irq_acquire(&ch->lock);
+    
+    //check if queue has space
+    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
+        spinlock_irq_release(&ch->lock);
+        kfree(entry);
+        kfree(event);  //queue full so drop event
+        return;
+    }
+    
     //enqueue
     if (ch->queue_tail[peer_id]) {
         ch->queue_tail[peer_id]->next = entry;
@@ -87,6 +92,8 @@ static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
     }
     ch->queue_tail[peer_id] = entry;
     ch->queue_len[peer_id]++;
+    
+    spinlock_irq_release(&ch->lock);
     
     //wake any thread waiting for a message
     thread_wake_one(&ch->waiters[peer_id]);
