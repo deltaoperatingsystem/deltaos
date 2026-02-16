@@ -4,6 +4,7 @@
 #include <arch/mmu.h>
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
+#include <drivers/rtl8139.h>
 #include <lib/io.h>
 #include <arch/amd64/context.h>
 #include <arch/amd64/int/apic.h>
@@ -72,6 +73,9 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
             case 12:
                 mouse_irq();
                 break;
+            case 11:
+                rtl8139_irq();
+                break;
             default: {
                 if (vector >= 0x40 && vector <= 0x47) {
                     extern void nvme_isr_callback(uint64);
@@ -135,12 +139,14 @@ void arch_interrupts_init(void) {
     if (apic_init()) {
         //unmask keyboard and mouse
         interrupt_unmask(1);
+        interrupt_unmask(11);  //RTL8139 NIC
         interrupt_unmask(12);
         printf("[amd64] APIC/IOAPIC initialized\n");
     } else {
         //fallback to PIC
         interrupt_unmask(2); //unmask cascade IRQ 2 for slave PIC
         interrupt_unmask(1); //keyboard
+        interrupt_unmask(11); //RTL8139 NIC
         interrupt_unmask(12); //mouse
         printf("[amd64] Using legacy PIC\n");
     }

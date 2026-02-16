@@ -10,4 +10,7 @@ void pmm_init(void);
 void *pmm_alloc(size pages);
 void pmm_free(void *ptr, size pages);
 
+size pmm_get_total_pages(void);
+size pmm_get_free_pages(void);
+
 #endif

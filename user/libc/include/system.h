@@ -157,4 +157,11 @@ typedef struct {
 
 int object_get_info(handle_t h, uint32 topic, void *ptr, uint64 len);
 
+//networking
+int ping(uint8 a, uint8 b, uint8 c, uint8 d, uint32 count);
+int dns_resolve(const char *hostname, uint32 *ip_out);
+handle_t tcp_connect(const char *hostname, uint16 port);
+handle_t tcp_listen(uint16 port);
+handle_t tcp_accept(handle_t listener);
+
 #endif

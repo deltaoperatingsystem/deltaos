@@ -22,6 +22,8 @@
 #include <fs/tmpfs.h>
 #include <fs/initrd.h>
 #include <kernel/elf64.h>
+#include <net/net.h>
+#include <fs/initrd.h>
 
 extern void arch_enter_usermode(arch_context_t *ctx);
 extern void percpu_set_kernel_stack(void *stack_top);
@@ -248,6 +250,12 @@ void kernel_main(const char *cmdline) {
     //initialize drivers
     init_drivers();
     
+    //initialize networking (runs DHCP)
+    net_init();
+    
+    //test network (ping gateway)
+    net_test();
+    
     //initialize filesystems
     tmpfs_init();
     initrd_init();
@@ -261,6 +269,9 @@ void kernel_main(const char *cmdline) {
     if (res != 0) {
         kpanic(NULL, "FATAL: init failed to spawn! (error code %d)\n", res);
     }
+    
+    //reclaim initrd archive memory - no longer needed as files are in tmpfs
+    initrd_reclaim();
     
     //start scheduler - never returns
     printf("[kernel] starting scheduler...\n");

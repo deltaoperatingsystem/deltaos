@@ -50,6 +50,11 @@ intptr syscall_dispatch(uintptr num, uintptr arg1, uintptr arg2, uintptr arg3,
         case SYS_REBOOT: return sys_reboot();
         case SYS_SHUTDOWN: return sys_shutdown();
         case SYS_OBJECT_GET_INFO: return sys_object_get_info((handle_t)arg1, (uint32)arg2, (void *)arg3, (size)arg4);
+        case SYS_PING: return sys_ping((uint32)arg1, (uint32)arg2, (uint32)arg3, (uint32)arg4, (uint32)arg5);
+        case SYS_DNS_RESOLVE: return sys_dns_resolve((const char *)arg1, (uint32 *)arg2);
+        case SYS_TCP_CONNECT: return sys_tcp_connect((const char *)arg1, (uint16)arg2);
+        case SYS_TCP_LISTEN: return sys_tcp_listen((uint16)arg1);
+        case SYS_TCP_ACCEPT: return sys_tcp_accept((handle_t)arg1);
         
         default: return -1;
     }

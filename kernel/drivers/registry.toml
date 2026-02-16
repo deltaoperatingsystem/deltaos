@@ -8,5 +8,6 @@ nvme = true
 pci = true
 pcspeaker = true
 rtc = true
+rtl8139 = true
 serial = true
 vt = true

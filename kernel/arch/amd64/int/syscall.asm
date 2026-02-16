@@ -42,7 +42,9 @@ syscall_entry_simple:
     mov rsi, rdi            ;1st arg
     mov rdi, rax            ;syscall number
     
+    sti                     ;enable interrupts for syscall duration
     call syscall_dispatch
+    cli                     ;disable interrupts for return sequence
     
     add rsp, 8              ;pop 6th arg
     

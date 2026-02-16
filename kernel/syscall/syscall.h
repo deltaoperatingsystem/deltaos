@@ -58,6 +58,13 @@
 //object info (63)
 #define SYS_OBJECT_GET_INFO 63
 
+//networking (64+)
+#define SYS_PING            64  //send ICMP ping and wait for reply
+#define SYS_DNS_RESOLVE     65
+#define SYS_TCP_CONNECT     66  //connect to host:port, returns socket handle
+#define SYS_TCP_LISTEN      67  //listen on port, returns listener handle
+#define SYS_TCP_ACCEPT      68  //accept connection on listener, returns socket handle
+
 #define SYS_MAX             256
 
 //object info topics
@@ -166,5 +173,10 @@ intptr sys_get_ticks(void);
 intptr sys_reboot(void);
 intptr sys_shutdown(void);
 intptr sys_object_get_info(handle_t h, uint32 topic, void *ptr, size len);
+intptr sys_ping(uint32 ip_a, uint32 ip_b, uint32 ip_c, uint32 ip_d, uint32 count);
+intptr sys_dns_resolve(const char *hostname, uint32 *ip_out);
+intptr sys_tcp_connect(const char *hostname, uint16 port);
+intptr sys_tcp_listen(uint16 port);
+intptr sys_tcp_accept(handle_t listen_h);
 
 #endif

@@ -16,6 +16,7 @@ size max_pages = 0;
 
 static size last_free_page = 0;
 size free_pages = 0;
+size total_usable_pages = 0;
 
 void pmm_init(void) {
     struct db_tag_memory_map *mmap = db_get_memory_map();
@@ -104,6 +105,7 @@ void pmm_init(void) {
                     if (BITMAP_TEST(start_page + j)) {
                         BITMAP_CLEAR(start_page + j);
                         free_pages++;
+                        total_usable_pages++;
                     }
                 }
             }
@@ -278,4 +280,12 @@ void pmm_free(void *ptr, size pages) {
     }
 
     spinlock_irq_release(&pmm_lock);
+}
+
+size pmm_get_total_pages(void) {
+    return total_usable_pages;
+}
+
+size pmm_get_free_pages(void) {
+    return free_pages;
 }

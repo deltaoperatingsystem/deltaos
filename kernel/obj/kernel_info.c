@@ -50,8 +50,8 @@ static intptr system_get_info(object_t *obj, uint32 topic, void *buf, size len) 
     if (topic == OBJ_INFO_KMEM_STATS) {
         if (len < sizeof(kmem_stats_t)) return -1;
         kmem_stats_t st;
-        st.total_ram = (uint64)max_pages * 4096;
-        st.free_ram = (uint64)free_pages * 4096;
+        st.total_ram = (uint64)pmm_get_total_pages() * 4096;
+        st.free_ram = (uint64)pmm_get_free_pages() * 4096;
         st.used_ram = st.total_ram - st.free_ram;
         
         //get heap stats

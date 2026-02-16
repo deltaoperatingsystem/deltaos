@@ -8,6 +8,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
 #include <drivers/vt/vt.h>
+#include <drivers/rtl8139.h>
 
 #define WEAK __attribute__((weak))
 
@@ -100,3 +101,7 @@ WEAK uint32 vt_cols(vt_t *vt) { (void)vt; return 0; }
 WEAK uint32 vt_rows(vt_t *vt) { (void)vt; return 0; }
 WEAK void vt_flush(vt_t *vt) { (void)vt; }
 WEAK void vt_write_cells(vt_t *vt, uint32 col, uint32 row, const vt_cell_t *cells, size count) { (void)vt; (void)col; (void)row; (void)cells; (void)count; }
+
+//RTL8139 stubs
+WEAK void rtl8139_init(void) {}
+WEAK void rtl8139_irq(void) {}

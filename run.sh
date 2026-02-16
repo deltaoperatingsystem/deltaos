@@ -63,9 +63,10 @@ run_qemu() {
         -drive "file=$DISK_IMG,format=raw"
         -drive "file=$NVME_IMG,format=raw,if=none,id=nvm"
         -device nvme,serial=deadbeef,drive=nvm
-        -net none
+        -netdev user,id=net0,hostfwd=tcp::8080-:80 -device rtl8139,netdev=net0
         -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0
 	    -enable-kvm
+        -smp 2
 	    -no-reboot
 	    -no-shutdown
     )

@@ -43,6 +43,11 @@
 #define SYS_REBOOT          61
 #define SYS_SHUTDOWN        62
 #define SYS_OBJECT_GET_INFO 63
+#define SYS_PING            64
+#define SYS_DNS_RESOLVE     65
+#define SYS_TCP_CONNECT     66
+#define SYS_TCP_LISTEN      67
+#define SYS_TCP_ACCEPT      68
 
 #define SYS_MAX             256
 
