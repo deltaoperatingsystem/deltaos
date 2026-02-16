@@ -45,12 +45,19 @@ static struct {
 static const uint8 *dhcp_parse_option(const uint8 *opt, const uint8 *end,
                                        uint8 *type_out, uint8 *len_out, const uint8 **data_out) {
     if (opt >= end) return NULL;
-    *type_out = opt[0];
-    if (*type_out == DHCP_OPT_END) return NULL;
+    uint8 type = opt[0];
+    if (type == DHCP_OPT_END) return NULL;
     if (opt + 1 >= end) return NULL;
-    *len_out = opt[1];
+    uint8 len = opt[1];
+    if (opt + 2 + len > end) {
+        printf("[dhcp] WARNING: Option 0x%02x length %u exceeds buffer\n", type, len);
+        return NULL;
+    }
+    
+    *type_out = type;
+    *len_out = len;
     *data_out = opt + 2;
-    return opt + 2 + *len_out;
+    return opt + 2 + len;
 }
 
 //build and send a DHCP DISCOVER

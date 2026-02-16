@@ -23,7 +23,7 @@
 #define DHCP_HTYPE_ETH   1
 
 //DHCP magic cookie (in network byte order as stored)
-#define DHCP_MAGIC_COOKIE 0x63538263  //99.130.83.99
+#define DHCP_MAGIC_COOKIE 0x63825363  //99.130.83.99
 
 //DHCP message types (option 53)
 #define DHCP_DISCOVER  1

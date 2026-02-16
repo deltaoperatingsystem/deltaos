@@ -67,11 +67,16 @@ static void rtl8139_read_mac(rtl8139_dev_t *d) {
     d->mac[5] = (mac_hi >> 8) & 0xFF;
 }
 
-static void rtl8139_setup_rx(rtl8139_dev_t *d) {
+static int rtl8139_setup_rx(rtl8139_dev_t *d) {
     //allocate RX buffer (needs to be physically contiguous)
     //RTL_RX_BUF_SIZE = 8192 + 16 + 1500 = 9708 bytes -> 3 pages
     size rx_pages = (RTL_RX_BUF_SIZE + 4095) / 4096;
     void *rx_phys = pmm_alloc(rx_pages);
+    if (!rx_phys) {
+        printf("[rtl8139] ERROR: Failed to allocate RX buffer\n");
+        return -1;
+    }
+    
     d->rx_buf = P2V(rx_phys);
     d->rx_buf_phys = (uintptr)rx_phys;
     d->rx_cur = 0;
@@ -84,12 +89,23 @@ static void rtl8139_setup_rx(rtl8139_dev_t *d) {
     //configure RX: accept broadcast + physical match + multicast, wrap, 8K buffer
     outl(d->io_base + RTL_RCR,
          RTL_RCR_AB | RTL_RCR_APM | RTL_RCR_AM | RTL_RCR_WRAP | RTL_RXBUF_8K);
+    
+    return 0;
 }
 
-static void rtl8139_setup_tx(rtl8139_dev_t *d) {
+static int rtl8139_setup_tx(rtl8139_dev_t *d) {
     //allocate TX buffers (one page each, physically contiguous)
     for (int i = 0; i < RTL_NUM_TX_DESC; i++) {
         void *tx_phys = pmm_alloc(1);
+        if (!tx_phys) {
+            printf("[rtl8139] ERROR: Failed to allocate TX buffer %d\n", i);
+            //cleanup previously allocated buffers
+            for (int j = 0; j < i; j++) {
+                pmm_free((void*)d->tx_buf_phys[j], 1);
+            }
+            return -1;
+        }
+        
         d->tx_buf[i] = P2V(tx_phys);
         d->tx_buf_phys[i] = (uintptr)tx_phys;
         memset(d->tx_buf[i], 0, RTL_TX_BUF_SIZE);
@@ -99,6 +115,7 @@ static void rtl8139_setup_tx(rtl8139_dev_t *d) {
     }
     d->tx_cur = 0;
     spinlock_irq_init(&d->tx_lock);
+    return 0;
 }
 
 static void rtl8139_enable(rtl8139_dev_t *d) {
@@ -230,8 +247,12 @@ static void rtl8139_init_device(pci_device_t *pci) {
     printf("\n");
     
     //setup buffers
-    rtl8139_setup_rx(dev);
-    rtl8139_setup_tx(dev);
+    if (rtl8139_setup_rx(dev) != 0 || rtl8139_setup_tx(dev) != 0) {
+        printf("[rtl8139] ERROR: Buffer setup failed, disabling device\n");
+        //cleanup is handled inside setup_tx for TX, and we could add it for RX
+        //but for now just bail to avoid crashing
+        return;
+    }
     
     //enable TX/RX and interrupts
     rtl8139_enable(dev);

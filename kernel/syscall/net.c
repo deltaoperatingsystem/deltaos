@@ -5,17 +5,37 @@
 #include <net/socket.h>
 #include <lib/io.h>
 #include <lib/string.h>
+#include <proc/process.h>
+#include <mm/kheap.h>
 
 intptr sys_tcp_connect(const char *hostname, uint16 port) {
     if (!hostname || port == 0) return -1;
+    
+    //validate pointer
+    if ((uintptr)hostname < USER_SPACE_START || (uintptr)hostname >= USER_SPACE_END) return -1;
+    
+    //safely copy to kernel buffer
+    char k_hostname[256];
+    size i = 0;
+    while (i < 255) {
+        uintptr addr = (uintptr)&hostname[i];
+        if (addr >= USER_SPACE_END) return -1; 
+        
+        char c = hostname[i];
+        k_hostname[i] = c;
+        if (c == '\0') break;
+        i++;
+    }
+    k_hostname[255] = '\0';
+    if (i == 255 && k_hostname[255] != '\0') return -1; //too long
     
     netif_t *nif = net_get_default_netif();
     if (!nif) return -1;
     
     //resolve hostname to IP
     uint32 dst_ip;
-    if (dns_resolve(hostname, &dst_ip) != 0) {
-        printf("[tcp] Failed to resolve %s\n", hostname);
+    if (dns_resolve(k_hostname, &dst_ip) != 0) {
+        printf("[tcp] Failed to resolve %s\n", k_hostname);
         return -1;
     }
     

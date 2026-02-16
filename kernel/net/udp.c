@@ -52,10 +52,12 @@ void udp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) 
     uint16 src_port = ntohs(udp->src_port);
     uint16 udp_len = ntohs(udp->length);
     
-    if (udp_len > len) return;
+    if (udp_len < sizeof(udp_header_t) || udp_len > len) {
+        return;
+    }
     
     void *payload = (uint8 *)data + sizeof(udp_header_t);
-    size payload_len = udp_len - sizeof(udp_header_t);
+    size payload_len = (size)udp_len - sizeof(udp_header_t);
     
     //dispatch to bound handler
     spinlock_acquire(&udp_lock);

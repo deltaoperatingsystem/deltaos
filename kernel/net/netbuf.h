@@ -33,7 +33,7 @@ void netbuf_free(netbuf_t *nb);
 //reserve headroom (call before pushing data)
 void netbuf_reserve(netbuf_t *nb, size headroom);
 
-//push data to the front (grow packet toward head, e.g. prepend header)
+//push data to the front (grow packet toward hea e.g. prepend header)
 //returns pointer to the new data area
 void *netbuf_push(netbuf_t *nb, size len);
 

@@ -2,6 +2,7 @@
 #include <net/ethernet.h>
 #include <net/icmp.h>
 #include <net/dhcp.h>
+#include <net/tcp.h>
 #include <lib/io.h>
 #include <lib/string.h>
 
@@ -26,6 +27,9 @@ void net_rx(netif_t *nif, void *data, size len) {
 
 void net_init(void) {
     printf("[net] Networking subsystem initialized\n");
+    
+    //initialize TCP subsystem (zero connections table)
+    tcp_init();
     
     //run DHCP on the default interface
     netif_t *nif = net_get_default_netif();

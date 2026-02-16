@@ -93,6 +93,7 @@ static void dns_recv_handler(netif_t *nif, uint32 src_ip, uint16 src_port,
         
         uint16 type = ntohs(*(uint16 *)ptr);
         uint16 class = ntohs(*(uint16 *)(ptr + 2));
+        //uint32 ttl = ntohl(*(uint32 *)(ptr + 4));
         uint16 rdlen = ntohs(*(uint16 *)(ptr + 8));
         ptr += 10;
         

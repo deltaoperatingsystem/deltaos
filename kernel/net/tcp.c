@@ -20,8 +20,12 @@ static uint16 tcp_get_free_port(void) {
     
     spinlock_irq_acquire(&tcp_lock);
     for (int i = 0; i < (TCP_EPHEMERAL_END - TCP_EPHEMERAL_START + 1); i++) {
-        uint16 port = next_port++;
-        if (next_port > TCP_EPHEMERAL_END) next_port = TCP_EPHEMERAL_START;
+        uint16 port = next_port;
+        if (next_port >= TCP_EPHEMERAL_END) {
+            next_port = TCP_EPHEMERAL_START;
+        } else {
+            next_port++;
+        }
         
         //check if port is in use
         bool in_use = false;
@@ -166,7 +170,13 @@ void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) 
     uint32 seq = ntohl(tcp->seq_num);
     uint32 ack = ntohl(tcp->ack_num);
     uint8 flags = tcp->flags;
-    uint8 data_off = (tcp->data_off >> 4) * 4;
+    uint8 data_off_raw = tcp->data_off >> 4;
+    uint8 data_off = data_off_raw * 4;
+    
+    if (data_off < sizeof(tcp_header_t) || data_off > len) {
+        printf("[tcp] Dropping invalid TCP packet: data_off=%u, len=%u\n", data_off, (uint32)len);
+        return;
+    }
     
     void *payload = (uint8 *)data + data_off;
     size payload_len = len - data_off;
@@ -266,11 +276,14 @@ void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) 
                 if (copy > 0) {
                     memcpy(conn->rx_buf + conn->rx_len, payload, copy);
                     conn->rx_len += copy;
+                    conn->rcv_nxt += copy; //only advance by what was actually buffered
+                    
+                    //send ACK for the newly buffered data
+                    tcp_send_segment(conn, TCP_ACK, NULL, 0);
+                } else {
+                    //buffer full, don't advance rcv_nxt and don't ACK
+                    printf("[tcp] Receive buffer full, dropping payload\n");
                 }
-                conn->rcv_nxt += payload_len;
-                
-                //send ACK
-                tcp_send_segment(conn, TCP_ACK, NULL, 0);
             }
             
             //handle FIN

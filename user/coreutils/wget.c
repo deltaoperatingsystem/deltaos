@@ -30,6 +30,12 @@ int main(int argc, char **argv) {
         "\r\n",
         path, hostname);
     
+    if (reqlen < 0 || reqlen >= (int)sizeof(request)) {
+        printf("Error: request too long or formatting error\n");
+        handle_close(sock);
+        return 1;
+    }
+    
     if (handle_write(sock, request, reqlen) < 0) {
         printf("Error: failed to send request\n");
         handle_close(sock);

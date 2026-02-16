@@ -34,7 +34,7 @@ typedef struct __attribute__((packed)) {
 #define DNS_CLASS_IN     1       //internet
 
 //resolve a hostname to an IPv4 address (blocking)
-//returns 0 on success fills ip_out. returns < 0 on error.
+//returns 0 on success fills ip_out. returns < 0 on error
 int dns_resolve(const char *hostname, uint32 *ip_out);
 
 #endif
