@@ -1,0 +1,2077 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../boot/">
+      
+      
+        <link rel="next" href="../media/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Delta Executable Format (DX) - DeltaOS Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="pink">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#delta-executable-format-dx" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DeltaOS Docs" class="md-header__button md-logo" aria-label="DeltaOS Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DeltaOS Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Delta Executable Format (DX)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="pink"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="paper" data-md-color-primary="indigo" data-md-color-accent="pink"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DeltaOS Docs" class="md-nav__button md-logo" aria-label="DeltaOS Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    DeltaOS Docs
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Kernel
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1_1" id="__nav_2_1_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_1_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Boot
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/kernel/boot/init/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    init
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/kernel/boot/initrd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    initrd
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wm
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Wm
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/wm/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Window Manager protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Specs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../archive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Archive Format (DA)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Boot Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Executable Format (DX)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Executable Format (DX)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dx-header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DX Header
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DX Header">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#common-header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Header
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#architecture-specific-header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture-Specific Header
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture-Specific Header">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#amd64-so-64-bit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AMD64 (so 64-bit)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#x86-so-32-bit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        x86 (so 32-bit)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#magic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Magic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Type
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#segment-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segment Table
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Segment Table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#segment-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segment Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segment-flags-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segment Flags (Permissions)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#symbol-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Table
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Symbol Table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#symbol-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#symbol-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Binding
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relocation-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relocation Table
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Relocation Table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#relocation-types-amd64" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relocation Types (AMD64)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#string-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        String Table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loading-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading Algorithm
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-to-other-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison to Other Formats
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checksum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checksum
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prelink-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prelink Cache
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lazy-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lazy Binding
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../media/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Media Format (DM)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dx-header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DX Header
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DX Header">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#common-header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Header
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#architecture-specific-header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture-Specific Header
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture-Specific Header">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#amd64-so-64-bit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AMD64 (so 64-bit)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#x86-so-32-bit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        x86 (so 32-bit)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#magic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Magic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Type
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#segment-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segment Table
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Segment Table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#segment-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segment Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segment-flags-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segment Flags (Permissions)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#symbol-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Table
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Symbol Table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#symbol-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#symbol-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Binding
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relocation-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relocation Table
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Relocation Table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#relocation-types-amd64" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relocation Types (AMD64)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#string-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        String Table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loading-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading Algorithm
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-to-other-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison to Other Formats
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checksum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checksum
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prelink-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prelink Cache
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lazy-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lazy Binding
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="delta-executable-format-dx">Delta Executable Format (DX)</h1>
+<h2 id="overview">Overview</h2>
+<p>DX is the native executable format for DeltaOS 
+simpler than ELF/PE/Mach-O while still supporting:</p>
+<ul>
+<li>Position-independent code</li>
+<li>Dynamic linking</li>
+<li>Multiple architectures</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code>┌─────────────────────────────────────────┐
+│  DX Header (magic, version, arch)       │
+├─────────────────────────────────────────┤
+│  Segment Table                          │
+│  - Code segment                         │
+│  - Data segment                         │
+│  - ...                                  │
+├─────────────────────────────────────────┤
+│  Symbol Table (optional)                │
+├─────────────────────────────────────────┤
+│  Relocation Table (optional)            │
+├─────────────────────────────────────────┤
+│  Raw segment data                       │
+└─────────────────────────────────────────┘
+</code></pre></div>
+<hr />
+<h2 id="data-types">Data Types</h2>
+<p>All multi-byte integers are <strong>little-endian</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Size</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>u8</code></td>
+<td>1 byte</td>
+<td>Unsigned 8-bit</td>
+</tr>
+<tr>
+<td><code>u16</code></td>
+<td>2 bytes</td>
+<td>Unsigned 16-bit LE</td>
+</tr>
+<tr>
+<td><code>u32</code></td>
+<td>4 bytes</td>
+<td>Unsigned 32-bit LE</td>
+</tr>
+<tr>
+<td><code>u64</code></td>
+<td>8 bytes</td>
+<td>Unsigned 64-bit LE</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="dx-header">DX Header</h2>
+<p>The header is split into a common part (architecture-independent) followed by
+an architecture-specific part. The <code>header_size</code> field indicates total size.</p>
+<h3 id="common-header">Common Header</h3>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dx_header</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">magic</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0x44580001 (&#39;D&#39; &#39;X&#39; 0x00 0x01)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">checksum</span><span class="p">;</span><span class="w">       </span><span class="c1">// CRC32 of file (with this field as 0)</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">version</span><span class="p">;</span><span class="w">        </span><span class="c1">// Format version (0x0001)</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// Executable type (see below)</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">arch</span><span class="p">;</span><span class="w">           </span><span class="c1">// Target architecture</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// Executable flags</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">header_size</span><span class="p">;</span><span class="w">    </span><span class="c1">// Total header size (common + arch)</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">reserved</span><span class="p">;</span><span class="w">       </span><span class="c1">// Must be zero (reject if non-zero)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">segment_off</span><span class="p">;</span><span class="w">    </span><span class="c1">// Offset to segment table</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">segment_count</span><span class="p">;</span><span class="w">  </span><span class="c1">// Number of segments</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">segment_size</span><span class="p">;</span><span class="w">   </span><span class="c1">// Size of each segment entry</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">symbol_off</span><span class="p">;</span><span class="w">     </span><span class="c1">// Offset to symbol table (0 = none)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">symbol_count</span><span class="p">;</span><span class="w">   </span><span class="c1">// Number of symbols</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">strtab_off</span><span class="p">;</span><span class="w">     </span><span class="c1">// Offset to string table</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">strtab_size</span><span class="p">;</span><span class="w">    </span><span class="c1">// Size of string table in bytes</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">reloc_off</span><span class="p">;</span><span class="w">      </span><span class="c1">// Offset to relocation table (0 = none)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">reloc_count</span><span class="p">;</span><span class="w">    </span><span class="c1">// Number of relocations</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">prelink_off</span><span class="p">;</span><span class="w">    </span><span class="c1">// Offset to prelink cache (0 = none)</span>
+<span class="w">    </span><span class="c1">// Architecture-specific part follows immediately</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Common size:</strong> 56 bytes</p>
+<blockquote>
+<p><strong>Reserved fields:</strong> All <code>reserved</code> fields MUST be zero. Loaders MUST reject
+files with non-zero reserved fields. This allows clean version bumps.</p>
+</blockquote>
+<h3 id="architecture-specific-header">Architecture-Specific Header</h3>
+<blockquote>
+<p><strong>Rule:</strong> The arch-specific part MUST be a strict extension of the common header.
+No reordering, no conditional fields, no shared offsets. This ensures cross-arch
+tools can parse the common header without knowing the architecture.</p>
+</blockquote>
+<h4 id="amd64-so-64-bit">AMD64 (so 64-bit)</h4>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dx_header_amd64</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">entry</span><span class="p">;</span><span class="w">          </span><span class="c1">// Entry point (virtual address, or offset if PIE)</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Total header size (AMD64):</strong> 64 bytes (56 + 8)</p>
+<h4 id="x86-so-32-bit">x86 (so 32-bit)</h4>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dx_header_x86</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">entry</span><span class="p">;</span><span class="w">          </span><span class="c1">// Entry point</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Total header size (x86):</strong> 60 bytes (56 + 4)</p>
+<blockquote>
+<p><strong>Note:</strong> For PIE executables, add the load base to entry to get actual address.</p>
+</blockquote>
+<h3 id="magic">Magic</h3>
+<p><code>0x44580001</code>:
+- <code>0x44</code> = 'D'
+- <code>0x58</code> = 'X'
+- <code>0x00</code> = separator
+- <code>0x01</code> = version</p>
+<h3 id="type">Type</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DX_EXEC</code></td>
+<td>Executable</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DX_DYN</code></td>
+<td>Dynamic library (shared object)</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DX_OBJ</code></td>
+<td>Relocatable object file</td>
+</tr>
+</tbody>
+</table>
+<h3 id="architecture">Architecture</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Arch Header Size</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DX_ARCH_ANY</code></td>
+<td>0</td>
+<td>Architecture-independent</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DX_ARCH_AMD64</code></td>
+<td>8</td>
+<td>x86-64</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DX_ARCH_X86</code></td>
+<td>4</td>
+<td>x86 (32-bit)</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>DX_ARCH_ARM64</code></td>
+<td>8</td>
+<td>AArch64</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>DX_ARCH_ARM32</code></td>
+<td>4</td>
+<td>ARM (32-bit)</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>DX_ARCH_RISCV64</code></td>
+<td>8</td>
+<td>RISC-V 64-bit</td>
+</tr>
+</tbody>
+</table>
+<h3 id="flags">Flags</h3>
+<table>
+<thead>
+<tr>
+<th>Bit</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DX_FLAG_PIE</code></td>
+<td>Position-independent executable</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DX_FLAG_STATIC</code></td>
+<td>Statically linked</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DX_FLAG_DEBUG</code></td>
+<td>Contains debug information</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>DX_FLAG_LAZY</code></td>
+<td>Lazy symbol resolution (resolve on first call)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="segment-table">Segment Table</h2>
+<p>Each segment describes a contiguous region to load.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dx_segment</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// Segment type</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// Permissions (RWX)</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">file_off</span><span class="p">;</span><span class="w">       </span><span class="c1">// Offset in file</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">file_size</span><span class="p">;</span><span class="w">      </span><span class="c1">// Size in file (may be 0 for BSS)</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">mem_addr</span><span class="p">;</span><span class="w">       </span><span class="c1">// Virtual address (or offset if PIE)</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">mem_size</span><span class="p">;</span><span class="w">       </span><span class="c1">// Size in memory (&gt;= file_size for BSS)</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">align</span><span class="p">;</span><span class="w">          </span><span class="c1">// Alignment requirement</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Size:</strong> 48 bytes</p>
+<h3 id="segment-types">Segment Types</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DX_SEG_NULL</code></td>
+<td>Unused entry</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DX_SEG_LOAD</code></td>
+<td>Loadable segment</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DX_SEG_DYN</code></td>
+<td>Dynamic linking info</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>DX_SEG_NOTE</code></td>
+<td>Note/comment</td>
+</tr>
+</tbody>
+</table>
+<h3 id="segment-flags-permissions">Segment Flags (Permissions)</h3>
+<table>
+<thead>
+<tr>
+<th>Bit</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>R</code></td>
+<td>Readable</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>W</code></td>
+<td>Writable</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>X</code></td>
+<td>Executable</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="symbol-table">Symbol Table</h2>
+<p>For dynamic linking and debugging.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dx_symbol</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">name_off</span><span class="p">;</span><span class="w">       </span><span class="c1">// Offset to name string (in string table)</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// Symbol type</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">bind</span><span class="p">;</span><span class="w">           </span><span class="c1">// Binding (local/global/weak)</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">value</span><span class="p">;</span><span class="w">          </span><span class="c1">// Value (address or offset)</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Size of symbol</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">segment</span><span class="p">;</span><span class="w">        </span><span class="c1">// Segment index (0xFFFF = absolute)</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">reserved</span><span class="p">;</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Size:</strong> 28 bytes</p>
+<h3 id="symbol-types">Symbol Types</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DX_SYM_NONE</code></td>
+<td>No type</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DX_SYM_FUNC</code></td>
+<td>Function</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DX_SYM_DATA</code></td>
+<td>Data object</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>DX_SYM_SECTION</code></td>
+<td>Section</td>
+</tr>
+</tbody>
+</table>
+<h3 id="symbol-binding">Symbol Binding</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DX_BIND_LOCAL</code></td>
+<td>Not visible outside file</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DX_BIND_GLOBAL</code></td>
+<td>Visible, can be resolved</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DX_BIND_WEAK</code></td>
+<td>Weak symbol</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="relocation-table">Relocation Table</h2>
+<p>For position-independent code.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dx_reloc</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">offset</span><span class="p">;</span><span class="w">         </span><span class="c1">// Offset to apply relocation</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// Relocation type (arch-specific)</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">segment</span><span class="p">;</span><span class="w">        </span><span class="c1">// Segment containing the offset</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">symbol</span><span class="p">;</span><span class="w">         </span><span class="c1">// Symbol index (or 0 for relative)</span>
+<span class="w">    </span><span class="n">i64</span><span class="w"> </span><span class="n">addend</span><span class="p">;</span><span class="w">         </span><span class="c1">// Addend for calculation</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Size:</strong> 24 bytes</p>
+<h3 id="relocation-types-amd64">Relocation Types (AMD64)</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Calculation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DX_R_NONE</code></td>
+<td>None</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DX_R_64</code></td>
+<td>S + A</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DX_R_PC32</code></td>
+<td>S + A - P</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>DX_R_PLT32</code></td>
+<td>L + A - P</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>DX_R_RELATIVE</code></td>
+<td>B + A</td>
+</tr>
+</tbody>
+</table>
+<p>Where: S = symbol value, A = addend, P = place, B = base address and L = PLT entry</p>
+<hr />
+<h2 id="string-table">String Table</h2>
+<p>Zero-terminated strings, referenced by offset.</p>
+<hr />
+<h2 id="loading-algorithm">Loading Algorithm</h2>
+<div class="language-c highlight"><pre><span></span><code><span class="kt">int</span><span class="w"> </span><span class="nf">dx_load</span><span class="p">(</span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">file</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="n">uintptr</span><span class="w"> </span><span class="n">load_base</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">dx_header</span><span class="w"> </span><span class="o">*</span><span class="n">hdr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">file</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// Verify magic and version</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">magic</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mh">0x44580001</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">arch</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">DX_ARCH_AMD64</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// Load segments</span>
+<span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">dx_segment</span><span class="w"> </span><span class="o">*</span><span class="n">segs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">file</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">segment_off</span><span class="p">;</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">segment_count</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">segs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">type</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">DX_SEG_LOAD</span><span class="p">)</span><span class="w"> </span><span class="k">continue</span><span class="p">;</span>
+
+<span class="w">        </span><span class="n">uintptr</span><span class="w"> </span><span class="n">dest</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">segs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">mem_addr</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">flags</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">DX_FLAG_PIE</span><span class="p">)</span><span class="w"> </span><span class="n">dest</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">load_base</span><span class="p">;</span>
+
+<span class="w">        </span><span class="n">mmap</span><span class="p">((</span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="p">)</span><span class="n">dest</span><span class="p">,</span><span class="w"> </span><span class="n">segs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">mem_size</span><span class="p">,</span><span class="w"> </span><span class="n">segs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">flags</span><span class="p">);</span>
+<span class="w">        </span><span class="n">memcpy</span><span class="p">((</span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="p">)</span><span class="n">dest</span><span class="p">,</span><span class="w"> </span><span class="n">file</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">segs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">file_off</span><span class="p">,</span><span class="w"> </span><span class="n">segs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">file_size</span><span class="p">);</span>
+<span class="w">        </span><span class="n">memset</span><span class="p">((</span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="p">)(</span><span class="n">dest</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">segs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">file_size</span><span class="p">),</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span>
+<span class="w">               </span><span class="n">segs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">mem_size</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">segs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">file_size</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// Apply relocations (if PIE)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">flags</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">DX_FLAG_PIE</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">apply_relocations</span><span class="p">(</span><span class="n">file</span><span class="p">,</span><span class="w"> </span><span class="n">hdr</span><span class="p">,</span><span class="w"> </span><span class="n">load_base</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// Jump to entry point (add base for PIE)</span>
+<span class="w">    </span><span class="n">uintptr</span><span class="w"> </span><span class="n">entry_addr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">entry</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">flags</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">DX_FLAG_PIE</span><span class="p">)</span><span class="w"> </span><span class="n">entry_addr</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">load_base</span><span class="p">;</span>
+
+<span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="n">entry</span><span class="p">)(</span><span class="kt">void</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="p">)</span><span class="n">entry_addr</span><span class="p">;</span>
+<span class="w">    </span><span class="n">entry</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div>
+<hr />
+<h2 id="comparison-to-other-formats">Comparison to Other Formats</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>DX</th>
+<th>ELF</th>
+<th>PE</th>
+<th>Mach-O</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Header size</td>
+<td>56-64B</td>
+<td>64B+</td>
+<td>248B+</td>
+<td>32B+</td>
+</tr>
+<tr>
+<td>Fixed tables</td>
+<td>Yes</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Section names</td>
+<td>No</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Segment/Section</td>
+<td>Merged</td>
+<td>Separate</td>
+<td>Separate</td>
+<td>Separate</td>
+</tr>
+<tr>
+<td>Prelink cache</td>
+<td>Yes</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Lazy binding</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Checksum</td>
+<td>CRC32</td>
+<td>Optional</td>
+<td>Yes</td>
+<td>Optional</td>
+</tr>
+<tr>
+<td>Complexity</td>
+<td>Low</td>
+<td>Medium</td>
+<td>High</td>
+<td>High</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="notes">Notes</h2>
+<ul>
+<li><strong>ELF compatibility:</strong> DeltaOS will support ELF during transition for toolchain compatibility</li>
+<li><strong>Future extensions:</strong> Types 0x8000+ reserved for extensions</li>
+</ul>
+<hr />
+<h2 id="checksum">Checksum</h2>
+<p>The <code>checksum</code> field contains a <strong>CRC32</strong> (polynomial <code>0xEDB88320</code>) of the entire file,
+with the <code>checksum</code> field itself treated as zero during computation.</p>
+<p><strong>Verification is optional</strong> — loaders may skip for speed when loading from trusted sources.
+System libraries can skip verification; untrusted executables should verify.</p>
+<hr />
+<h2 id="prelink-cache">Prelink Cache</h2>
+<p>The prelink cache stores pre-resolved symbol addresses for faster loading.
+When <code>prelink_off</code> is non-zero, it points to:</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dx_prelink</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">count</span><span class="p">;</span><span class="w">              </span><span class="c1">// Number of cached entries</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">base_valid</span><span class="p">;</span><span class="w">         </span><span class="c1">// 1 if cache matches current library layout</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">base_addr</span><span class="p">;</span><span class="w">          </span><span class="c1">// Base address cache was computed for</span>
+<span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">dx_prelink_entry</span><span class="w"> </span><span class="n">entries</span><span class="p">[];</span>
+<span class="p">};</span>
+
+<span class="k">struct</span><span class="w"> </span><span class="nc">dx_prelink_entry</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">symbol</span><span class="p">;</span><span class="w">             </span><span class="c1">// Symbol index</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">reserved</span><span class="p">;</span><span class="w">           </span><span class="c1">// Padding for alignment</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">resolved_addr</span><span class="p">;</span><span class="w">      </span><span class="c1">// Pre-resolved address</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Usage:</strong>
+- If <code>base_valid</code> and libraries haven't changed, use cached addresses directly
+- Otherwise, fall back to normal symbol resolution
+- Tools like <code>dx-prelink</code> regenerate cache when system libraries update</p>
+<hr />
+<h2 id="lazy-binding">Lazy Binding</h2>
+<p>When <code>DX_FLAG_LAZY</code> is set, external symbols are resolved on first call:</p>
+<ol>
+<li>PLT entries initially point to resolver stub</li>
+<li>First call invokes resolver, patches PLT with real address</li>
+<li>Subsequent calls go directly to resolved address</li>
+</ol>
+<p>This speeds up startup by deferring work, until actually needed.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

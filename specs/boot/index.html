@@ -1,0 +1,2382 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../archive/">
+      
+      
+        <link rel="next" href="../exec/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Delta Boot Protocol - DeltaOS Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="pink">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#delta-boot-protocol" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DeltaOS Docs" class="md-header__button md-logo" aria-label="DeltaOS Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DeltaOS Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Delta Boot Protocol
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="pink"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="paper" data-md-color-primary="indigo" data-md-color-accent="pink"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DeltaOS Docs" class="md-nav__button md-logo" aria-label="DeltaOS Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    DeltaOS Docs
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Kernel
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1_1" id="__nav_2_1_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_1_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Boot
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/kernel/boot/init/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    init
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/kernel/boot/initrd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    initrd
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wm
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Wm
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/wm/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Window Manager protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Specs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../archive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Archive Format (DA)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Boot Protocol
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Boot Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-1-db-request-header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 1: DB Request Header
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 1: DB Request Header">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#location" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Location
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checksum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checksum
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Flags
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flags-and-tags-precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags and Tags Precedence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-1b-request-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 1b: Request Tags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 1b: Request Tags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#request-tag-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Tag Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-tag-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Tag Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_rtag_framebuffer_pref-0x0001" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_RTAG_FRAMEBUFFER_PREF (0x0001)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_rtag_min_memory-0x0002" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_RTAG_MIN_MEMORY (0x0002)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_rtag_load_address-0x0003" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_RTAG_LOAD_ADDRESS (0x0003)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_rtag_stack_size-0x0004" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_RTAG_STACK_SIZE (0x0004)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-2-db-boot-info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 2: DB Boot Info
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 2: DB Boot Info">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#passing-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Passing Convention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#info-header-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Info Header Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-3-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 3: Tags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 3: Tags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tag-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tag Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tag-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tag Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tag-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tag Definitions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tag Definitions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_end-0x0000" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_END (0x0000)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_cmdline-0x0001" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_CMDLINE (0x0001)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_memory_map-0x0002" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_MEMORY_MAP (0x0002)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_framebuffer-0x0003" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_FRAMEBUFFER (0x0003)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_modules-0x0004" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_MODULES (0x0004)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_initrd-0x000b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_INITRD (0x000B)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_kernel_phys-0x000c" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_KERNEL_PHYS (0x000C)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_acpi_rsdp-0x0005" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_ACPI_RSDP (0x0005)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_smp-0x0006" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_SMP (0x0006)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_bootloader-0x0008" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_BOOTLOADER (0x0008)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#minimal-kernel-example-pseudocode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minimal Kernel Example (Pseudocode)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bootloader-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bootloader Requirements
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bootloader Requirements">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#load-address" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load Address
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Executable Format (DX)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../media/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Media Format (DM)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-1-db-request-header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 1: DB Request Header
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 1: DB Request Header">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#location" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Location
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checksum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checksum
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Flags
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flags-and-tags-precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags and Tags Precedence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-1b-request-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 1b: Request Tags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 1b: Request Tags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#request-tag-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Tag Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-tag-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Tag Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_rtag_framebuffer_pref-0x0001" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_RTAG_FRAMEBUFFER_PREF (0x0001)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_rtag_min_memory-0x0002" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_RTAG_MIN_MEMORY (0x0002)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_rtag_load_address-0x0003" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_RTAG_LOAD_ADDRESS (0x0003)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_rtag_stack_size-0x0004" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_RTAG_STACK_SIZE (0x0004)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-2-db-boot-info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 2: DB Boot Info
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 2: DB Boot Info">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#passing-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Passing Convention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#info-header-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Info Header Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-3-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 3: Tags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 3: Tags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tag-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tag Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tag-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tag Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tag-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tag Definitions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tag Definitions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_end-0x0000" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_END (0x0000)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_cmdline-0x0001" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_CMDLINE (0x0001)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_memory_map-0x0002" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_MEMORY_MAP (0x0002)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_framebuffer-0x0003" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_FRAMEBUFFER (0x0003)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_modules-0x0004" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_MODULES (0x0004)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_initrd-0x000b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_INITRD (0x000B)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_kernel_phys-0x000c" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_KERNEL_PHYS (0x000C)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_acpi_rsdp-0x0005" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_ACPI_RSDP (0x0005)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_smp-0x0006" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_SMP (0x0006)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db_tag_bootloader-0x0008" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DB_TAG_BOOTLOADER (0x0008)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#minimal-kernel-example-pseudocode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minimal Kernel Example (Pseudocode)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bootloader-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bootloader Requirements
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bootloader Requirements">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#load-address" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load Address
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="delta-boot-protocol">Delta Boot Protocol</h1>
+<h2 id="overview">Overview</h2>
+<p>The DB protocol defines:</p>
+<ol>
+<li><strong>DB Request Header</strong> — Embedded in the kernel binary, tells the bootloader what's needed</li>
+<li><strong>DB Boot Info</strong> — Passed to the kernel at boot, contains system information as tags</li>
+</ol>
+<div class="language-text highlight"><pre><span></span><code>┌──────────────────────────────────────────────────────────────┐
+│                    KERNEL BINARY                             │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  DB Request Header (magic + version + flags)           │  │
+│  │  Request Tags: what the kernel wants from bootloader   │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                           ▼ bootloader reads &amp; prepares
+┌──────────────────────────────────────────────────────────────┐
+│                    DB BOOT INFO                              │
+│  Passed to kernel entry point (pointer in arch-defined reg)  │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Info Header                                           │  │
+│  ├────────────────────────────────────────────────────────┤  │
+│  │  Tag: Memory Map                                       │  │
+│  │  Tag: Framebuffer                                      │  │
+│  │  Tag: Command Line                                     │  │
+│  │  Tag: ...                                              │  │
+│  │  Tag: End                                              │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<hr />
+<h2 id="data-types">Data Types</h2>
+<p>All multi-byte integers are <strong>little-endian</strong>=</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Size</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>u8</code></td>
+<td>1 byte</td>
+<td>Unsigned 8-bit</td>
+</tr>
+<tr>
+<td><code>u16</code></td>
+<td>2 bytes</td>
+<td>Unsigned 16-bit LE</td>
+</tr>
+<tr>
+<td><code>u32</code></td>
+<td>4 bytes</td>
+<td>Unsigned 32-bit LE</td>
+</tr>
+<tr>
+<td><code>u64</code></td>
+<td>8 bytes</td>
+<td>Unsigned 64-bit LE</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="part-1-db-request-header">Part 1: DB Request Header</h2>
+<p>The kernel embeds this header to identify itself as DB-compliant and request features.</p>
+<h3 id="location">Location</h3>
+<p>The bootloader scans the first <strong>32 KiB</strong> of the kernel binary for the magic number,
+Header must be <strong>8-byte aligned</strong>.</p>
+<h3 id="structure">Structure</h3>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_request_header</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">magic</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0x44420001 (&#39;D&#39; &#39;B&#39; 0x00 0x01)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">checksum</span><span class="p">;</span><span class="w">       </span><span class="c1">// CRC32 of header + tags (with this field as 0)</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">version</span><span class="p">;</span><span class="w">        </span><span class="c1">// Protocol version (0x0001 for v0.1)</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">header_size</span><span class="p">;</span><span class="w">    </span><span class="c1">// Size of this header + all request tags</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// Request flags (see below)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">entry_point</span><span class="p">;</span><span class="w">    </span><span class="c1">// Offset (not address!) of kernel entry point</span>
+<span class="w">                        </span><span class="c1">// Relative to start of loaded kernel image</span>
+<span class="w">                        </span><span class="c1">// Use 0xFFFFFFFF if bootloader should use format-specific entry</span>
+<span class="p">};</span>
+<span class="c1">// Followed by request tags (until header_size is reached)</span>
+</code></pre></div>
+<p><strong>Magic breakdown:</strong> <code>0x44420001</code>
+- <code>0x44</code> = 'D'
+- <code>0x42</code> = 'B'<br />
+- <code>0x00</code> = null separator
+- <code>0x01</code> = format version</p>
+<h3 id="checksum">Checksum</h3>
+<p>The <code>checksum</code> field contains a <strong>CRC32</strong> (polynomial <code>0xEDB88320</code>)
+computed over the entire header including request tags, with the <code>checksum</code> field itself
+treated as zero during computation.</p>
+<p><strong>To compute:</strong>
+1. Set <code>checksum</code> to 0
+2. Calculate CRC32 over bytes <code>[0, header_size)</code>
+3. Store result in <code>checksum</code></p>
+<p><strong>To verify:</strong>
+1. Save <code>checksum</code> value
+2. Set <code>checksum</code> to 0
+3. Calculate CRC32 over bytes <code>[0, header_size)</code>
+4. Compare with saved value</p>
+<h3 id="request-flags">Request Flags</h3>
+<table>
+<thead>
+<tr>
+<th>Bit</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DB_REQ_FRAMEBUFFER</code></td>
+<td>Kernel requests framebuffer info</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DB_REQ_MEMORY_MAP</code></td>
+<td>Kernel requests memory map (should always be set)</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DB_REQ_MODULES</code></td>
+<td>Kernel supports loaded modules</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>DB_REQ_ACPI</code></td>
+<td>Kernel requests ACPI RSDP pointer</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>DB_REQ_CMDLINE</code></td>
+<td>Kernel accepts command line</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>DB_REQ_SMP</code></td>
+<td>Kernel requests SMP info (CPU count, etc.)</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>DB_REQ_INITRD</code></td>
+<td>Kernel requests initial ramdisk</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>DB_REQ_HAS_TAGS</code></td>
+<td>Request tags follow the header</td>
+</tr>
+<tr>
+<td>8-31</td>
+<td>Reserved</td>
+<td>Must be zero</td>
+</tr>
+</tbody>
+</table>
+<h3 id="flags-and-tags-precedence">Flags and Tags Precedence</h3>
+<ul>
+<li><strong>Flag set, no tag:</strong> Bootloader provides the feature with default values</li>
+<li><strong>Flag set, tag present:</strong> Bootloader uses tag values (tag refines the request)</li>
+<li><strong>Flag not set, tag present:</strong> Tag is ignored (flag must be set to enable feature)</li>
+</ul>
+<hr />
+<h2 id="part-1b-request-tags">Part 1b: Request Tags</h2>
+<p>Request tags allow the kernel to specify detailed requirements beyond simple flags.
+They immediately follow the request header and are included in <code>header_size</code>.</p>
+<h3 id="request-tag-structure">Request Tag Structure</h3>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_request_tag</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// Request tag type</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// Tag-specific flags</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Total size of this tag (including header)</span>
+<span class="w">    </span><span class="c1">// Tag-specific data follows</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Alignment:</strong> Each request tag starts at a 4-byte aligned offset from header start</p>
+<h3 id="request-tag-types">Request Tag Types</h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x0000</td>
+<td><code>DB_RTAG_END</code></td>
+<td>End of request tag list</td>
+</tr>
+<tr>
+<td>0x0001</td>
+<td><code>DB_RTAG_FRAMEBUFFER_PREF</code></td>
+<td>Preferred framebuffer settings</td>
+</tr>
+<tr>
+<td>0x0002</td>
+<td><code>DB_RTAG_MIN_MEMORY</code></td>
+<td>Minimum memory requirement</td>
+</tr>
+<tr>
+<td>0x0003</td>
+<td><code>DB_RTAG_LOAD_ADDRESS</code></td>
+<td>Preferred/required load address</td>
+</tr>
+<tr>
+<td>0x0004</td>
+<td><code>DB_RTAG_STACK_SIZE</code></td>
+<td>Requested initial stack size</td>
+</tr>
+<tr>
+<td>0x0005</td>
+<td><code>DB_RTAG_ARCH_FEATURES</code></td>
+<td>Architecture-specific feature requests</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="db_rtag_framebuffer_pref-0x0001">DB_RTAG_FRAMEBUFFER_PREF (0x0001)</h3>
+<p>Specify preferred framebuffer resolution and pixel format.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_rtag_framebuffer_pref</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0001</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// Bit 0: required (fail if unavailable)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// 28</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">min_width</span><span class="p">;</span><span class="w">      </span><span class="c1">// Minimum acceptable width (0 = any)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">min_height</span><span class="p">;</span><span class="w">     </span><span class="c1">// Minimum acceptable height (0 = any)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">preferred_width</span><span class="p">;</span><span class="w">  </span><span class="c1">// Preferred width (0 = any)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">preferred_height</span><span class="p">;</span><span class="w"> </span><span class="c1">// Preferred height (0 = any)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">min_bpp</span><span class="p">;</span><span class="w">        </span><span class="c1">// Minimum bits per pixel (0 = any)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">preferred_bpp</span><span class="p">;</span><span class="w">  </span><span class="c1">// Preferred bpp (0 = any)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">padding</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span>
+<span class="p">};</span>
+</code></pre></div>
+<hr />
+<h3 id="db_rtag_min_memory-0x0002">DB_RTAG_MIN_MEMORY (0x0002)</h3>
+<p>Specify minimum RAM requirement.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_rtag_min_memory</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0002</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// 16</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">min_bytes</span><span class="p">;</span><span class="w">      </span><span class="c1">// Minimum usable RAM required</span>
+<span class="p">};</span>
+</code></pre></div>
+<hr />
+<h3 id="db_rtag_load_address-0x0003">DB_RTAG_LOAD_ADDRESS (0x0003)</h3>
+<p>Request a specific load address (hint or requirement).</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_rtag_load_address</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0003</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// Bit 0: required (fail if unavailable)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// 24</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">preferred_addr</span><span class="p">;</span><span class="w"> </span><span class="c1">// Preferred physical load address</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">alignment</span><span class="p">;</span><span class="w">      </span><span class="c1">// Required alignment (must be power of 2)</span>
+<span class="p">};</span>
+</code></pre></div>
+<hr />
+<h3 id="db_rtag_stack_size-0x0004">DB_RTAG_STACK_SIZE (0x0004)</h3>
+<p>Request initial kernel stack size.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_rtag_stack_size</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0004</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// 16</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">stack_size</span><span class="p">;</span><span class="w">     </span><span class="c1">// Requested stack size in bytes (0 = bootloader default)</span>
+<span class="p">};</span>
+</code></pre></div>
+<hr />
+<h2 id="part-2-db-boot-info">Part 2: DB Boot Info</h2>
+<p>Prepared by the bootloader and passed to the kernel.</p>
+<h3 id="passing-convention">Passing Convention</h3>
+<p>The bootloader passes a pointer to <code>db_boot_info</code> in an <strong>architecture-defined register</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Architecture</th>
+<th>Register</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>x86 (32-bit)</td>
+<td><code>EBX</code></td>
+<td>Physical address</td>
+</tr>
+<tr>
+<td>x86_64</td>
+<td><code>RDI</code></td>
+<td>Physical address (first arg)</td>
+</tr>
+<tr>
+<td>ARM32</td>
+<td><code>R0</code></td>
+<td>Physical address</td>
+</tr>
+<tr>
+<td>AArch64</td>
+<td><code>X0</code></td>
+<td>Physical address</td>
+</tr>
+<tr>
+<td>RISC-V</td>
+<td><code>A0</code></td>
+<td>Physical address</td>
+</tr>
+</tbody>
+</table>
+<h3 id="info-header-structure">Info Header Structure</h3>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_boot_info</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">magic</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0x44424F4B (&#39;D&#39; &#39;B&#39; &#39;O&#39; &#39;K&#39; — &quot;DB OK&quot;)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">total_size</span><span class="p">;</span><span class="w">     </span><span class="c1">// Total size of boot info including all tags</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">version</span><span class="p">;</span><span class="w">        </span><span class="c1">// Protocol version</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">reserved</span><span class="p">;</span><span class="w">       </span><span class="c1">// Must be zero</span>
+<span class="p">};</span>
+<span class="c1">// Immediately followed by tags</span>
+</code></pre></div>
+<hr />
+<h2 id="part-3-tags">Part 3: Tags</h2>
+<p>Tags are variable-length structures that follow the header.</p>
+<h3 id="tag-structure">Tag Structure</h3>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// Tag type identifier</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// Tag-specific flags</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Total size of this tag (including header)</span>
+<span class="w">    </span><span class="c1">// Tag-specific data follows</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Alignment:</strong> Each tag starts at an 8-byte aligned address.<br />
+<strong>Padding:</strong> Bootloader inserts padding bytes (value 0) between tags as needed.</p>
+<h3 id="tag-types">Tag Types</h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x0000</td>
+<td><code>DB_TAG_END</code></td>
+<td>End of tag list</td>
+</tr>
+<tr>
+<td>0x0001</td>
+<td><code>DB_TAG_CMDLINE</code></td>
+<td>Command line string</td>
+</tr>
+<tr>
+<td>0x0002</td>
+<td><code>DB_TAG_MEMORY_MAP</code></td>
+<td>System memory map</td>
+</tr>
+<tr>
+<td>0x0003</td>
+<td><code>DB_TAG_FRAMEBUFFER</code></td>
+<td>Framebuffer information</td>
+</tr>
+<tr>
+<td>0x0004</td>
+<td><code>DB_TAG_MODULES</code></td>
+<td>Loaded modules (generic)</td>
+</tr>
+<tr>
+<td>0x0005</td>
+<td><code>DB_TAG_ACPI_RSDP</code></td>
+<td>ACPI RSDP pointer</td>
+</tr>
+<tr>
+<td>0x0006</td>
+<td><code>DB_TAG_SMP</code></td>
+<td>SMP/CPU information</td>
+</tr>
+<tr>
+<td>0x0007</td>
+<td><code>DB_TAG_BOOT_TIME</code></td>
+<td>Boot timestamp</td>
+</tr>
+<tr>
+<td>0x0008</td>
+<td><code>DB_TAG_BOOTLOADER</code></td>
+<td>Bootloader name/version</td>
+</tr>
+<tr>
+<td>0x0009</td>
+<td><code>DB_TAG_KERNEL_FILE</code></td>
+<td>Original kernel file info</td>
+</tr>
+<tr>
+<td>0x000A</td>
+<td><code>DB_TAG_EFI_SYSTEM_TABLE</code></td>
+<td>EFI System Table pointer (if UEFI)</td>
+</tr>
+<tr>
+<td>0x000B</td>
+<td><code>DB_TAG_INITRD</code></td>
+<td>Initial ramdisk (initrd/initramfs)</td>
+</tr>
+<tr>
+<td>0x000C</td>
+<td><code>DB_TAG_KERNEL_PHYS</code></td>
+<td>Physical memory footprint of kernel</td>
+</tr>
+<tr>
+<td>0x8000+</td>
+<td>Vendor-specific</td>
+<td>Reserved for custom extensions</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="tag-definitions">Tag Definitions</h2>
+<h3 id="db_tag_end-0x0000">DB_TAG_END (0x0000)</h3>
+<p>Marks the end of the tag list. Required.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_end</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0000</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// 8</span>
+<span class="p">};</span>
+</code></pre></div>
+<hr />
+<h3 id="db_tag_cmdline-0x0001">DB_TAG_CMDLINE (0x0001)</h3>
+<p>Null-terminated command line string.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_cmdline</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0001</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// 8 + string length + 1 (null terminator)</span>
+<span class="w">    </span><span class="kt">char</span><span class="w"> </span><span class="n">cmdline</span><span class="p">[];</span><span class="w">     </span><span class="c1">// Null-terminated UTF-8 string</span>
+<span class="p">};</span>
+</code></pre></div>
+<hr />
+<h3 id="db_tag_memory_map-0x0002">DB_TAG_MEMORY_MAP (0x0002)</h3>
+<p>Describes physical memory layout.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_memory_map</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0002</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Total tag size</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">entry_size</span><span class="p">;</span><span class="w">     </span><span class="c1">// Size of each entry (for forward compat)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">entry_count</span><span class="p">;</span><span class="w">    </span><span class="c1">// Number of entries</span>
+<span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">db_mmap_entry</span><span class="w"> </span><span class="n">entries</span><span class="p">[];</span>
+<span class="p">};</span>
+
+<span class="k">struct</span><span class="w"> </span><span class="nc">db_mmap_entry</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">base</span><span class="p">;</span><span class="w">           </span><span class="c1">// Physical base address</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">length</span><span class="p">;</span><span class="w">         </span><span class="c1">// Length in bytes</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// Memory type (see below)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">attributes</span><span class="p">;</span><span class="w">     </span><span class="c1">// Additional attributes</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Memory Types:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DB_MEM_RESERVED</code></td>
+<td>Reserved, do not use</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DB_MEM_USABLE</code></td>
+<td>Free RAM, available for use</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DB_MEM_ACPI_RECLAIMABLE</code></td>
+<td>ACPI tables, reclaimable</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>DB_MEM_ACPI_NVS</code></td>
+<td>ACPI Non-Volatile Storage</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>DB_MEM_BAD</code></td>
+<td>Bad memory, do not use</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>DB_MEM_BOOTLOADER</code></td>
+<td>Used by bootloader, reclaimable</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>DB_MEM_KERNEL</code></td>
+<td>Kernel image</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>DB_MEM_FRAMEBUFFER</code></td>
+<td>Framebuffer memory</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>DB_MEM_INITRD</code></td>
+<td>Initial ramdisk, reclaimable</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>DB_MEM_MODULES</code></td>
+<td>Loaded modules</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="db_tag_framebuffer-0x0003">DB_TAG_FRAMEBUFFER (0x0003)</h3>
+<p>Framebuffer information for graphical output.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_framebuffer</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0003</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Tag size</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">address</span><span class="p">;</span><span class="w">        </span><span class="c1">// Physical address of framebuffer</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">width</span><span class="p">;</span><span class="w">          </span><span class="c1">// Width in pixels</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">height</span><span class="p">;</span><span class="w">         </span><span class="c1">// Height in pixels</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">pitch</span><span class="p">;</span><span class="w">          </span><span class="c1">// Bytes per scanline</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">bpp</span><span class="p">;</span><span class="w">            </span><span class="c1">// Bits per pixel</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">red_shift</span><span class="p">;</span><span class="w">      </span><span class="c1">// Red component bit position</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">red_size</span><span class="p">;</span><span class="w">       </span><span class="c1">// Red component bit size</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">green_shift</span><span class="p">;</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">green_size</span><span class="p">;</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">blue_shift</span><span class="p">;</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">blue_size</span><span class="p">;</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">reserved_shift</span><span class="p">;</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">reserved_size</span><span class="p">;</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">padding</span><span class="p">[</span><span class="mi">3</span><span class="p">];</span><span class="w">     </span><span class="c1">// Alignment padding</span>
+<span class="p">};</span>
+</code></pre></div>
+<hr />
+<h3 id="db_tag_modules-0x0004">DB_TAG_MODULES (0x0004)</h3>
+<p>Loaded boot modules (initramfs, drivers, etc.).</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_modules</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0004</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Total tag size</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">module_count</span><span class="p">;</span><span class="w">   </span><span class="c1">// Number of modules</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">reserved</span><span class="p">;</span>
+<span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">db_module</span><span class="w"> </span><span class="n">modules</span><span class="p">[];</span>
+<span class="p">};</span>
+
+<span class="k">struct</span><span class="w"> </span><span class="nc">db_module</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">start</span><span class="p">;</span><span class="w">          </span><span class="c1">// Physical start address</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">end</span><span class="p">;</span><span class="w">            </span><span class="c1">// Physical end address (exclusive)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">name_offset</span><span class="p">;</span><span class="w">    </span><span class="c1">// Offset to null-terminated name string (from tag start)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">cmdline_offset</span><span class="p">;</span><span class="w"> </span><span class="c1">// Offset to null-terminated cmdline (from tag start)</span>
+<span class="p">};</span>
+<span class="c1">// Module names and cmdlines stored as strings after the module array</span>
+</code></pre></div>
+<hr />
+<h3 id="db_tag_initrd-0x000b">DB_TAG_INITRD (0x000B)</h3>
+<p>Initial ramdisk (initrd or initramfs) 
+This is the primary way to load a initial
+filesystem for early boot.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_initrd</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x000B</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Tag size</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">start</span><span class="p">;</span><span class="w">          </span><span class="c1">// Physical start address of initrd</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">length</span><span class="p">;</span><span class="w">         </span><span class="c1">// Size in bytes</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Notes:</strong>
+- The bootloader loads the initrd file into contiguous physical memory
+- The kernel is responsible for parsing the format (cpio, ext2, etc.)
+- Memory region is marked as <code>DB_MEM_INITRD</code> in the memory map (reclaimable after use)</p>
+<hr />
+<h3 id="db_tag_kernel_phys-0x000c">DB_TAG_KERNEL_PHYS (0x000C)</h3>
+<p>Provides the exact physical memory footprint of the loaded kernel.
+This is used by the kernel to reserve its own physical pages in the
+memory manager.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_kernel_phys</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x000C</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Tag size (24)</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">phys_base</span><span class="p">;</span><span class="w">      </span><span class="c1">// Physical start address of kernel</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">phys_length</span><span class="p">;</span><span class="w">    </span><span class="c1">// Total length in bytes</span>
+<span class="p">};</span>
+</code></pre></div>
+<h3 id="db_tag_acpi_rsdp-0x0005">DB_TAG_ACPI_RSDP (0x0005)</h3>
+<p>ACPI Root System Description Pointer.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_acpi_rsdp</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0005</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// Bit 0: set if XSDP (ACPI 2.0+)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Tag size</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">rsdp_address</span><span class="p">;</span><span class="w">   </span><span class="c1">// Physical address of RSDP/XSDP</span>
+<span class="p">};</span>
+</code></pre></div>
+<hr />
+<h3 id="db_tag_smp-0x0006">DB_TAG_SMP (0x0006)</h3>
+<p>Symmetric Multi Processing information.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_smp</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0006</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Tag size</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">cpu_count</span><span class="p">;</span><span class="w">      </span><span class="c1">// Number of CPUs</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">bsp_id</span><span class="p">;</span><span class="w">         </span><span class="c1">// Bootstrap processor ID</span>
+<span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">db_cpu</span><span class="w"> </span><span class="n">cpus</span><span class="p">[];</span>
+<span class="p">};</span>
+
+<span class="k">struct</span><span class="w"> </span><span class="nc">db_cpu</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">id</span><span class="p">;</span><span class="w">             </span><span class="c1">// CPU/APIC ID (arch-specific)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// Bit 0: enabled, Bit 1: is BSP</span>
+<span class="p">};</span>
+</code></pre></div>
+<hr />
+<h3 id="db_tag_bootloader-0x0008">DB_TAG_BOOTLOADER (0x0008)</h3>
+<p>Bootloader identification.</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_bootloader</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// 0x0008</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">           </span><span class="c1">// Tag size</span>
+<span class="w">    </span><span class="kt">char</span><span class="w"> </span><span class="n">name</span><span class="p">[];</span><span class="w">        </span><span class="c1">// Null-terminated bootloader name/version</span>
+<span class="p">};</span>
+</code></pre></div>
+<hr />
+<h2 id="minimal-kernel-example-pseudocode">Minimal Kernel Example (Pseudocode)</h2>
+<div class="language-c highlight"><pre><span></span><code><span class="c1">// Entry point receives db_boot_info pointer</span>
+<span class="kt">void</span><span class="w"> </span><span class="nf">kernel_main</span><span class="p">(</span><span class="k">struct</span><span class="w"> </span><span class="nc">db_boot_info</span><span class="o">*</span><span class="w"> </span><span class="n">info</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Verify magic</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">info</span><span class="o">-&gt;</span><span class="n">magic</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mh">0x44424F4B</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">panic</span><span class="p">(</span><span class="s">&quot;Not booted via DB protocol&quot;</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// Iterate tags</span>
+<span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag</span><span class="o">*</span><span class="w"> </span><span class="n">tag</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">void</span><span class="o">*</span><span class="p">)</span><span class="n">info</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">info</span><span class="p">);</span>
+
+<span class="w">    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">tag</span><span class="o">-&gt;</span><span class="n">type</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">DB_TAG_END</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">tag</span><span class="o">-&gt;</span><span class="n">type</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="no">DB_TAG_MEMORY_MAP</span><span class="p">:</span>
+<span class="w">                </span><span class="n">parse_memory_map</span><span class="p">((</span><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_memory_map</span><span class="o">*</span><span class="p">)</span><span class="n">tag</span><span class="p">);</span>
+<span class="w">                </span><span class="k">break</span><span class="p">;</span>
+<span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="no">DB_TAG_FRAMEBUFFER</span><span class="p">:</span>
+<span class="w">                </span><span class="n">init_framebuffer</span><span class="p">((</span><span class="k">struct</span><span class="w"> </span><span class="nc">db_tag_framebuffer</span><span class="o">*</span><span class="p">)</span><span class="n">tag</span><span class="p">);</span>
+<span class="w">                </span><span class="k">break</span><span class="p">;</span>
+<span class="w">            </span><span class="c1">//... handle other tags</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="c1">// Advance to next tag (8-byte aligned)</span>
+<span class="w">        </span><span class="n">tag</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">void</span><span class="o">*</span><span class="p">)</span><span class="n">tag</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">((</span><span class="n">tag</span><span class="o">-&gt;</span><span class="n">size</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">7</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="o">~</span><span class="mi">7</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<hr />
+<h2 id="bootloader-requirements">Bootloader Requirements</h2>
+<p>A DB-compliant bootloader must:</p>
+<ol>
+<li><strong>Locate the DB Request Header</strong> in the kernel binary (first 32 KiB, 8-byte aligned)</li>
+<li><strong>Verify the magic</strong> (<code>0x44420001</code>)</li>
+<li><strong>Load the kernel</strong> into memory at an appropriate address (bootloader's choice)</li>
+<li><strong>Prepare DB Boot Info</strong> with requested tags based on request flags</li>
+<li><strong>Set up machine state:</strong></li>
+<li>Interrupts disabled</li>
+<li>Paging <strong>enabled</strong> with identity mapping (virtual = physical)</li>
+<li>A20 line enabled (if x86)</li>
+<li><strong>Pass boot info pointer</strong> in the architecture-defined register</li>
+<li><strong>Jump to kernel entry point</strong></li>
+</ol>
+<h3 id="load-address">Load Address</h3>
+<p>The bootloader chooses where to load the kernel in physical memory. The kernel must be
+position-independent or linked to expect this. The kernel can determine its load address
+from the memory map (look for <code>DB_MEM_KERNEL</code> regions).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

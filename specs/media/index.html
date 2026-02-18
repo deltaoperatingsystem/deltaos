@@ -1,0 +1,1928 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../exec/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Delta Media Format (DM) - DeltaOS Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="pink">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#delta-media-format-dm" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DeltaOS Docs" class="md-header__button md-logo" aria-label="DeltaOS Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DeltaOS Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Delta Media Format (DM)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="pink"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="paper" data-md-color-primary="indigo" data-md-color-accent="pink"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DeltaOS Docs" class="md-nav__button md-logo" aria-label="DeltaOS Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    DeltaOS Docs
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Kernel
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1_1" id="__nav_2_1_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_1_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Boot
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/kernel/boot/init/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    init
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/kernel/boot/initrd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    initrd
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wm
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Wm
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/wm/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Window Manager protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Specs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../archive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Archive Format (DA)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Boot Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Executable Format (DX)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Media Format (DM)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delta Media Format (DM)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dm-header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DM Header
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DM Header">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#magic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Magic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#media-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Media Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compression-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compression Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pixel-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pixel Formats
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pixel Formats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bytes-per-pixel-lookup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bytes Per Pixel Lookup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#type-specific-headers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Type-Specific Headers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Type-Specific Headers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#image-header-type-0" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Image Header (type = 0)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#video-header-type-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Video Header (type = 1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audio-header-type-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audio Header (type = 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rle-compression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RLE Compression
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loading-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading Algorithm
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Loading Algorithm">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#safe-image-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Safe Image Loading
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Codes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-to-other-formats-as-always" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison to Other Formats (as always)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dm-header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DM Header
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DM Header">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#magic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Magic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#media-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Media Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compression-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compression Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pixel-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pixel Formats
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pixel Formats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bytes-per-pixel-lookup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bytes Per Pixel Lookup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#type-specific-headers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Type-Specific Headers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Type-Specific Headers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#image-header-type-0" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Image Header (type = 0)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#video-header-type-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Video Header (type = 1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audio-header-type-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audio Header (type = 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rle-compression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RLE Compression
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loading-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading Algorithm
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Loading Algorithm">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#safe-image-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Safe Image Loading
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Codes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-to-other-formats-as-always" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison to Other Formats (as always)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="delta-media-format-dm">Delta Media Format (DM)</h1>
+<h2 id="overview">Overview</h2>
+<p>DM is the native media format for DeltaOS, designed for:</p>
+<ul>
+<li><strong>Fast decoding</strong> — Simple compression, bounded memory usage</li>
+<li><strong>Safe parsing</strong> — Explicit validation, no undefined behavior</li>
+<li><strong>Extensibility</strong> — Reserved fields for future versions</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code>┌─────────────────────────────────────────┐
+│  DM Header (magic, type, dimensions)    │
+├─────────────────────────────────────────┤
+│  Type-specific Header                   │
+│  (image/video/audio parameters)         │
+├─────────────────────────────────────────┤
+│  Data Section                           │
+│  (pixels, samples, or frames)           │
+└─────────────────────────────────────────┘
+</code></pre></div>
+<hr />
+<h2 id="data-types">Data Types</h2>
+<p>All multi-byte integers are <strong>little-endian</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Size</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>u8</code></td>
+<td>1 byte</td>
+<td>Unsigned 8-bit</td>
+</tr>
+<tr>
+<td><code>u16</code></td>
+<td>2 bytes</td>
+<td>Unsigned 16-bit LE</td>
+</tr>
+<tr>
+<td><code>u32</code></td>
+<td>4 bytes</td>
+<td>Unsigned 32-bit LE</td>
+</tr>
+<tr>
+<td><code>u64</code></td>
+<td>8 bytes</td>
+<td>Unsigned 64-bit LE</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="dm-header">DM Header</h2>
+<p>Common header for all media types</p>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dm_header</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">magic</span><span class="p">;</span><span class="w">          </span><span class="c1">// 0x444D0001 (&#39;D&#39; &#39;M&#39; 0x00 0x01)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">checksum</span><span class="p">;</span><span class="w">       </span><span class="c1">// CRC32 of entire file (with this field as 0)</span>
+<span class="w">    </span><span class="n">u16</span><span class="w"> </span><span class="n">version</span><span class="p">;</span><span class="w">        </span><span class="c1">// Format version (0x0001)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">type</span><span class="p">;</span><span class="w">           </span><span class="c1">// Media type (0-2, reject others)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">compression</span><span class="p">;</span><span class="w">    </span><span class="c1">// Compression method (0-1, reject others)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">header_size</span><span class="p">;</span><span class="w">    </span><span class="c1">// Total header size (common + type-specific)</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">data_offset</span><span class="p">;</span><span class="w">    </span><span class="c1">// Offset to daa section from file start</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">data_size</span><span class="p">;</span><span class="w">      </span><span class="c1">// Size of data section in bytes (compressed)</span>
+<span class="w">    </span><span class="n">u64</span><span class="w"> </span><span class="n">raw_size</span><span class="p">;</span><span class="w">       </span><span class="c1">// Size of uncompressed data (for allocation)</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Size:</strong> 40 bytes<br />
+<strong>Alignment:</strong> DM files MUST be mapped at 8-byte aligned addresses.</p>
+<h3 id="magic">Magic</h3>
+<p><code>0x444D0001</code>:
+- <code>0x44</code> = 'D'
+- <code>0x4D</code> = 'M'
+- <code>0x00</code> = separator
+- <code>0x01</code> = version</p>
+<h3 id="media-types">Media Types</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DM_TYPE_IMAGE</code></td>
+<td>Static image</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DM_TYPE_VIDEO</code></td>
+<td>Video (sequence of frames)</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DM_TYPE_AUDIO</code></td>
+<td>Audio stream</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>[!IMPORTANT]
+Parsers MUST reject files with <code>type &gt;= 3</code>. Unknown types are errors not extensions.</p>
+</blockquote>
+<h3 id="compression-methods">Compression Methods</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DM_COMP_NONE</code></td>
+<td>Uncompressed (raw data)</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DM_COMP_RLE</code></td>
+<td>Run-length encoding</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>[!IMPORTANT]
+Parsers MUST reject files with <code>compression &gt;= 2</code>, future versions may add LZ4.</p>
+</blockquote>
+<hr />
+<h2 id="pixel-formats">Pixel Formats</h2>
+<p>Used by image and video types.</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>BPP</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DM_PIXEL_RGB24</code></td>
+<td>3</td>
+<td>8-bit R, G, B (sRGB)</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DM_PIXEL_RGBA32</code></td>
+<td>4</td>
+<td>8-bit R, G, B, A (sRGB, premul)</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>DM_PIXEL_BGR24</code></td>
+<td>3</td>
+<td>8-bit B, G, R (sRGB)</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>DM_PIXEL_BGRA32</code></td>
+<td>4</td>
+<td>8-bit B, G, R, A (sRGB, premul)</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>DM_PIXEL_GRAY8</code></td>
+<td>1</td>
+<td>8-bit grayscale (sRGB luminance)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>[!NOTE]
+All pixel formats use <strong>sRGB</strong> color space and transfer function.
+Alpha is <strong>premultiplied</strong>. (color values already scaled by alpha)</p>
+</blockquote>
+<h3 id="bytes-per-pixel-lookup">Bytes Per Pixel Lookup</h3>
+<div class="language-c highlight"><pre><span></span><code><span class="k">static</span><span class="w"> </span><span class="kr">inline</span><span class="w"> </span><span class="n">u8</span><span class="w"> </span><span class="nf">dm_pixel_bpp</span><span class="p">(</span><span class="n">u8</span><span class="w"> </span><span class="n">format</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">static</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">u8</span><span class="w"> </span><span class="n">bpp</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="p">};</span><span class="w">  </span><span class="c1">// RGB24, RGBA32, BGR24, BGRA32, GRAY8</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">format</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">bpp</span><span class="p">[</span><span class="n">format</span><span class="p">]</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<hr />
+<h2 id="type-specific-headers">Type-Specific Headers</h2>
+<h3 id="image-header-type-0">Image Header (type = 0)</h3>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dm_image_header</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">width</span><span class="p">;</span><span class="w">          </span><span class="c1">// Width in pixels (1-16384)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">height</span><span class="p">;</span><span class="w">         </span><span class="c1">// Height in pixels (1-16384)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">pixel_format</span><span class="p">;</span><span class="w">   </span><span class="c1">// Pixel format (0-4, reject others)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">transfer</span><span class="p">;</span><span class="w">       </span><span class="c1">// Transfer function (0=sRGB, reserved 1-255)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">reserved</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span><span class="w">    </span><span class="c1">// Must be zero, reject if non-zero</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Size:</strong> 12 bytes<br />
+<strong>Total header (image):</strong> 52 bytes (40 + 12)</p>
+<p><strong>Validation requirements:</strong>
+- <code>width &gt;= 1 &amp;&amp; width &lt;= 16384</code>
+- <code>height &gt;= 1 &amp;&amp; height &lt;= 16384</code>
+- <code>pixel_format &lt;= 4</code>
+- <code>transfer == 0</code> (reject non-zero for v1)
+- <code>reserved[0] == 0 &amp;&amp; reserved[1] == 0</code></p>
+<p><strong>Data section:</strong> Raw pixel data, row-major order (top-left origin).
+Each row is tightly packed (no padding between rows)</p>
+<hr />
+<h3 id="video-header-type-1">Video Header (type = 1)</h3>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dm_video_header</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">width</span><span class="p">;</span><span class="w">          </span><span class="c1">// Frame width in pixels (1-16384)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">height</span><span class="p">;</span><span class="w">         </span><span class="c1">// Frame height in pixels (1-16384)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">frame_count</span><span class="p">;</span><span class="w">    </span><span class="c1">// Total number of frames (0 = unknown/streaming)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">fps_num</span><span class="p">;</span><span class="w">        </span><span class="c1">// Framerate numerator (1-1000000)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">fps_den</span><span class="p">;</span><span class="w">        </span><span class="c1">// Framerate denominator (1-1000000, e.g., 1001 for 23.976)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">pixel_format</span><span class="p">;</span><span class="w">   </span><span class="c1">// Pixel format (0-4, reject others)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// Video flags (see below)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">transfer</span><span class="p">;</span><span class="w">       </span><span class="c1">// Transfer function (0=sRGB)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">reserved</span><span class="p">;</span><span class="w">       </span><span class="c1">// Must be zero</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Size:</strong> 24 bytes<br />
+<strong>Total header (video):</strong> 64 bytes (40 + 24)</p>
+<p><strong>Validation requirements:</strong>
+- <code>fps_num &gt;= 1 &amp;&amp; fps_num &lt;= 1000000</code>
+- <code>fps_den &gt;= 1 &amp;&amp; fps_den &lt;= 1000000</code></p>
+<blockquote>
+<p>[!IMPORTANT]
+<code>fps_den</code> MUST be &gt;= 1. Division by zero is undefined behavior.</p>
+</blockquote>
+<p><strong>Video Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Bit</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DM_VID_LOOP</code></td>
+<td>Video should loop</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Data section:</strong> Frames stored sequentially. Each frame is:
+- <code>width * height * bpp</code> bytes (uncompressed)
+- Or RLE-compressed (each frame compressed independently)</p>
+<blockquote>
+<p>[!WARNING]
+No intra-frame seeking. To decode frame N, all frames 0..N-1 must be decoded.
+This format is NOT suitable for long-form video content.</p>
+</blockquote>
+<hr />
+<h3 id="audio-header-type-2">Audio Header (type = 2)</h3>
+<div class="language-c highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">dm_audio_header</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">sample_rate</span><span class="p">;</span><span class="w">    </span><span class="c1">// Samples per second (8000-192000)</span>
+<span class="w">    </span><span class="n">u32</span><span class="w"> </span><span class="n">sample_count</span><span class="p">;</span><span class="w">   </span><span class="c1">// Total samples per channel (0 = streaming)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">channels</span><span class="p">;</span><span class="w">       </span><span class="c1">// Number of channels (1=mono, 2=stereo)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">bits_per_sample</span><span class="p">;</span><span class="c1">// 16 or 32 only (reject others)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">format</span><span class="p">;</span><span class="w">         </span><span class="c1">// Sample format (see below)</span>
+<span class="w">    </span><span class="n">u8</span><span class="w">  </span><span class="n">reserved</span><span class="p">;</span><span class="w">       </span><span class="c1">// Must be zero</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><strong>Size:</strong> 12 bytes<br />
+<strong>Total header (audio):</strong> 52 bytes (40 + 12)</p>
+<p><strong>Sample Formats:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DM_AUDIO_PCM</code></td>
+<td>Signed PCM (little-endian)</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>DM_AUDIO_FLOAT</code></td>
+<td>IEEE 754 float (32-bit only)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Validation requirements:</strong>
+- <code>channels == 1 || channels == 2</code> (v1 supports mono/stereo only)
+- <code>bits_per_sample == 16 || bits_per_sample == 32</code>
+- <code>sample_rate &gt;= 8000 &amp;&amp; sample_rate &lt;= 192000</code></p>
+<blockquote>
+<p>[!IMPORTANT]
+<code>bits_per_sample</code> MUST be 16 or 32. 8-bit and 24-bit are NOT supported
+(8-bit has poor quality ans 24-bit causes alignment issues).</p>
+<p><code>channels</code> &gt; 2 is reserved for future versions. Reject for v1.</p>
+</blockquote>
+<p><strong>Data section:</strong> Interleaved samples.
+For stereo: <code>L0 R0 L1 R1 L2 R2 ...</code></p>
+<p><strong>Channel layout:</strong>
+- 1 channel: Mono
+- 2 channels: Left, Right</p>
+<hr />
+<h2 id="rle-compression">RLE Compression</h2>
+<p>Run-length encoding operates on pixels. Format:</p>
+<div class="language-text highlight"><pre><span></span><code>[count][pixel_data]...
+</code></pre></div>
+<p>Where:
+- <code>count</code> (u8): Number of times to repeat (1-255, <strong>0 is invalid</strong>)
+- <code>pixel_data</code>: One pixel in the file's pixel format</p>
+<p><strong>Example (RGBA32):</strong>
+<div class="language-text highlight"><pre><span></span><code>Input:  AAAA AAAA BBBB CCCC CCCC CCCC  (6 pixels, 24 bytes)
+RLE:    04 AAAA 01 BBBB 03 CCCC        (15 bytes)
+</code></pre></div></p>
+<p><strong>Decoder with full validation:</strong>
+<div class="language-c highlight"><pre><span></span><code><span class="kt">int</span><span class="w"> </span><span class="nf">dm_rle_decode</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">u8</span><span class="w"> </span><span class="o">*</span><span class="n">src</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">src_size</span><span class="p">,</span>
+<span class="w">                  </span><span class="n">u8</span><span class="w"> </span><span class="o">*</span><span class="n">dst</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">dst_size</span><span class="p">,</span><span class="w"> </span><span class="n">u8</span><span class="w"> </span><span class="n">bpp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">src_pos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">dst_pos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">dst_pos</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">dst_size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// Check bounds on count byte</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">src_pos</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">src_size</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span>
+<span class="w">        </span><span class="n">u8</span><span class="w"> </span><span class="n">count</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">src</span><span class="p">[</span><span class="n">src_pos</span><span class="o">++</span><span class="p">];</span>
+
+<span class="w">        </span><span class="c1">// Reject count == 0 (invalid)</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">count</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1">// Check bounds on pixel data</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">src_pos</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">bpp</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">src_size</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1">// Check output won&#39;t overflow</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="kt">size_t</span><span class="p">)</span><span class="n">count</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">bpp</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">dst_size</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">dst_pos</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1">// Copy pixel &#39;count&#39; times</span>
+<span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">u8</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">count</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">memcpy</span><span class="p">(</span><span class="n">dst</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">dst_pos</span><span class="p">,</span><span class="w"> </span><span class="n">src</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">src_pos</span><span class="p">,</span><span class="w"> </span><span class="n">bpp</span><span class="p">);</span>
+<span class="w">            </span><span class="n">dst_pos</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">bpp</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="n">src_pos</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">bpp</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<hr />
+<h2 id="loading-algorithm">Loading Algorithm</h2>
+<h3 id="safe-image-loading">Safe Image Loading</h3>
+<div class="language-c highlight"><pre><span></span><code><span class="kt">int</span><span class="w"> </span><span class="nf">dm_load_image</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">file</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">file_size</span><span class="p">,</span><span class="w"> </span><span class="n">dm_image_t</span><span class="w"> </span><span class="o">*</span><span class="n">out</span><span class="p">,</span>
+<span class="w">                  </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="o">*</span><span class="n">alloc</span><span class="p">)(</span><span class="kt">size_t</span><span class="p">),</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="n">dealloc</span><span class="p">)(</span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">file_size</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="k">struct</span><span class="w"> </span><span class="nc">dm_header</span><span class="p">))</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_TRUNCATED</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">dm_header</span><span class="w"> </span><span class="o">*</span><span class="n">hdr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">file</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// Verify magic and type</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">magic</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mh">0x444D0001</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_MAGIC</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">type</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">DM_TYPE_IMAGE</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_TYPE</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">type</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_UNKNOWN_TYPE</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">compression</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_UNKNOWN_COMP</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// Validate header_size</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">header_size</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">hdr</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="k">struct</span><span class="w"> </span><span class="nc">dm_image_header</span><span class="p">))</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_HEADER</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">header_size</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">file_size</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_TRUNCATED</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">dm_image_header</span><span class="w"> </span><span class="o">*</span><span class="n">img</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="p">)((</span><span class="k">const</span><span class="w"> </span><span class="n">u8</span><span class="w"> </span><span class="o">*</span><span class="p">)</span><span class="n">file</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">hdr</span><span class="p">));</span>
+
+<span class="w">    </span><span class="c1">// Validate dimensions</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">img</span><span class="o">-&gt;</span><span class="n">width</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">img</span><span class="o">-&gt;</span><span class="n">width</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">16384</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_DIMENSIONS</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">img</span><span class="o">-&gt;</span><span class="n">height</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">img</span><span class="o">-&gt;</span><span class="n">height</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">16384</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_DIMENSIONS</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">img</span><span class="o">-&gt;</span><span class="n">pixel_format</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_PIXEL_FORMAT</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">img</span><span class="o">-&gt;</span><span class="n">transfer</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_UNSUPPORTED</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">img</span><span class="o">-&gt;</span><span class="n">reserved</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">img</span><span class="o">-&gt;</span><span class="n">reserved</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_RESERVED</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// Validate data bounds</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">data_offset</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">file_size</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_TRUNCATED</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">data_size</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">file_size</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">data_offset</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_TRUNCATED</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// OVERFLOW-SAFE size calculation</span>
+<span class="w">    </span><span class="n">u8</span><span class="w"> </span><span class="n">bpp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">dm_pixel_bpp</span><span class="p">(</span><span class="n">img</span><span class="o">-&gt;</span><span class="n">pixel_format</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">bpp</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_PIXEL_FORMAT</span><span class="p">;</span><span class="w">  </span><span class="c1">// Unknown format</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">img</span><span class="o">-&gt;</span><span class="n">width</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">SIZE_MAX</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">bpp</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_OVERFLOW</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">row_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="p">)</span><span class="n">img</span><span class="o">-&gt;</span><span class="n">width</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">bpp</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// row_size == 0 is impossible here (width &gt;= 1, bpp &gt;= 1)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">img</span><span class="o">-&gt;</span><span class="n">height</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">SIZE_MAX</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">row_size</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_OVERFLOW</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">raw_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">row_size</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">img</span><span class="o">-&gt;</span><span class="n">height</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// Validate raw_size matches header</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">raw_size</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">raw_size</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_SIZE_MISMATCH</span><span class="p">;</span>
+
+<span class="w">    </span><span class="n">out</span><span class="o">-&gt;</span><span class="n">width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">img</span><span class="o">-&gt;</span><span class="n">width</span><span class="p">;</span>
+<span class="w">    </span><span class="n">out</span><span class="o">-&gt;</span><span class="n">height</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">img</span><span class="o">-&gt;</span><span class="n">height</span><span class="p">;</span>
+<span class="w">    </span><span class="n">out</span><span class="o">-&gt;</span><span class="n">bpp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bpp</span><span class="p">;</span>
+<span class="w">    </span><span class="n">out</span><span class="o">-&gt;</span><span class="n">pixels</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">alloc</span><span class="p">(</span><span class="n">raw_size</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">out</span><span class="o">-&gt;</span><span class="n">pixels</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_OOM</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">u8</span><span class="w"> </span><span class="o">*</span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">u8</span><span class="w"> </span><span class="o">*</span><span class="p">)</span><span class="n">file</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">data_offset</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">compression</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">DM_COMP_NONE</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">data_size</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">raw_size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">dealloc</span><span class="p">(</span><span class="n">out</span><span class="o">-&gt;</span><span class="n">pixels</span><span class="p">);</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_SIZE_MISMATCH</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="n">memcpy</span><span class="p">(</span><span class="n">out</span><span class="o">-&gt;</span><span class="n">pixels</span><span class="p">,</span><span class="w"> </span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">raw_size</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">compression</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">DM_COMP_RLE</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">dm_rle_decode</span><span class="p">(</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">hdr</span><span class="o">-&gt;</span><span class="n">data_size</span><span class="p">,</span><span class="w"> </span><span class="n">out</span><span class="o">-&gt;</span><span class="n">pixels</span><span class="p">,</span><span class="w"> </span><span class="n">raw_size</span><span class="p">,</span><span class="w"> </span><span class="n">bpp</span><span class="p">)</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">dealloc</span><span class="p">(</span><span class="n">out</span><span class="o">-&gt;</span><span class="n">pixels</span><span class="p">);</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">DM_ERR_DECODE</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">DM_OK</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="error-codes">Error Codes</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>DM_OK</code></td>
+<td>Success</td>
+</tr>
+<tr>
+<td>-1</td>
+<td><code>DM_ERR_TRUNCATED</code></td>
+<td>File too small</td>
+</tr>
+<tr>
+<td>-2</td>
+<td><code>DM_ERR_MAGIC</code></td>
+<td>Invalid magic number</td>
+</tr>
+<tr>
+<td>-3</td>
+<td><code>DM_ERR_TYPE</code></td>
+<td>Wrong media type</td>
+</tr>
+<tr>
+<td>-4</td>
+<td><code>DM_ERR_UNKNOWN_TYPE</code></td>
+<td>Unknown type (reject)</td>
+</tr>
+<tr>
+<td>-5</td>
+<td><code>DM_ERR_UNKNOWN_COMP</code></td>
+<td>Unknown compression (reject)</td>
+</tr>
+<tr>
+<td>-6</td>
+<td><code>DM_ERR_HEADER</code></td>
+<td>Header size invalid</td>
+</tr>
+<tr>
+<td>-7</td>
+<td><code>DM_ERR_DIMENSIONS</code></td>
+<td>Invalid dimensions</td>
+</tr>
+<tr>
+<td>-8</td>
+<td><code>DM_ERR_PIXEL_FORMAT</code></td>
+<td>Unknown pixel format</td>
+</tr>
+<tr>
+<td>-9</td>
+<td><code>DM_ERR_UNSUPPORTED</code></td>
+<td>Unsupported feature (reserved)</td>
+</tr>
+<tr>
+<td>-10</td>
+<td><code>DM_ERR_RESERVED</code></td>
+<td>Non-zero reserved field</td>
+</tr>
+<tr>
+<td>-11</td>
+<td><code>DM_ERR_OVERFLOW</code></td>
+<td>Size calculation overflow</td>
+</tr>
+<tr>
+<td>-12</td>
+<td><code>DM_ERR_SIZE_MISMATCH</code></td>
+<td>Data size doesn't match</td>
+</tr>
+<tr>
+<td>-13</td>
+<td><code>DM_ERR_OOM</code></td>
+<td>Allocation failed</td>
+</tr>
+<tr>
+<td>-14</td>
+<td><code>DM_ERR_DECODE</code></td>
+<td>Decompression error</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="comparison-to-other-formats-as-always">Comparison to Other Formats (as always)</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>DM</th>
+<th>PNG</th>
+<th>BMP</th>
+<th>stb_image</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Header size</td>
+<td>40-64B</td>
+<td>Variable</td>
+<td>54B+</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td>Dependencies</td>
+<td>None</td>
+<td>zlib</td>
+<td>None</td>
+<td>None</td>
+</tr>
+<tr>
+<td>Compression</td>
+<td>RLE</td>
+<td>DEFLATE</td>
+<td>RLE</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td>Alpha channel</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Limited</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Code complexity</td>
+<td>~200 LOC</td>
+<td>~8K LOC</td>
+<td>~100 LOC</td>
+<td>~7K LOC</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="security-checklist">Security Checklist</h2>
+<p>Decoders MUST implement ALL of these checks:</p>
+<ul>
+<li>[ ] <code>magic == 0x444D0001</code></li>
+<li>[ ] <code>type &lt; 3</code> (reject unknown)</li>
+<li>[ ] <code>compression &lt; 2</code> (reject unknown)</li>
+<li>[ ] <code>header_size &gt;= minimum for type</code></li>
+<li>[ ] <code>header_size &lt;= file_size</code></li>
+<li>[ ] <code>data_offset + data_size &lt;= file_size</code></li>
+<li>[ ] <code>width &gt;= 1 &amp;&amp; width &lt;= 16384</code></li>
+<li>[ ] <code>height &gt;= 1 &amp;&amp; height &lt;= 16384</code></li>
+<li>[ ] <code>pixel_format</code> in valid range</li>
+<li>[ ] <code>reserved</code> fields are zero</li>
+<li>[ ] Verify <code>fps_num &gt;= 1 &amp;&amp; fps_den &gt;= 1</code> before division</li>
+<li>[ ] Verify <code>channels &lt;= 2</code> (v1 limit)</li>
+<li>[ ] Verify <code>sample_rate &lt;= 192000</code></li>
+<li>[ ] Verify <code>data_offset</code> is 8-byte aligned</li>
+<li>[ ] Verify <code>raw_size</code> matches computed size</li>
+<li>[ ] RLE count != 0</li>
+<li>[ ] RLE input bounds checked</li>
+<li>[ ] RLE output bounds checked</li>
+</ul>
+<blockquote>
+<p>[!CAUTION]
+Checksum validation is NOT optional. DM files, may come from untrusted sources
+(like downloads, USB drives). Always verify CRC32 before parsing.</p>
+</blockquote>
+<hr />
+<h2 id="notes">Notes</h2>
+<ul>
+<li><strong>sRGB only:</strong> All colors are sRGB. No colorspace negotiation.</li>
+<li><strong>No metadata:</strong> Use separate files for EXIF/XMP.</li>
+<li><strong>No streaming video:</strong> For boot splashes and icons only.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
