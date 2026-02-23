@@ -130,7 +130,7 @@ static void rtl8139_enable(rtl8139_dev_t *d) {
 static int rtl8139_transmit(rtl8139_dev_t *d, const void *data, size len) {
     if (len > RTL_TX_BUF_SIZE) return -1;
     
-    spinlock_irq_acquire(&d->tx_lock);
+    irq_state_t flags = spinlock_irq_acquire(&d->tx_lock);
     
     uint8 desc = d->tx_cur;
     
@@ -151,7 +151,7 @@ static int rtl8139_transmit(rtl8139_dev_t *d, const void *data, size len) {
     //advance to next descriptor
     d->tx_cur = (desc + 1) % RTL_NUM_TX_DESC;
     
-    spinlock_irq_release(&d->tx_lock);
+    spinlock_irq_release(&d->tx_lock, flags);
     return 0;
 }
 

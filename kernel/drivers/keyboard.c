@@ -13,6 +13,7 @@
 #include <drivers/keyboard_protocol.h>
 #include <drivers/ps2.h>
 #include <drivers/init.h>
+#include <lib/io.h>
 
 #define KBD_STATUS      0x64
 #define KBD_SC          0x60
@@ -74,11 +75,11 @@ static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
     entry->next = NULL;
     
     //lock the channel for queue manipulation
-    spinlock_irq_acquire(&ch->lock);
+    irq_state_t flags = spinlock_irq_acquire(&ch->lock);
     
     //check if queue has space
     if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
-        spinlock_irq_release(&ch->lock);
+        spinlock_irq_release(&ch->lock, flags);
         kfree(entry);
         kfree(event);  //queue full so drop event
         return;
@@ -93,22 +94,22 @@ static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
     ch->queue_tail[peer_id] = entry;
     ch->queue_len[peer_id]++;
     
-    spinlock_irq_release(&ch->lock);
+    spinlock_irq_release(&ch->lock, flags);
     
     //wake any thread waiting for a message
     thread_wake_one(&ch->waiters[peer_id]);
 }
 
 void keyboard_irq(void) {
-    spinlock_irq_acquire(&ps2_lock);
+    irq_state_t flags = spinlock_irq_acquire(&ps2_lock);
     uint8 status = inb(KBD_STATUS);
     if (!(status & 1)) {
-        spinlock_irq_release(&ps2_lock);
+        spinlock_irq_release(&ps2_lock, flags);
         return;
     }
 
     uint8 sc = inb(KBD_SC);
-    spinlock_irq_release(&ps2_lock);
+    spinlock_irq_release(&ps2_lock, flags);
     bool released = (sc & SC_RELEASE) != 0;
     uint8 code = sc & 0x7F;
     
@@ -134,12 +135,13 @@ void keyboard_irq(void) {
 }
 
 void keyboard_init(void) {
-    spinlock_irq_acquire(&ps2_lock);
+    printf("[kbd] initialising\n");
+    irq_state_t flags = spinlock_irq_acquire(&ps2_lock);
     //flush any pending scancodes
     while (inb(KBD_STATUS) & 1) {
         inb(KBD_SC);
     }
-    spinlock_irq_release(&ps2_lock);
+    spinlock_irq_release(&ps2_lock, flags);
     
     interrupt_unmask(1);
     

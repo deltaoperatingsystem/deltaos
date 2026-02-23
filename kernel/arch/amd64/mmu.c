@@ -245,7 +245,7 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
     for (size v = 0; v < pages; v++) {
         uintptr check_virt = virt + (v * PAGE_SIZE);
         uintptr resolved = mmu_virt_to_phys(map, check_virt);
-        if (resolved == 0) {
+        if (resolved == (uintptr)-1) {
             printf("[mmu] VERIFY FAIL: page %zu at 0x%lx not mapped!\n", v, check_virt);
         }
     }
@@ -291,7 +291,7 @@ uintptr mmu_virt_to_phys(pagemap_t *map, uintptr virt) {
     uint64 *pml4 = (uint64 *)P2V(map->top_level);
     
     uint64 *pdp = get_next_level(pml4, PML4_IDX(virt), false, false);
-    if (!pdp) return 0;
+    if (!pdp) return (uintptr)-1;
     
     uint64 *pd = get_next_level(pdp, PDP_IDX(virt), false, false);
     if (!pd) {
@@ -300,7 +300,7 @@ uintptr mmu_virt_to_phys(pagemap_t *map, uintptr virt) {
         if ((entry & AMD64_PTE_PRESENT) && (entry & AMD64_PTE_HUGE)) {
             return (entry & AMD64_PTE_ADDR_MASK) + (virt & 0x1FFFFF);
         }
-        return 0;
+        return (uintptr)-1;
     }
 
     uint64 pd_entry = pd[PD_IDX(virt)];
@@ -309,16 +309,24 @@ uintptr mmu_virt_to_phys(pagemap_t *map, uintptr virt) {
     }
 
     uint64 *pt = get_next_level(pd, PD_IDX(virt), false, false);
-    if (!pt) return 0;
+    if (!pt) return (uintptr)-1;
 
     uint64 pt_entry = pt[PT_IDX(virt)];
-    if (!(pt_entry & AMD64_PTE_PRESENT)) return 0;
+    if (!(pt_entry & AMD64_PTE_PRESENT)) return (uintptr)-1;
 
     return (pt_entry & AMD64_PTE_ADDR_MASK) + (virt & 0xFFF);
 }
 
 void mmu_switch(pagemap_t *map) {
     __asm__ volatile ("mov %0, %%cr3" :: "r"(map->top_level) : "memory");
+}
+
+uintptr mmu_kvtop(void *virt) {
+    uintptr vaddr = (uintptr)virt;
+    if (vaddr >= HHDM_OFFSET && vaddr < KHEAP_VIRT_START) {
+        return vaddr - HHDM_OFFSET;
+    }
+    return mmu_virt_to_phys(mmu_get_kernel_pagemap(), vaddr);
 }
 
 pagemap_t *mmu_pagemap_create(void) {

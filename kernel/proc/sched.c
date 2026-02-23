@@ -17,13 +17,13 @@ static uint32 time_slice = 10;
 
 //dead thread list - threads waiting to have their resources freed
 static thread_t *dead_list_head = NULL;
-static spinlock_irq_t dead_lock = SPINLOCK_INIT;
+static spinlock_irq_t dead_lock = SPINLOCK_IRQ_INIT;
 
 extern void process_set_current(process_t *proc);
 
 //reap dead threads (free their resources)
 void sched_reap(void) {
-    spinlock_irq_acquire(&dead_lock);
+    irq_state_t flags = spinlock_irq_acquire(&dead_lock);
     
     thread_t *list = dead_list_head;
     dead_list_head = NULL;
@@ -58,7 +58,7 @@ void sched_reap(void) {
         dead_list_head = keep_head;
     }
     
-    spinlock_irq_release(&dead_lock);
+    spinlock_irq_release(&dead_lock, flags);
 }
 
 //idle thread entry - just halts forever
@@ -122,7 +122,7 @@ void sched_add(thread_t *thread) {
     
     if (thread == pc->idle_thread) return;
     
-    spinlock_irq_acquire(&pc->sched_lock);
+    irq_state_t flags = spinlock_irq_acquire(&pc->sched_lock);
     
     thread->sched_next = NULL;
     
@@ -136,7 +136,7 @@ void sched_add(thread_t *thread) {
     
     thread->state = THREAD_STATE_READY;
     
-    spinlock_irq_release(&pc->sched_lock);
+    spinlock_irq_release(&pc->sched_lock, flags);
     
     //notify target CPU if it's not us
     if (pc != percpu_get()) {
@@ -149,7 +149,7 @@ void sched_remove(thread_t *thread) {
     percpu_t *pc = percpu_get();
     if (thread == pc->idle_thread) return;  //idle never in queue
     
-    spinlock_irq_acquire(&pc->sched_lock);
+    irq_state_t flags = spinlock_irq_acquire(&pc->sched_lock);
     
     thread_t **tp = &pc->run_queue_head;
     while (*tp) {
@@ -167,7 +167,7 @@ void sched_remove(thread_t *thread) {
         tp = &(*tp)->sched_next;
     }
     
-    spinlock_irq_release(&pc->sched_lock);
+    spinlock_irq_release(&pc->sched_lock, flags);
 }
 
 //pick next thread - returns idle thread if no other threads
@@ -218,12 +218,12 @@ static void schedule(void) {
         pc->prev_thread = NULL;
     }
 
-    spinlock_irq_acquire(&pc->sched_lock);
+    irq_state_t flags = spinlock_irq_acquire(&pc->sched_lock);
     
     thread_t *next = pc->run_queue_head ? pc->run_queue_head : pc->idle_thread;
     
     if (!next || (next == current && current->state == THREAD_STATE_RUNNING)) {
-        spinlock_irq_release(&pc->sched_lock);
+        spinlock_irq_release(&pc->sched_lock, flags);
         return;
     }
 
@@ -268,7 +268,7 @@ static void schedule(void) {
     pc->prev_thread = current;
     
     //must release lock before context switch
-    spinlock_irq_release(&pc->sched_lock);
+    spinlock_irq_release(&pc->sched_lock, flags);
     
     //switch CPU context
     if (current) {
@@ -283,11 +283,11 @@ void sched_yield(void) {
 }
 
 void sched_exit(void) {
-    spinlock_irq_acquire(&dead_lock);
+    irq_state_t flags = spinlock_irq_acquire(&dead_lock);
     
     thread_t *current = thread_current();
     if (!current) {
-        spinlock_irq_release(&dead_lock);
+        spinlock_irq_release(&dead_lock, flags);
         return;
     }
     
@@ -297,7 +297,7 @@ void sched_exit(void) {
     current->sched_next = dead_list_head;
     dead_list_head = current;
 
-    spinlock_irq_release(&dead_lock);
+    spinlock_irq_release(&dead_lock, flags);
     
     //schedule next thread (will be idle if no others)
     //this will NOT return to current - we switch away and never come back
@@ -311,13 +311,13 @@ void sched_exit(void) {
 //only updates scheduler state no context switch
 static void sched_preempt(void) {
     percpu_t *pc = percpu_get();
-    spinlock_irq_acquire(&pc->sched_lock);
+    irq_state_t flags = spinlock_irq_acquire(&pc->sched_lock);
     
     thread_t *current = thread_current();
     thread_t *next = pc->run_queue_head ? pc->run_queue_head : pc->idle_thread;
     
     if (!next || next == current) {
-        spinlock_irq_release(&pc->sched_lock);
+        spinlock_irq_release(&pc->sched_lock, flags);
         return;
     }
 
@@ -357,7 +357,7 @@ static void sched_preempt(void) {
     //mark prev_thread for clearing after context switch
     pc->prev_thread = current;
     
-    spinlock_irq_release(&pc->sched_lock);
+    spinlock_irq_release(&pc->sched_lock, flags);
 }
 
 void sched_tick(int from_usermode) {

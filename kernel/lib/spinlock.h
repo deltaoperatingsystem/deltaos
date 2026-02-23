@@ -9,6 +9,7 @@ typedef struct {
 } spinlock_t;
 
 #define SPINLOCK_INIT {0}
+#define SPINLOCK_IRQ_INIT { SPINLOCK_INIT }
 
 static inline void spinlock_init(spinlock_t *sl) {
     sl->lock = 0;
@@ -26,21 +27,21 @@ static inline void spinlock_release(spinlock_t *sl) {
 
 typedef struct {
     spinlock_t lock;
-    irq_state_t irq_state;
 } spinlock_irq_t;
 
 static inline void spinlock_irq_init(spinlock_irq_t *sl) {
     spinlock_init(&sl->lock);
 }
 
-static inline void spinlock_irq_acquire(spinlock_irq_t *sl) {
-    sl->irq_state = arch_irq_save();
+static inline irq_state_t spinlock_irq_acquire(spinlock_irq_t *sl) {
+    irq_state_t flags = arch_irq_save();
     spinlock_acquire(&sl->lock);
+    return flags;
 }
 
-static inline void spinlock_irq_release(spinlock_irq_t *sl) {
+static inline void spinlock_irq_release(spinlock_irq_t *sl, irq_state_t flags) {
     spinlock_release(&sl->lock);
-    arch_irq_restore(sl->irq_state);
+    arch_irq_restore(flags);
 }
 
 #endif

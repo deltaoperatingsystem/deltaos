@@ -6,16 +6,16 @@ int main(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
     
-    handle_t log = get_obj(INVALID_HANDLE, "$kernel/log", RIGHT_READ);
+    handle_t log = get_obj(INVALID_HANDLE, "$devices/klog", RIGHT_READ);
     if (log == INVALID_HANDLE) {
-        puts("klog: cannot access $kernel/log\n");
+        puts("klog: cannot access $devices/klog\n");
         return 1;
     }
     
     //get size
     stat_t st;
     if (fstat(log, &st) != 0) {
-        puts("klog: cannot stat $kernel/log\n");
+        puts("klog: cannot stat $devices/klog\n");
         handle_close(log);
         return 1;
     }
@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
     while (1) {
         int n = handle_read(log, buf, sizeof(buf) - 1);
         if (n < 0) {
-            puts("klog: error reading from $kernel/log\n");
+            puts("klog: error reading from $devices/klog\n");
             status = 1;
             break;
         }

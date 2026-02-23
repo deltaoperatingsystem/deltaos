@@ -16,16 +16,16 @@ typedef struct {
 } arp_entry_t;
 
 static arp_entry_t arp_cache[ARP_CACHE_SIZE];
-static spinlock_irq_t arp_lock = {SPINLOCK_INIT, 0};
+static spinlock_irq_t arp_lock = SPINLOCK_IRQ_INIT;
 
 static void arp_cache_update(uint32 ip, const uint8 *mac) {
-    spinlock_irq_acquire(&arp_lock);
+    irq_state_t flags = spinlock_irq_acquire(&arp_lock);
     
     //check if entry already exists
     for (int i = 0; i < ARP_CACHE_SIZE; i++) {
         if (arp_cache[i].valid && arp_cache[i].ip == ip) {
             memcpy(arp_cache[i].mac, mac, 6);
-            spinlock_irq_release(&arp_lock);
+            spinlock_irq_release(&arp_lock, flags);
             return;
         }
     }
@@ -36,7 +36,7 @@ static void arp_cache_update(uint32 ip, const uint8 *mac) {
             arp_cache[i].ip = ip;
             memcpy(arp_cache[i].mac, mac, 6);
             arp_cache[i].valid = true;
-            spinlock_irq_release(&arp_lock);
+            spinlock_irq_release(&arp_lock, flags);
             return;
         }
     }
@@ -45,19 +45,19 @@ static void arp_cache_update(uint32 ip, const uint8 *mac) {
     arp_cache[0].ip = ip;
     memcpy(arp_cache[0].mac, mac, 6);
     arp_cache[0].valid = true;
-    spinlock_irq_release(&arp_lock);
+    spinlock_irq_release(&arp_lock, flags);
 }
 
 static bool arp_cache_lookup(uint32 ip, uint8 *mac_out) {
-    spinlock_irq_acquire(&arp_lock);
+    irq_state_t flags = spinlock_irq_acquire(&arp_lock);
     for (int i = 0; i < ARP_CACHE_SIZE; i++) {
         if (arp_cache[i].valid && arp_cache[i].ip == ip) {
             memcpy(mac_out, arp_cache[i].mac, 6);
-            spinlock_irq_release(&arp_lock);
+            spinlock_irq_release(&arp_lock, flags);
             return true;
         }
     }
-    spinlock_irq_release(&arp_lock);
+    spinlock_irq_release(&arp_lock, flags);
     return false;
 }
 

@@ -9,7 +9,7 @@
 #define CMOS_ADDR 0x70
 #define CMOS_DATA 0x71
 
-static spinlock_irq_t rtc_lock = {0};
+static spinlock_irq_t rtc_lock = SPINLOCK_IRQ_INIT;
 
 #define RTC_REG_SECOND 0x00
 #define RTC_REG_MINUTE 0x02
@@ -34,7 +34,7 @@ static uint8 bcd2bin(uint8 bcd) {
 }
 
 void rtc_get_time(rtc_time_t *time) {
-    spinlock_irq_acquire(&rtc_lock);
+    irq_state_t flags = spinlock_irq_acquire(&rtc_lock);
     
     while (rtc_is_updating());
 
@@ -64,7 +64,7 @@ void rtc_get_time(rtc_time_t *time) {
 
     time->year += 2000;
     
-    spinlock_irq_release(&rtc_lock);
+    spinlock_irq_release(&rtc_lock, flags);
 }
 
 //object ops for RTC - read returns time as binary struct

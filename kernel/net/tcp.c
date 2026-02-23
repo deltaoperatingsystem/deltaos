@@ -9,7 +9,7 @@
 #include <arch/timer.h>
 
 static tcp_conn_t connections[TCP_MAX_CONNECTIONS];
-static spinlock_irq_t tcp_lock = {SPINLOCK_INIT, 0};
+static spinlock_irq_t tcp_lock = SPINLOCK_IRQ_INIT;
 
 void tcp_init(void) {
     memset(connections, 0, sizeof(connections));
@@ -18,7 +18,7 @@ void tcp_init(void) {
 static uint16 tcp_get_free_port(void) {
     static uint16 next_port = TCP_EPHEMERAL_START;
     
-    spinlock_irq_acquire(&tcp_lock);
+    irq_state_t flags = spinlock_irq_acquire(&tcp_lock);
     for (int i = 0; i < (TCP_EPHEMERAL_END - TCP_EPHEMERAL_START + 1); i++) {
         uint16 port = next_port;
         if (next_port >= TCP_EPHEMERAL_END) {
@@ -37,25 +37,25 @@ static uint16 tcp_get_free_port(void) {
         }
         
         if (!in_use) {
-            spinlock_irq_release(&tcp_lock);
+            spinlock_irq_release(&tcp_lock, flags);
             return port;
         }
     }
-    spinlock_irq_release(&tcp_lock);
+    spinlock_irq_release(&tcp_lock, flags);
     return 0;
 }
 
 static tcp_conn_t *tcp_alloc_conn(void) {
-    spinlock_irq_acquire(&tcp_lock);
+    irq_state_t flags = spinlock_irq_acquire(&tcp_lock);
     for (int i = 0; i < TCP_MAX_CONNECTIONS; i++) {
         if (!connections[i].active) {
             memset(&connections[i], 0, sizeof(tcp_conn_t));
             connections[i].active = true;
-            spinlock_irq_release(&tcp_lock);
+            spinlock_irq_release(&tcp_lock, flags);
             return &connections[i];
         }
     }
-    spinlock_irq_release(&tcp_lock);
+    spinlock_irq_release(&tcp_lock, flags);
     return NULL;
 }
 

@@ -7,7 +7,7 @@
 //physical to virtual conversion using HHDM
 #define P2V(phys) ((void *)((uintptr)(phys) + HHDM_OFFSET))
 
-//virtual to physical conversion using HHDM
-#define V2P(virt) ((uintptr)(virt) - HHDM_OFFSET)
+//virtual to physical conversion (for HHDM and heap)
+#define V2P(virt) mmu_kvtop((void *)(virt))
 
 #endif

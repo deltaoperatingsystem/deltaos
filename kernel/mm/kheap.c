@@ -13,7 +13,7 @@ static size bucket_sizes[BUCKET_COUNT] = {16, 32, 64, 128, 256, 512, 1024, 2048}
 
 static uintptr heap_virt_cursor = KHEAP_VIRT_START;
 static bool kheap_ready = false;
-static spinlock_irq_t kheap_lock = SPINLOCK_INIT;
+static spinlock_irq_t kheap_lock = SPINLOCK_IRQ_INIT;
 
 //when pages are freed we record the virtual address range as a hole so it
 //can be reused by future allocations this prevents unbounded virtual address space
@@ -194,7 +194,7 @@ void kheap_init(void) {
 void *kmalloc(size n) {
     if (n == 0 || !kheap_ready) return NULL;
 
-    spinlock_irq_acquire(&kheap_lock);
+    irq_state_t flags = spinlock_irq_acquire(&kheap_lock);
 
     //try to satisfy from a slab bucket
     for (int i = 0; i < BUCKET_COUNT; i++) {
@@ -208,7 +208,7 @@ void *kmalloc(size n) {
                 if (!slab) {
                     slab = slab_create(cache);
                     if (!slab) {
-                        spinlock_irq_release(&kheap_lock);
+                        spinlock_irq_release(&kheap_lock, flags);
                         return NULL;
                     }
                 } else {
@@ -228,7 +228,7 @@ void *kmalloc(size n) {
                 list_prepend(&cache->full_slabs, slab);
             }
 
-            spinlock_irq_release(&kheap_lock);
+            spinlock_irq_release(&kheap_lock, flags);
             return (void *)obj;
         }
     }
@@ -241,7 +241,7 @@ void *kmalloc(size n) {
 
     kheap_large_t *large = (kheap_large_t *)backing_alloc(pages);
     if (!large) {
-        spinlock_irq_release(&kheap_lock);
+        spinlock_irq_release(&kheap_lock, flags);
         return NULL;
     }
 
@@ -252,7 +252,7 @@ void *kmalloc(size n) {
     uintptr data = (uintptr)large + sizeof(kheap_large_t);
     data = (data + KHEAP_MIN_ALIGN - 1) & ~(KHEAP_MIN_ALIGN - 1);
     
-    spinlock_irq_release(&kheap_lock);
+    spinlock_irq_release(&kheap_lock, flags);
     return (void *)data;
 }
 
@@ -272,7 +272,7 @@ void kfree(void *p) {
         return;
     }
 
-    spinlock_irq_acquire(&kheap_lock);
+    irq_state_t flags = spinlock_irq_acquire(&kheap_lock);
 
     //determine allocation type by checking magic at page start
     uintptr page_addr = (uintptr)p & ~(PAGE_SIZE - 1);
@@ -321,7 +321,7 @@ void kfree(void *p) {
         }
     }
     
-    spinlock_irq_release(&kheap_lock);
+    spinlock_irq_release(&kheap_lock, flags);
 }
 
 void *krealloc(void *p, size n) {
@@ -361,22 +361,22 @@ void *krealloc(void *p, size n) {
 }
 
 void *kheap_alloc_pages(size pages) {
-    spinlock_irq_acquire(&kheap_lock);
+    irq_state_t flags = spinlock_irq_acquire(&kheap_lock);
     void *p = backing_alloc(pages);
-    spinlock_irq_release(&kheap_lock);
+    spinlock_irq_release(&kheap_lock, flags);
     return p;
 }
 
 void kheap_free_pages(void *p, size pages) {
-    spinlock_irq_acquire(&kheap_lock);
+    irq_state_t flags = spinlock_irq_acquire(&kheap_lock);
     backing_free(p, pages);
-    spinlock_irq_release(&kheap_lock);
+    spinlock_irq_release(&kheap_lock, flags);
 }
 
 void kheap_get_stats(kheap_stats_t *stats) {
     if (!stats) return;
     
-    spinlock_irq_acquire(&kheap_lock);
+    irq_state_t flags = spinlock_irq_acquire(&kheap_lock);
     
     stats->slab_used = 0;
     stats->slab_capacity = 0;
@@ -404,5 +404,5 @@ void kheap_get_stats(kheap_stats_t *stats) {
         }
     }
     
-    spinlock_irq_release(&kheap_lock);
+    spinlock_irq_release(&kheap_lock, flags);
 }

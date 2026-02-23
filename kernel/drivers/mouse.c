@@ -54,20 +54,20 @@ static void ps2_wait_read(void) {
 
 //send command to mouse (via PS/2 controller port 2)
 static void mouse_write(uint8 cmd) {
-    spinlock_irq_acquire(&ps2_lock);
+    irq_state_t flags = spinlock_irq_acquire(&ps2_lock);
     ps2_wait_write();
     outb(PS2_CMD, PS2_CMD_WRITE_PORT2);
     ps2_wait_write();
     outb(PS2_DATA, cmd);
-    spinlock_irq_release(&ps2_lock);
+    spinlock_irq_release(&ps2_lock, flags);
 }
 
 //read response from mouse
 static uint8 mouse_read(void) {
-    spinlock_irq_acquire(&ps2_lock);
+    irq_state_t flags = spinlock_irq_acquire(&ps2_lock);
     ps2_wait_read();
     uint8 data = inb(PS2_DATA);
-    spinlock_irq_release(&ps2_lock);
+    spinlock_irq_release(&ps2_lock, flags);
     return data;
 }
 
@@ -101,10 +101,10 @@ static void mouse_push_event(int16 dx, int16 dy, uint8 buttons) {
     entry->next = NULL;
     
     //lock the channel for queue manipulation
-    spinlock_irq_acquire(&ch->lock);
+    irq_state_t flags = spinlock_irq_acquire(&ch->lock);
     
     if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
-        spinlock_irq_release(&ch->lock);
+        spinlock_irq_release(&ch->lock, flags);
         kfree(entry);
         kfree(event);
         return;
@@ -118,23 +118,23 @@ static void mouse_push_event(int16 dx, int16 dy, uint8 buttons) {
     ch->queue_tail[peer_id] = entry;
     ch->queue_len[peer_id]++;
     
-    spinlock_irq_release(&ch->lock);
+    spinlock_irq_release(&ch->lock, flags);
     
     thread_wake_one(&ch->waiters[peer_id]);
 }
 
 void mouse_irq(void) {
-    spinlock_irq_acquire(&ps2_lock);
+    irq_state_t flags = spinlock_irq_acquire(&ps2_lock);
     uint8 status = inb(PS2_STATUS);
     
     //bit 5 must be set for mouse data bit 0 for data available
     if (!(status & 0x21)) {
-        spinlock_irq_release(&ps2_lock);
+        spinlock_irq_release(&ps2_lock, flags);
         return;
     }
     
     uint8 data = inb(PS2_DATA);
-    spinlock_irq_release(&ps2_lock);
+    spinlock_irq_release(&ps2_lock, flags);
     
     switch (mouse_cycle) {
         case 0:
@@ -189,21 +189,21 @@ void mouse_init(void) {
     outb(PS2_CMD, PS2_CMD_ENABLE_PORT2);
     
     //read controller config
-    spinlock_irq_acquire(&ps2_lock);
+    irq_state_t flags = spinlock_irq_acquire(&ps2_lock);
     ps2_wait_write();
     outb(PS2_CMD, PS2_CMD_READ_CONFIG);
     ps2_wait_read();
     uint8 config = inb(PS2_DATA);
     
-    //enable IRQ12 (bit 1) and keep keybnoard enabled (bit 0)
-    config |= 0x02;   //enable IRQ12
-    config &= ~0x20;  //enable mouse clock
+    //enable second port interrupt and clock
+    config |= (1 << 1); //enable interrupt
+    config &= ~(1 << 5); //enable clock
     
     ps2_wait_write();
     outb(PS2_CMD, PS2_CMD_WRITE_CONFIG);
     ps2_wait_write();
     outb(PS2_DATA, config);
-    spinlock_irq_release(&ps2_lock);
+    spinlock_irq_release(&ps2_lock, flags);
     
     //reset mouse to defaults
     mouse_write(MOUSE_CMD_SET_DEFAULTS);

@@ -56,6 +56,7 @@ uint64 mmu_get_kernel_cr3(void);
 //user address space management
 pagemap_t *mmu_pagemap_create(void);
 void mmu_pagemap_destroy(pagemap_t *map);
+uintptr mmu_kvtop(void *virt);
 
 //debug
 void mmu_debug_walk(pagemap_t *map, uintptr virt, const char *label);

@@ -5,7 +5,7 @@
 #include <drivers/serial.h>
 #include <lib/spinlock.h>
 
-static spinlock_irq_t pmm_lock = SPINLOCK_INIT;
+static spinlock_irq_t pmm_lock = SPINLOCK_IRQ_INIT;
 static uint8 *bitmap = NULL;
 static size bitmap_size = 0; //in bytes
 size max_pages = 0;
@@ -186,7 +186,7 @@ void pmm_init(void) {
 void *pmm_alloc(size pages) {
     if (pages == 0) return NULL;
 
-    spinlock_irq_acquire(&pmm_lock);
+    irq_state_t flags = spinlock_irq_acquire(&pmm_lock);
 
     size consecutive = 0;
     size start_bit = 0;
@@ -214,7 +214,7 @@ void *pmm_alloc(size pages) {
                 free_pages -= pages;
                 last_free_page = start_bit + pages;
                 void *res = (void *)(uintptr)(start_bit * PAGE_SIZE);
-                spinlock_irq_release(&pmm_lock);
+                spinlock_irq_release(&pmm_lock, flags);
                 return res;
             }
         } else {
@@ -246,7 +246,7 @@ void *pmm_alloc(size pages) {
                     free_pages -= pages;
                     last_free_page = start_bit + pages;
                     void *res = (void *)(uintptr)(start_bit * PAGE_SIZE);
-                    spinlock_irq_release(&pmm_lock);
+                    spinlock_irq_release(&pmm_lock, flags);
                     return res;
                 }
             } else {
@@ -256,14 +256,14 @@ void *pmm_alloc(size pages) {
         }
     }
 
-    spinlock_irq_release(&pmm_lock);
+    spinlock_irq_release(&pmm_lock, flags);
     return NULL;
 }
 
 void pmm_free(void *ptr, size pages) {
     if (!ptr) return;
 
-    spinlock_irq_acquire(&pmm_lock);
+    irq_state_t flags = spinlock_irq_acquire(&pmm_lock);
     uintptr addr = (uintptr)ptr;
     size start_bit = addr / PAGE_SIZE;
 
@@ -279,7 +279,7 @@ void pmm_free(void *ptr, size pages) {
         last_free_page = start_bit;
     }
 
-    spinlock_irq_release(&pmm_lock);
+    spinlock_irq_release(&pmm_lock, flags);
 }
 
 size pmm_get_total_pages(void) {

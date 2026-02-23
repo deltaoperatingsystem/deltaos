@@ -21,7 +21,7 @@ ALL_C_SRCS := $(shell find . -name '*.c')
 
 #drivers managed by the registry (modular drivers)
 #we exclude core driver infra from this list so it's always included
-MODULAR_DRIVERS_ALL := $(shell find drivers -maxdepth 1 -name '*.c' ! -name 'init.c' ! -name 'stubs.c' ! -name 'ps2.c')
+MODULAR_DRIVERS_ALL := $(shell find drivers -name '*.c' ! -name 'init.c' ! -name 'stubs.c' ! -name 'ps2.c')
 
 include drivers/drivers_enabled.mk
 
