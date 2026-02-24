@@ -8,7 +8,7 @@ void arch_context_init(arch_context_t *ctx, void *stack_top, void (*entry)(void 
     ctx->rsp = (uint64)stack_top - 8;
     ctx->rip = (uint64)entry;
     ctx->rdi = (uint64)arg;       //first arg in System V ABI
-    ctx->rflags = 0x202;          //IF=1 (interrupts enabled)
+    ctx->rflags = 0x002;          //IF=0 (interrupts disabled)
     ctx->cs = 0x08;               //kernel code segment
     ctx->ss = 0x10;               //kernel data segment
 }

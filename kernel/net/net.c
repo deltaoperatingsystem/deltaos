@@ -5,12 +5,16 @@
 #include <net/tcp.h>
 #include <lib/io.h>
 #include <lib/string.h>
+#include <lib/spinlock.h>
 
 static netif_t *netif_list = NULL;
+static spinlock_irq_t netif_lock = SPINLOCK_IRQ_INIT;
 
 void net_register_netif(netif_t *nif) {
+    irq_state_t flags = spinlock_irq_acquire(&netif_lock);
     nif->next = netif_list;
     netif_list = nif;
+    spinlock_irq_release(&netif_lock, flags);
     
     printf("[net] Interface %s registered, MAC: ", nif->name);
     net_print_mac(nif->mac);
@@ -18,7 +22,10 @@ void net_register_netif(netif_t *nif) {
 }
 
 netif_t *net_get_default_netif(void) {
-    return netif_list;
+    irq_state_t flags = spinlock_irq_acquire(&netif_lock);
+    netif_t *res = netif_list;
+    spinlock_irq_release(&netif_lock, flags);
+    return res;
 }
 
 void net_rx(netif_t *nif, void *data, size len) {

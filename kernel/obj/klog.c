@@ -12,27 +12,24 @@
 static char klog_buf[KLOG_SIZE];
 static size klog_head = 0;      //write position
 static size klog_len = 0;       //current length of data in buffer
-static spinlock_t klog_lock = SPINLOCK_INIT;
+static spinlock_irq_t klog_lock = SPINLOCK_IRQ_INIT;
 
 //append a single character to the log
 void klog_putc(char c) {
-    irq_state_t flags = arch_irq_save();
-    spinlock_acquire(&klog_lock);
+    irq_state_t flags = spinlock_irq_acquire(&klog_lock);
     
     klog_buf[klog_head] = c;
     klog_head = (klog_head + 1) % KLOG_SIZE;
     if (klog_len < KLOG_SIZE) klog_len++;
     
-    spinlock_release(&klog_lock);
-    arch_irq_restore(flags);
+    spinlock_irq_release(&klog_lock, flags);
 }
 
 //append a string to the log
 void klog_write(const char *s, size len) {
     if (!s || len == 0) return;
     
-    irq_state_t flags = arch_irq_save();
-    spinlock_acquire(&klog_lock);
+    irq_state_t flags = spinlock_irq_acquire(&klog_lock);
     
     for (size i = 0; i < len; i++) {
         klog_buf[klog_head] = s[i];
@@ -40,21 +37,18 @@ void klog_write(const char *s, size len) {
         if (klog_len < KLOG_SIZE) klog_len++;
     }
     
-    spinlock_release(&klog_lock);
-    arch_irq_restore(flags);
+    spinlock_irq_release(&klog_lock, flags);
 }
 
 //object read operation - reads from ring buffer
 static ssize klog_read_op(object_t *obj, void *buf, size len, size offset) {
     (void)obj;
     
-    irq_state_t flags = arch_irq_save();
-    spinlock_acquire(&klog_lock);
+    irq_state_t flags = spinlock_irq_acquire(&klog_lock);
     
     //clamp offset and length
     if (offset >= klog_len) {
-        spinlock_release(&klog_lock);
-        arch_irq_restore(flags);
+        spinlock_irq_release(&klog_lock, flags);
         return 0;
     }
     
@@ -73,8 +67,7 @@ static ssize klog_read_op(object_t *obj, void *buf, size len, size offset) {
         read_pos = (read_pos + 1) % KLOG_SIZE;
     }
     
-    spinlock_release(&klog_lock);
-    arch_irq_restore(flags);
+    spinlock_irq_release(&klog_lock, flags);
     
     return (ssize)len;
 }
@@ -86,11 +79,9 @@ static int klog_stat_op(object_t *obj, stat_t *st) {
     memset(st, 0, sizeof(stat_t));
     st->type = FS_TYPE_FILE;
     
-    irq_state_t flags = arch_irq_save();
-    spinlock_acquire(&klog_lock);
+    irq_state_t flags = spinlock_irq_acquire(&klog_lock);
     st->size = klog_len;
-    spinlock_release(&klog_lock);
-    arch_irq_restore(flags);
+    spinlock_irq_release(&klog_lock, flags);
     
     return 0;
 }
@@ -107,10 +98,7 @@ static object_ops_t klog_ops = {
 void klog_init(void) {
     object_t *obj = object_create(OBJECT_INFO, &klog_ops, NULL);
     if (obj) {
-        if (ns_register("$devices/klog", obj) != 0) {
-            //can't use klog yet so we just fail silently or print to serial if available
-            serial_write("[klog] ERR: failed to register $devices/klog\n");
-        }
+        ns_register("$devices/klog", obj);
         object_deref(obj);
     }
 }

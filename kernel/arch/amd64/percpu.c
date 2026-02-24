@@ -8,9 +8,16 @@
 #define IA32_GS_BASE        0xC0000101
 #define IA32_KERNEL_GS_BASE 0xC0000102
 
-//per-CPU data array (one per CPU)
-static percpu_t percpu_array[MAX_CPUS];
-static uint32 num_cpus = 0;
+//per-CPU state structure to prevent symbol overlap and ensure contiguous allocation
+typedef struct {
+    uint32 num_cpus;
+    percpu_t array[MAX_CPUS];
+} percpu_state_t;
+
+static percpu_state_t percpu_state = {0};
+
+#define percpu_array percpu_state.array
+#define num_cpus     percpu_state.num_cpus
 
 uint32 arch_cpu_index(void) {
     percpu_t *cpu = percpu_get();

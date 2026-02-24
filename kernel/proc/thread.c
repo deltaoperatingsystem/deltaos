@@ -12,7 +12,7 @@
 #define KERNEL_STACK_SIZE 16384  //16KB
 
 static uint64 next_tid = 1;
-static spinlock_t tid_lock = SPINLOCK_INIT;
+static spinlock_irq_t tid_lock = SPINLOCK_IRQ_INIT;
 
 //thread object ops (called when all handles to a thread are closed)
 static int thread_obj_close(object_t *obj) {
@@ -50,9 +50,9 @@ thread_t *thread_create(process_t *proc, void (*entry)(void *), void *arg) {
     thread_t *thread = kzalloc(sizeof(thread_t));
     if (!thread) return NULL;
     
-    spinlock_acquire(&tid_lock);
+    irq_state_t flags = spinlock_irq_acquire(&tid_lock);
     thread->tid = next_tid++;
-    spinlock_release(&tid_lock);
+    spinlock_irq_release(&tid_lock, flags);
     thread->process = proc;
     thread->state = THREAD_STATE_READY;
     thread->cpu_id = -1;
@@ -161,9 +161,9 @@ thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
     thread_t *thread = kzalloc(sizeof(thread_t));
     if (!thread) return NULL;
     
-    spinlock_acquire(&tid_lock);
+    irq_state_t flags = spinlock_irq_acquire(&tid_lock);
     thread->tid = next_tid++;
-    spinlock_release(&tid_lock);
+    spinlock_irq_release(&tid_lock, flags);
     thread->process = proc;
     thread->state = THREAD_STATE_READY;
     thread->cpu_id = -1;

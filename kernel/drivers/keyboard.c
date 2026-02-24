@@ -117,18 +117,19 @@ void keyboard_irq(void) {
     if (code == SC_SHIFT_L || code == SC_SHIFT_R) {
         if (released) mods &= ~KBD_MOD_SHIFT;
         else mods |= KBD_MOD_SHIFT;
-            }
-    if (code == SC_CTRL) {
+    } else if (code == SC_CTRL) {
         if (released) mods &= ~KBD_MOD_CTRL;
         else mods |= KBD_MOD_CTRL;
-    }
-    if (code == SC_ALT) {
+    } else if (code == SC_ALT) {
         if (released) mods &= ~KBD_MOD_ALT;
         else mods |= KBD_MOD_ALT;
     }
 
-    //get ASCII
-    char ascii = (mods & KBD_MOD_SHIFT) ? scancodes_shift[code] : scancodes_normal[code];
+    //get ASCII (only on press)
+    char ascii = 0;
+    if (!released) {
+        ascii = (mods & KBD_MOD_SHIFT) ? scancodes_shift[code] : scancodes_normal[code];
+    }
     
     //push to channel (for userspace/consumers)
     kbd_push_event(code, !released, (uint32)(unsigned char)ascii);

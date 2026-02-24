@@ -28,6 +28,8 @@ _start:
 
 section .bss
 align 16
+global kernel_stack_bottom
 kernel_stack_bottom:
     resb 16384
+global kernel_stack_top
 kernel_stack_top:

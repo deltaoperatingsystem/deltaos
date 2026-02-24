@@ -2,6 +2,7 @@
 #define PROC_WAIT_H
 
 #include <arch/types.h>
+#include <lib/spinlock.h>
 
 struct thread;
 
@@ -24,5 +25,8 @@ void thread_wake_one(wait_queue_t *wq);
 
 //wake all threads from wait queue
 void thread_wake_all(wait_queue_t *wq);
+
+//sleep while holding a spinlock: atomically releases lock, sleeps, reacquires on wake
+void thread_sleep_locked(wait_queue_t *wq, spinlock_t *lock);
 
 #endif
