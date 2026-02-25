@@ -78,6 +78,8 @@ void sched_init(void) {
     pc->run_queue_head = NULL;
     pc->run_queue_tail = NULL;
     pc->idle_thread = NULL;
+    pc->prev_thread = NULL;
+    pc->sched_running = 0;
     spinlock_irq_init(&pc->sched_lock);
     
     //create idle thread attached to kernel process
@@ -96,6 +98,8 @@ void sched_init_ap(void) {
     pc->run_queue_head = NULL;
     pc->run_queue_tail = NULL;
     pc->idle_thread = NULL;
+    pc->prev_thread = NULL;
+    pc->sched_running = 0;
     spinlock_irq_init(&pc->sched_lock);
 
     //create unique idle thread for this AP
@@ -279,6 +283,8 @@ static void schedule(void) {
 }
 
 void sched_yield(void) {
+    percpu_t *pc = percpu_get();
+    if (!pc->sched_running) return;  //no-op before scheduler is active
     schedule();
 }
 
@@ -363,6 +369,9 @@ static void sched_preempt(void) {
 void sched_tick(int from_usermode) {
     percpu_t *pc = percpu_get();
     
+    //don't preempt before the scheduler is fully started
+    if (!pc->sched_running) return;
+    
     //only BSP reaps for now to avoid redundant lock contention
     if (pc->cpu_index == 0) {
         sched_reap();
@@ -371,10 +380,11 @@ void sched_tick(int from_usermode) {
     pc->tick_count++;
     if (from_usermode && pc->tick_count >= time_slice) {
         pc->tick_count = 0;
-        //preempt any thread when its slice is over
+        //preempt usermode threads when their slice is over
         sched_preempt();  //ISR-safe: only updates current_thread and sched state
     }
 }
+
 
 void sched_start(void) {
     percpu_t *pc = percpu_get();
@@ -398,6 +408,9 @@ void sched_start(void) {
     //set kernel stack for ring 3 -> ring 0 transitions
     void *kernel_stack_top = (char *)first->kernel_stack + first->kernel_stack_size;
     arch_set_kernel_stack(kernel_stack_top);
+    
+    //mark scheduler as running so sched_yield/sched_tick work from here on
+    pc->sched_running = 1;
     
     //check if this is a usermode thread (cs has RPL=3)
     if ((first->context.cs & 3) == 3) {

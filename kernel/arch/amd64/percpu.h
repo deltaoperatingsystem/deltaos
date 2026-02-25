@@ -65,8 +65,10 @@ typedef struct percpu {
     uint32 apic_id;         //100
     volatile uint32 started;//104
     uint32 tick_count;      //108
+    volatile uint32 sched_running; //112: 1 if scheduler is active on this CPU
+    volatile uint32 in_sched;      //116: 1 if currently inside a schedule operation
     
-    //112+: synchronisation
+    //120+: synchronisation
     spinlock_irq_t sched_lock;
 } percpu_t;
 
