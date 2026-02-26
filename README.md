@@ -32,7 +32,6 @@ It boots, runs programs,has some drivers and has a working shell.
 The window manager exists but is incomplete.
 
 # Goals (Roughly in order but not):
-- Add SMP
 - Create a on-disk filesystem
 - A basic true GPU driver
 - USB support
