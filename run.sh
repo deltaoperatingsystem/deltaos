@@ -66,9 +66,9 @@ run_qemu() {
         -netdev user,id=net0,hostfwd=tcp::8080-:80 -device rtl8139,netdev=net0
         -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0
 	    -enable-kvm
-        -smp 2
 	    -no-reboot
 	    -no-shutdown
+	-smp 3
     )
 
     #handle writable variables if available

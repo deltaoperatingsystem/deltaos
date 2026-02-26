@@ -118,6 +118,21 @@ bool apic_init(void) {
     return true;
 }
 
+void apic_init_ap(void) {
+    if (!apic_available) return;
+
+    //enable APIC globally for this CPU via MSR
+    uint64 apic_base_msr = rdmsr(MSR_APIC_BASE);
+    wrmsr(MSR_APIC_BASE, apic_base_msr | APIC_BASE_ENABLE);
+    
+    //memory barrier after enabling APIC
+    __asm__ volatile ("mfence" ::: "memory");
+
+    //set spurious interrupt vector and enable software
+    //we use the same vector as the BSP
+    apic_write(APIC_SPURIOUS, APIC_SPURIOUS_ENABLE | APIC_SPURIOUS_VECTOR);
+}
+
 void apic_send_eoi(void) {
     if (apic_available) {
         apic_write(APIC_EOI, 0);

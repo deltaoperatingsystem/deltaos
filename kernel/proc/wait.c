@@ -110,3 +110,33 @@ void thread_sleep_locked(wait_queue_t *wq, spinlock_t *lock) {
     sched_remove(current);
     current->state = THREAD_STATE_RUNNING;
 }
+
+void thread_sleep_locked_irq(wait_queue_t *wq, spinlock_irq_t *lock, irq_state_t *flags) {
+    thread_t *current = thread_current();
+    if (!current || !flags) return;
+
+    //caller holds lock with interrupts disabled via spinlock_irq_acquire()
+    current->state = THREAD_STATE_BLOCKED;
+    current->wait_next = NULL;
+    if (wq->tail) {
+        wq->tail->wait_next = current;
+    } else {
+        wq->head = current;
+    }
+    wq->tail = current;
+
+    //atomically drop the lock, then restore interrupt state and sleep
+    spinlock_release(&lock->lock);
+    arch_irq_restore(*flags);
+
+    while (current->state == THREAD_STATE_BLOCKED) {
+        sched_yield();
+    }
+
+    //reacquire the caller's lock and refresh irq flags for caller's context
+    *flags = spinlock_irq_acquire(lock);
+
+    //waker queued us READY, but we're still running; normalize state
+    sched_remove(current);
+    current->state = THREAD_STATE_RUNNING;
+}

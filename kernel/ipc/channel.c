@@ -304,10 +304,8 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
             spinlock_irq_release(&ch->lock, flags);
             return -2;  //peer closed, no more messages
         }
-        //sleep until woken (by message arrival or peer closed)
-        spinlock_irq_release(&ch->lock, flags);
-        thread_sleep(&ch->waiters[my_id]);
-        flags = spinlock_irq_acquire(&ch->lock);
+        //atomically release channel lock + sleep to avoid missed wakeups
+        thread_sleep_locked_irq(&ch->waiters[my_id], &ch->lock, &flags);
         
         //if peer closed while we were sleeping, return error
         if (ch->closed[1 - my_id] && !ch->queue[my_id]) {

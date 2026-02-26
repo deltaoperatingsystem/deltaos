@@ -228,9 +228,9 @@ void ap_entry(uint32 cpu_index) {
     //initialize syscall handling for this AP
     syscall_init();
     
-    //enable local APIC for this AP
-    //the APIC is already enabled via MSR, just need to set spurious vector
-    apic_write(APIC_SPURIOUS, (1 << 8) | 0xFF);
+    //enable local APIC and timer for this AP
+    apic_init_ap();
+    apic_timer_init(1000);  //1000Hz (periodic scheduler tick)
     
     //signal that we're online
     __sync_fetch_and_add(&ap_started_count, 1);

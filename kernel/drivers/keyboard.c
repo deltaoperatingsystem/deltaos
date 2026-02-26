@@ -1,7 +1,6 @@
 #include <arch/types.h>
 #include <arch/io.h>
 #include <arch/interrupts.h>
-#include <arch/cpu.h>
 #include <obj/object.h>
 #include <obj/namespace.h>
 #include <obj/rights.h>
@@ -11,6 +10,7 @@
 #include <mm/kheap.h>
 #include <lib/string.h>
 #include <drivers/keyboard_protocol.h>
+#include <drivers/mouse.h>
 #include <drivers/ps2.h>
 #include <drivers/init.h>
 #include <lib/io.h>
@@ -93,11 +93,10 @@ static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
     }
     ch->queue_tail[peer_id] = entry;
     ch->queue_len[peer_id]++;
-    
-    spinlock_irq_release(&ch->lock, flags);
-    
+
     //wake any thread waiting for a message
     thread_wake_one(&ch->waiters[peer_id]);
+    spinlock_irq_release(&ch->lock, flags);
 }
 
 void keyboard_irq(void) {
@@ -105,6 +104,13 @@ void keyboard_irq(void) {
     uint8 status = inb(KBD_STATUS);
     if (!(status & 1)) {
         spinlock_irq_release(&ps2_lock, flags);
+        return;
+    }
+    //if AUX data triggered IRQ1, delegate processing to mouse handler so
+    //mouse bytes are not lost on systems with odd PS/2 IRQ routing
+    if (status & 0x20) {
+        spinlock_irq_release(&ps2_lock, flags);
+        mouse_irq();
         return;
     }
 

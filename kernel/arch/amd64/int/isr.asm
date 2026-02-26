@@ -58,17 +58,20 @@ common_stub:
     push r14
     push r15
 
+    ;push placeholder for swapgs flag [rsp+0]
+    push qword 0
+
     ;stack layout at this point (RSP = base, offsets from base):
-    ;[base+0]=r15 [base+8]=r14 ... [base+104]=rbx [base+112]=rax
-    ;[base+120]=vector [base+128]=error
-    ;[base+136]=RIP [base+144]=CS [base+152]=RFLAGS
-    ;if priv change (user->kernel): [base+160]=RSP [base+168]=SS
+    ;[base+0]=flag [base+8]=r15 ... [base+120]=rax
+    ;[base+128]=vector [base+136]=error
+    ;[base+144]=RIP [base+152]=CS [base+160]=RFLAGS
+    ;if priv change (user->kernel): [base+168]=RSP [base+176]=SS
 
     ;if from usermode (CS RPL != 0): always swapgs
     ;if from kernel (CS RPL == 0): check IA32_GS_BASE MSR
     ;uf high 32 bits are 0 GS still points to user TLS (we hit the syscall-entry window)
     ;swapgs in that case too
-    mov rax, [rsp + 144]    ;CS
+    mov rax, [rsp + 152]    ;CS
     test rax, 3             ;RPL bits nonzero = usermode
     jnz .do_swapgs
 
@@ -84,12 +87,13 @@ common_stub:
 
 .do_swapgs:
     swapgs
-.skip_swapgs:
+    mov qword [rsp + 0], 1  ;set flag to indicate we swapped
 
+.skip_swapgs:
     ;context save (usermode only)
     ;only save to thread context when interrupted from user mode
     ;kernel->kernel interrupts don't context-switch here, restore from stack via iretq
-    test qword [rsp + 144], 3
+    test qword [rsp + 152], 3
     jz .skip_save
 
     call thread_current
@@ -99,92 +103,74 @@ common_stub:
     mov r8, rax
     add r8, THREAD_CTX_OFFSET   ;r8 = &current_thread->context
 
-    ;registers (no extra push since swapgs check offsets are as declared above)
-    mov rax, [rsp + 112] ;rax
+    ;registers
+    mov rax, [rsp + 120] ;rax
     mov [r8 + CTX_RAX], rax
-    mov rax, [rsp + 104] ;rbx
+    mov rax, [rsp + 112] ;rbx
     mov [r8 + CTX_RBX], rax
-    mov rax, [rsp + 96]  ;rcx
+    mov rax, [rsp + 104] ;rcx
     mov [r8 + CTX_RCX], rax
-    mov rax, [rsp + 88]  ;rdx
+    mov rax, [rsp + 96]  ;rdx
     mov [r8 + CTX_RDX], rax
-    mov rax, [rsp + 80]  ;rsi
+    mov rax, [rsp + 88]  ;rsi
     mov [r8 + CTX_RSI], rax
-    mov rax, [rsp + 72]  ;rdi
+    mov rax, [rsp + 80]  ;rdi
     mov [r8 + CTX_RDI], rax
-    mov rax, [rsp + 64]  ;rbp
+    mov rax, [rsp + 72]  ;rbp
     mov [r8 + CTX_RBP], rax
-    mov rax, [rsp + 56]  ;r8
+    mov rax, [rsp + 64]  ;r8
     mov [r8 + CTX_R8], rax
-    mov rax, [rsp + 48]  ;r9
+    mov rax, [rsp + 56]  ;r9
     mov [r8 + CTX_R9], rax
-    mov rax, [rsp + 40]  ;r10
+    mov rax, [rsp + 48]  ;r10
     mov [r8 + CTX_R10], rax
-    mov rax, [rsp + 32]  ;r11
+    mov rax, [rsp + 40]  ;r11
     mov [r8 + CTX_R11], rax
-    mov rax, [rsp + 24]  ;r12
+    mov rax, [rsp + 32]  ;r12
     mov [r8 + CTX_R12], rax
-    mov rax, [rsp + 16]  ;r13
+    mov rax, [rsp + 24]  ;r13
     mov [r8 + CTX_R13], rax
-    mov rax, [rsp + 8]   ;r14
+    mov rax, [rsp + 16]  ;r14
     mov [r8 + CTX_R14], rax
-    mov rax, [rsp + 0]   ;r15
+    mov rax, [rsp + 8]   ;r15
     mov [r8 + CTX_R15], rax
 
     ;interrupt frame (common fields)
-    mov rax, [rsp + 136] ;RIP
+    mov rax, [rsp + 144] ;RIP
     mov [r8 + CTX_RIP], rax
-    mov rax, [rsp + 144] ;CS
+    mov rax, [rsp + 152] ;CS
     mov [r8 + CTX_CS], rax
-    mov rax, [rsp + 152] ;RFLAGS
+    mov rax, [rsp + 160] ;RFLAGS
     mov [r8 + CTX_RFLAGS], rax
 
     ;user->kernel: CPU pushed RSP and SS (privilege change occurred)
-    mov rax, [rsp + 160] ;user RSP
+    mov rax, [rsp + 168] ;user RSP
     mov [r8 + CTX_RSP], rax
-    mov rax, [rsp + 168] ;user SS
+    mov rax, [rsp + 176] ;user SS
     mov [r8 + CTX_SS], rax
 
 .skip_save:
     ;call C interrupt handler(vector, error_code, rip, frame*)
-    mov rdi, [rsp + 120] ;vector
-    mov rsi, [rsp + 128] ;error code
-    mov rdx, [rsp + 136] ;RIP
+    mov rdi, [rsp + 128] ;vector
+    mov rsi, [rsp + 136] ;error code
+    mov rdx, [rsp + 144] ;RIP
     mov rcx, rsp         ;interrupt_frame_t* pointer
     sub rsp, 8           ;align stack to 16 bytes (ABI)
     call interrupt_handler
     add rsp, 8
 
     ;check where we came from to choose return path
-    test qword [rsp + 144], 3
-    jz .manual_restore   ;kernel mode: just restore from stack and iretq
-
-    ;usermode return: use thread context (may have switched to a different user thread)
-    call thread_current
-    test rax, rax
-    jz .manual_restore   ;no thread (shouldn't happen)
-
-    mov rdi, rax
-    add rdi, THREAD_CTX_OFFSET
-    jmp arch_return_to_usermode  ;handles swapgs, sets up iretq frame
+    test qword [rsp + 152], 3
+    jnz .user_return
 
 .manual_restore:
-    ;kernel-mode return: restore all regs from stack and iretq  
-    ;if we did a swapgs on entry (because GS was pointing at user TLS from kernel code
-    ;we need to undo it here so the kernel can use gs again
-    ;check the MSR again to see the current GS state:
-    ;if high bits CLEAR now -> we hold kernel GS (we swapped user→kernel) -> undo the swap
-    ;if high bits SET now -> we already hold kernel GS (no swap was done) -> nothing to do
-    push rdx
-    push rcx
-    mov rcx, 0xC0000101
-    rdmsr
-    test edx, edx
-    pop rcx
-    pop rdx
-    js .no_swapgs_out       ;high bits set = kernel GS = correct no undo needed
-    swapgs                  ;restore user GS so kernel gs
+    ;kernel-mode return: restore all regs from stack and iretq
+    ;undo any swapgs performed on entry using our stack flag
+    cmp qword [rsp + 0], 1
+    jne .no_swapgs_out
+    swapgs
 .no_swapgs_out:
+    add rsp, 8      ;discard swapgs flag
     pop r15
     pop r14
     pop r13
@@ -202,6 +188,16 @@ common_stub:
     pop rax
     add rsp, 16     ;discard vector and error code
     iretq
+
+.user_return:
+    ;usermode return: use thread context (may have switched to a different user thread)
+    call thread_current
+    test rax, rax
+    jz .manual_restore   ;no thread (shouldn't happen)
+
+    mov rdi, rax
+    add rdi, THREAD_CTX_OFFSET
+    jmp arch_return_to_usermode  ;handles swapgs, sets up iretq frame
 
 ;CPU exceptions (0-31)
 isr_no_err_stub 0

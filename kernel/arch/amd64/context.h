@@ -40,6 +40,7 @@ struct arch_context {
 typedef struct arch_context arch_context_t;
 
 typedef struct {
+    uint64 swapgs_flag;
     uint64 r15, r14, r13, r12, r11, r10, r9, r8;
     uint64 rbp, rdi, rsi, rdx, rcx, rbx, rax;
     uint64 vector, error_code;

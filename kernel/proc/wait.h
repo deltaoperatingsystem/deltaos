@@ -29,4 +29,8 @@ void thread_wake_all(wait_queue_t *wq);
 //sleep while holding a spinlock: atomically releases lock, sleeps, reacquires on wake
 void thread_sleep_locked(wait_queue_t *wq, spinlock_t *lock);
 
+//sleep while atomically releasing a held spinlock_irq_t to prevent missed wakeups
+//reacquires the lock and updates *flags before returning
+void thread_sleep_locked_irq(wait_queue_t *wq, spinlock_irq_t *lock, irq_state_t *flags);
+
 #endif

@@ -137,17 +137,10 @@ void arch_interrupts_init(void) {
 
     //try to initialize APIC
     if (apic_init()) {
-        //unmask keyboard and mouse
-        interrupt_unmask(1);
-        interrupt_unmask(11);  //RTL8139 NIC
-        interrupt_unmask(12);
         printf("[amd64] APIC/IOAPIC initialized\n");
     } else {
         //fallback to PIC
         interrupt_unmask(2); //unmask cascade IRQ 2 for slave PIC
-        interrupt_unmask(1); //keyboard
-        interrupt_unmask(11); //RTL8139 NIC
-        interrupt_unmask(12); //mouse
         printf("[amd64] Using legacy PIC\n");
     }
 
