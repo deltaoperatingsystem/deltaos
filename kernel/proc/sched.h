@@ -11,6 +11,7 @@ void sched_init_ap(void);
 
 //add thread to run queue
 void sched_add(thread_t *thread);
+void sched_add_cpu(thread_t *thread, uint32 cpu_index);
 
 //remove thread from run queue
 void sched_remove(thread_t *thread);
@@ -29,5 +30,9 @@ void sched_exit(void);
 
 //reap dead threads
 void sched_reap(void);
+
+//ISR-safe preemption: update scheduler state without arch_context_switch
+//use this from interrupt handlers interrupted from usermode
+void sched_preempt(void);
 
 #endif

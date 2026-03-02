@@ -500,8 +500,8 @@ typedef struct {
 } mouse_event_t;
 
 handle_t mouse_h = INVALID_HANDLE;
-uint32 mouse_x = FB_W / 2;
-uint32 mouse_y = FB_H / 2;
+int32 mouse_x = FB_W / 2;
+int32 mouse_y = FB_H / 2;
 mouse_event_t mprev = {0};
 
 void handle_input() {
@@ -529,10 +529,18 @@ void handle_input() {
         INFO("Attempting to open mouse handle...\n");
         mouse_h = get_obj(INVALID_HANDLE, "$devices/mouse/channel", RIGHT_READ);
     }
-    if (channel_try_recv(mouse_h, &m, sizeof(m)) == sizeof(mouse_event_t)) {
+    //drain all pending mouse events so we don't fall behind on SMP
+    //where yield() can delay us for an entire timeslice
+    while (channel_try_recv(mouse_h, &m, sizeof(m)) == sizeof(mouse_event_t)) {
         //first do our things (focus on click, etc)
         mouse_x += m.dx;
         mouse_y += m.dy;
+
+        //clamp cursor to screen bounds
+        if (mouse_x < 0) mouse_x = 0;
+        if (mouse_y < 0) mouse_y = 0;
+        if (mouse_x >= FB_W) mouse_x = FB_W - 1;
+        if (mouse_y >= FB_H) mouse_y = FB_H - 1;
 
         if (m.buttons & MOUSE_BTN_LEFT && !(mprev.buttons & MOUSE_BTN_LEFT)) {
             for (int i = num_clients - 1; i >= 0; --i) {
@@ -553,7 +561,7 @@ void handle_input() {
         //now we forward if possible
         if (focused < 0 || focused >= num_clients) {
             WARN("Got mouse event but focused index invalid: %d\n", focused);
-            return;
+            continue;
         }
         wm_server_msg_t msg = {
             .type = MOUSE,
@@ -578,7 +586,7 @@ void render_mouse(uint32 *fb) {
         for (int j = 0; j < cursor_get_height(); j++) {
             uint32 c = cursor_get_pixel(i, j);
             if (c == 0) continue;
-            fb_putpixel(fb, i + mouse_x, j + mouse_y, c);
+            fb_putpixel(fb, (uint32)(i + mouse_x), (uint32)(j + mouse_y), c);
         }
     }
 }

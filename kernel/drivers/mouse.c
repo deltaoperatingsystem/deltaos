@@ -12,6 +12,7 @@
 #include <lib/io.h>
 #include <drivers/init.h>
 #include <drivers/ps2.h>
+#include <drivers/hid.h>
 
 //PS/2 controller ports
 #define PS2_DATA        0x60
@@ -74,32 +75,39 @@ static void mouse_push_event(int16 dx, int16 dy, uint8 buttons) {
         printf("[mouse_push] no channel_ep!\n");
         return;
     }
-    
+
+    channel_t *ch = mouse_channel_ep->channel;
+    int peer_id = 1 - mouse_channel_ep->endpoint_id;
+
+    //fast drop when queue is full (avoid heap churn in IRQ context)
+    irq_state_t flags = spinlock_irq_acquire(&ch->lock);
+    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
+        spinlock_irq_release(&ch->lock, flags);
+        return;
+    }
+    spinlock_irq_release(&ch->lock, flags);
+
     mouse_event_t *event = kmalloc(sizeof(mouse_event_t));
     if (!event) return;
-    
+
     event->dx = dx;
     event->dy = dy;
     event->buttons = buttons;
     event->_pad[0] = event->_pad[1] = event->_pad[2] = 0;
-    
-    channel_t *ch = mouse_channel_ep->channel;
-    int peer_id = 1 - mouse_channel_ep->endpoint_id;
-    
+
     //allocate queue entry outside the lock
     channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
     if (!entry) {
         kfree(event);
         return;
     }
-    
+
     entry->data = event;
     entry->data_len = sizeof(mouse_event_t);
     entry->next = NULL;
-    
+
     //lock the channel for queue manipulation
-    irq_state_t flags = spinlock_irq_acquire(&ch->lock);
-    
+    flags = spinlock_irq_acquire(&ch->lock);
     if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
         spinlock_irq_release(&ch->lock, flags);
         kfree(entry);
@@ -133,6 +141,13 @@ void mouse_irq(void) {
 
     uint8 data = inb(PS2_DATA);
 
+    //USB HID mouse is active: keep draining PS/2 bytes, but ignore them
+    if (hid_usb_mouse_active()) {
+        mouse_cycle = 0;
+        spinlock_irq_release(&ps2_lock, flags);
+        return;
+    }
+
     bool emit = false;
     int16 dx = 0, dy = 0;
     uint8 buttons = 0;
@@ -156,7 +171,7 @@ void mouse_irq(void) {
             break;
 
         case 2:
-            //third byte: y movement — packet complete
+            //third byte: y movement - packet complete
             mouse_packet[2] = data;
             mouse_cycle = 0;
 

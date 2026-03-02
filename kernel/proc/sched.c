@@ -114,22 +114,18 @@ void sched_init_ap(void) {
 
 static uint32 last_cpu = 0;
 
-void sched_add(thread_t *thread) {
+void sched_add_cpu(thread_t *thread, uint32 cpu_index) {
     if (!thread) return;
-    
-    //simple load balancing: round-robin for new threads
-    uint32 cpu_count = percpu_cpu_count();
-    uint32 target_idx = (__sync_fetch_and_add(&last_cpu, 1)) % cpu_count;
-    
-    percpu_t *pc = percpu_get_by_index(target_idx);
+
+    percpu_t *pc = percpu_get_by_index(cpu_index);
     if (!pc || !pc->started) pc = percpu_get(); //fallback to current if target not ready
-    
+
     if (thread == pc->idle_thread) return;
-    
+
     irq_state_t flags = spinlock_irq_acquire(&pc->sched_lock);
-    
+
     thread->sched_next = NULL;
-    
+
     if (!pc->run_queue_tail) {
         pc->run_queue_head = thread;
         pc->run_queue_tail = thread;
@@ -137,15 +133,24 @@ void sched_add(thread_t *thread) {
         pc->run_queue_tail->sched_next = thread;
         pc->run_queue_tail = thread;
     }
-    
+
     thread->state = THREAD_STATE_READY;
-    
+
     spinlock_irq_release(&pc->sched_lock, flags);
-    
+
     //notify target CPU if it's not us
     if (pc != percpu_get()) {
         arch_smp_send_resched(pc->cpu_index);
     }
+}
+
+void sched_add(thread_t *thread) {
+    if (!thread) return;
+
+    //simple load balancing: round-robin for new threads
+    uint32 cpu_count = percpu_cpu_count();
+    uint32 target_idx = (__sync_fetch_and_add(&last_cpu, 1)) % cpu_count;
+    sched_add_cpu(thread, target_idx);
 }
 
 void sched_remove(thread_t *thread) {
@@ -315,7 +320,7 @@ void sched_exit(void) {
 
 //ISR-safe preemption 
 //only updates scheduler state no context switch
-static void sched_preempt(void) {
+void sched_preempt(void) {
     percpu_t *pc = percpu_get();
     irq_state_t flags = spinlock_irq_acquire(&pc->sched_lock);
     

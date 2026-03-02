@@ -122,7 +122,7 @@ static void rtl8139_enable(rtl8139_dev_t *d) {
     //enable transmitter and receiver
     outb(d->io_base + RTL_CMD, RTL_CMD_TE | RTL_CMD_RE);
     
-    //set interrupt mask — we want ROK, TOK, RX errors, RX overflow
+    //set interrupt mask - we want ROK, TOK, RX errors, RX overflow
     outw(d->io_base + RTL_IMR,
          RTL_INT_ROK | RTL_INT_TOK | RTL_INT_RER | RTL_INT_TER | RTL_INT_RXOVW);
 }

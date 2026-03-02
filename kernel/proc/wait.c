@@ -3,23 +3,26 @@
 #include <proc/sched.h>
 #include <arch/interrupts.h>
 #include <arch/cpu.h>
+#include <arch/percpu.h>
 #include <lib/io.h>
 #include <lib/spinlock.h>
 
 void wait_queue_init(wait_queue_t *wq) {
     wq->head = NULL;
     wq->tail = NULL;
+    spinlock_irq_init(&wq->lock);
 }
 
 void thread_sleep(wait_queue_t *wq) {
     thread_t *current = thread_current();
     if (!current) return;
-    
-    irq_state_t flags = arch_irq_save();
-    
+
+    irq_state_t flags = spinlock_irq_acquire(&wq->lock);
+
     //mark as blocked
     current->state = THREAD_STATE_BLOCKED;
-    
+    current->wait_cpu = (int)percpu_get()->cpu_index;
+
     //add to wait queue
     current->wait_next = NULL;
     if (wq->tail) {
@@ -28,8 +31,8 @@ void thread_sleep(wait_queue_t *wq) {
         wq->head = current;
     }
     wq->tail = current;
-    
-    arch_irq_restore(flags);
+
+    spinlock_irq_release(&wq->lock, flags);
     
     //wait until woken
     while (current->state == THREAD_STATE_BLOCKED) {
@@ -44,8 +47,8 @@ void thread_sleep(wait_queue_t *wq) {
 }
 
 void thread_wake_one(wait_queue_t *wq) {
-    irq_state_t flags = arch_irq_save();
-    
+    irq_state_t flags = spinlock_irq_acquire(&wq->lock);
+
     thread_t *thread = wq->head;
     if (thread) {
         //remove from wait queue
@@ -57,35 +60,42 @@ void thread_wake_one(wait_queue_t *wq) {
         
         //mark as ready and add back to run queue
         thread->state = THREAD_STATE_READY;
-        sched_add(thread);
+        uint32 target_cpu = (thread->wait_cpu >= 0) ? (uint32)thread->wait_cpu
+                                                    : percpu_get()->cpu_index;
+        thread->wait_cpu = -1;
+        sched_add_cpu(thread, target_cpu);
     }
-    
-    arch_irq_restore(flags);
+
+    spinlock_irq_release(&wq->lock, flags);
 }
 
 void thread_wake_all(wait_queue_t *wq) {
-    irq_state_t flags = arch_irq_save();
-    
+    irq_state_t flags = spinlock_irq_acquire(&wq->lock);
+
     while (wq->head) {
         thread_t *thread = wq->head;
         wq->head = thread->wait_next;
         thread->wait_next = NULL;
         thread->state = THREAD_STATE_READY;
-        sched_add(thread);
+        uint32 target_cpu = (thread->wait_cpu >= 0) ? (uint32)thread->wait_cpu
+                                                    : percpu_get()->cpu_index;
+        thread->wait_cpu = -1;
+        sched_add_cpu(thread, target_cpu);
     }
     wq->tail = NULL;
-    
-    arch_irq_restore(flags);
+
+    spinlock_irq_release(&wq->lock, flags);
 }
 
 //sleep while atomically releasing a held spinlock to prevent missed wakeups
 void thread_sleep_locked(wait_queue_t *wq, spinlock_t *lock) {
     thread_t *current = thread_current();
     if (!current) return;
-    
-    irq_state_t flags = arch_irq_save();
-    
+
+    irq_state_t flags = spinlock_irq_acquire(&wq->lock);
+
     current->state = THREAD_STATE_BLOCKED;
+    current->wait_cpu = (int)percpu_get()->cpu_index;
     current->wait_next = NULL;
     if (wq->tail) {
         wq->tail->wait_next = current;
@@ -93,10 +103,10 @@ void thread_sleep_locked(wait_queue_t *wq, spinlock_t *lock) {
         wq->head = current;
     }
     wq->tail = current;
-    
-    //release the caller's lock BEFORE sleeping so wakers can acquire it
+
+    //release wait-queue lock then caller lock before sleeping so wakers can acquire both
+    spinlock_irq_release(&wq->lock, flags);
     spinlock_release(lock);
-    arch_irq_restore(flags);
     
     while (current->state == THREAD_STATE_BLOCKED) {
         sched_yield();
@@ -116,7 +126,9 @@ void thread_sleep_locked_irq(wait_queue_t *wq, spinlock_irq_t *lock, irq_state_t
     if (!current || !flags) return;
 
     //caller holds lock with interrupts disabled via spinlock_irq_acquire()
+    irq_state_t wq_flags = spinlock_irq_acquire(&wq->lock);
     current->state = THREAD_STATE_BLOCKED;
+    current->wait_cpu = (int)percpu_get()->cpu_index;
     current->wait_next = NULL;
     if (wq->tail) {
         wq->tail->wait_next = current;
@@ -124,6 +136,7 @@ void thread_sleep_locked_irq(wait_queue_t *wq, spinlock_irq_t *lock, irq_state_t
         wq->head = current;
     }
     wq->tail = current;
+    spinlock_irq_release(&wq->lock, wq_flags);
 
     //atomically drop the lock, then restore interrupt state and sleep
     spinlock_release(&lock->lock);

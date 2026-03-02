@@ -12,6 +12,7 @@
 #include <drivers/keyboard_protocol.h>
 #include <drivers/mouse.h>
 #include <drivers/ps2.h>
+#include <drivers/hid.h>
 #include <drivers/init.h>
 #include <lib/io.h>
 
@@ -48,40 +49,45 @@ static channel_endpoint_t *kbd_channel_ep = NULL;
 //push event to channel
 static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
     if (!kbd_channel_ep) return;
-    
+
+    //send to channel (non-blocking - if queue ful event is lost)
+    channel_t *ch = kbd_channel_ep->channel;
+    int peer_id = 1 - kbd_channel_ep->endpoint_id;
+
+    //fast drop when queue is already full (avoid heap churn in IRQ context)
+    irq_state_t flags = spinlock_irq_acquire(&ch->lock);
+    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
+        spinlock_irq_release(&ch->lock, flags);
+        return;
+    }
+    spinlock_irq_release(&ch->lock, flags);
+
     //allocate event on heap (channel takes ownership)
     kbd_event_t *event = kmalloc(sizeof(kbd_event_t));
     if (!event) return;
-    
+
     event->keycode = keycode;
     event->mods = mods;
     event->pressed = pressed;
     event->_pad = 0;
     event->codepoint = codepoint;
-    
-    //send to channel (non-blocking - if queue ful event is lost)
-    channel_t *ch = kbd_channel_ep->channel;
-    int peer_id = 1 - kbd_channel_ep->endpoint_id;
-    
-    //allocate queue entry outside the lock
+
     channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
     if (!entry) {
         kfree(event);
         return;
     }
-    
+
     entry->data = event;
     entry->data_len = sizeof(kbd_event_t);
     entry->next = NULL;
-    
-    //lock the channel for queue manipulation
-    irq_state_t flags = spinlock_irq_acquire(&ch->lock);
-    
-    //check if queue has space
+
+    //lock again to enqueue; re-check full due races
+    flags = spinlock_irq_acquire(&ch->lock);
     if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
         spinlock_irq_release(&ch->lock, flags);
         kfree(entry);
-        kfree(event);  //queue full so drop event
+        kfree(event);
         return;
     }
     
@@ -116,6 +122,12 @@ void keyboard_irq(void) {
 
     uint8 sc = inb(KBD_SC);
     spinlock_irq_release(&ps2_lock, flags);
+
+    //USB HID keyboard is active: drain legacy PS/2 data and ignore it.
+    if (hid_usb_keyboard_active()) {
+        return;
+    }
+
     bool released = (sc & SC_RELEASE) != 0;
     uint8 code = sc & 0x7F;
     

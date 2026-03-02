@@ -10,6 +10,7 @@ struct thread;
 typedef struct wait_queue {
     struct thread *head;
     struct thread *tail;
+    spinlock_irq_t lock;
 } wait_queue_t;
 
 //initialize a wait queue

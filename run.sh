@@ -17,7 +17,7 @@ print_step() {
 create_disk_image() {
     print_step "creating disk image"
     dd if=/dev/zero of="$DISK_IMG" bs=1M count=$DISK_SIZE_MB status=none
-    
+
     #create sample NVmE image if it doesn't exist
     if [[ ! -f "$NVME_IMG" ]]; then
         print_step "creating sample NVMe image"
@@ -68,8 +68,7 @@ run_qemu() {
 	    -enable-kvm
 	    -no-reboot
 	    -no-shutdown
-	-smp 3
-    )
+	    )
 
     #handle writable variables if available
     if [[ -n "$OVMF_VARS" ]]; then

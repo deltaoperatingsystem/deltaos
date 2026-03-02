@@ -14,15 +14,14 @@ enum output_mode {
 
 bool serial_enabled = false;
 static enum output_mode mode = SERIAL;
-static spinlock_t console_lock = SPINLOCK_INIT;
+static spinlock_irq_t console_lock = SPINLOCK_IRQ_INIT;
 
 void io_enable_serial() {
     serial_enabled = true;
 }
 
 void puts(const char *s) {
-    irq_state_t flags = arch_irq_save();
-    spinlock_acquire(&console_lock);
+    irq_state_t flags = spinlock_irq_acquire(&console_lock);
     
     switch (mode) {
         case SERIAL:
@@ -39,13 +38,11 @@ void puts(const char *s) {
         default: break;
     }
     
-    spinlock_release(&console_lock);
-    arch_irq_restore(flags);
+    spinlock_irq_release(&console_lock, flags);
 }
 
 void putc(const char c) {
-    irq_state_t flags = arch_irq_save();
-    spinlock_acquire(&console_lock);
+    irq_state_t flags = spinlock_irq_acquire(&console_lock);
     
     switch (mode) {
         case SERIAL:
@@ -61,8 +58,7 @@ void putc(const char c) {
         default: break;
     }
     
-    spinlock_release(&console_lock);
-    arch_irq_restore(flags);
+    spinlock_irq_release(&console_lock, flags);
 }
 
 //internal putc that assumes console_lock is ALREADY HELD
@@ -319,8 +315,7 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
 }
 
 void printf(const char *format, ...) {
-    irq_state_t flags = arch_irq_save();
-    spinlock_acquire(&console_lock);
+    irq_state_t flags = spinlock_irq_acquire(&console_lock);
     
     va_list args;
     va_start(args, format);
@@ -334,8 +329,7 @@ void printf(const char *format, ...) {
         if (vt) vt_flush(vt);
     }
     
-    spinlock_release(&console_lock);
-    arch_irq_restore(flags);
+    spinlock_irq_release(&console_lock, flags);
 }
 
 int vsnprintf(char *buf, size n, const char *format, va_list args) {
@@ -362,15 +356,13 @@ int snprintf(char *buf, size n, const char *format, ...) {
 void debug_write(const char *buf, size count) {
     if (!buf || count == 0) return;
     
-    irq_state_t flags = arch_irq_save();
-    spinlock_acquire(&console_lock);
+    irq_state_t flags = spinlock_irq_acquire(&console_lock);
     
     for (size i = 0; i < count; i++) {
         putc_locked(buf[i]);
     }
     
-    spinlock_release(&console_lock);
-    arch_irq_restore(flags);
+    spinlock_irq_release(&console_lock, flags);
 }
 
 void set_outmode(enum output_mode m) {

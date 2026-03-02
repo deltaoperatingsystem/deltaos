@@ -2,6 +2,7 @@
 console = true
 fb = true
 gpt = true
+hid = true
 keyboard = true
 mouse = true
 nvme = true
@@ -11,3 +12,4 @@ rtc = true
 rtl8139 = true
 serial = true
 vt = true
+xhci = true

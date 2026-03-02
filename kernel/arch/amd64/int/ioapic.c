@@ -1,30 +1,48 @@
 #include <arch/amd64/int/ioapic.h>
 #include <arch/amd64/int/apic.h>
 #include <arch/amd64/io.h>
+#include <arch/cpu.h>
 #include <mm/mm.h>
 #include <mm/vmm.h>
 #include <lib/io.h>
 #include <lib/string.h>
+#include <lib/spinlock.h>
 #include <drivers/serial.h>
 #include <arch/amd64/acpi/acpi.h>
 
 static bool ioapic_available = false;
 static volatile uint32 *ioapic_base = NULL;
 static uint32 ioapic_max_redir = 0;
+static spinlock_irq_t ioapic_lock = SPINLOCK_IRQ_INIT;
 
-static inline uint32 ioapic_read(uint8 reg) {
+//low-level register access - caller MUST hold ioapic_lock
+static inline uint32 ioapic_read_locked(uint8 reg) {
     if (!ioapic_base) return 0;
     ioapic_base[0] = reg;
     __asm__ volatile ("mfence" ::: "memory");
     return ioapic_base[4];
 }
 
-static inline void ioapic_write(uint8 reg, uint32 val) {
+static inline void ioapic_write_locked(uint8 reg, uint32 val) {
     if (!ioapic_base) return;
     ioapic_base[0] = reg;
     __asm__ volatile ("mfence" ::: "memory");
     ioapic_base[4] = val;
     __asm__ volatile ("mfence" ::: "memory");
+}
+
+//public wrappers that acquire the lock
+static inline uint32 ioapic_read(uint8 reg) {
+    irq_state_t fl = spinlock_irq_acquire(&ioapic_lock);
+    uint32 val = ioapic_read_locked(reg);
+    spinlock_irq_release(&ioapic_lock, fl);
+    return val;
+}
+
+static inline void ioapic_write(uint8 reg, uint32 val) {
+    irq_state_t fl = spinlock_irq_acquire(&ioapic_lock);
+    ioapic_write_locked(reg, val);
+    spinlock_irq_release(&ioapic_lock, fl);
 }
 
 static uint32 ioapic_get_gsi(uint8 irq) {
@@ -109,22 +127,28 @@ void ioapic_set_irq(uint8 irq, uint8 vector, uint8 dest_apic_id, bool masked) {
     uint32 gsi = ioapic_get_gsi(irq);
     if (gsi >= ioapic_max_redir) return;
 
-    ioapic_write(IOAPIC_REDTBL_BASE + gsi * 2, low);
-    ioapic_write(IOAPIC_REDTBL_BASE + gsi * 2 + 1, high);
+    irq_state_t fl = spinlock_irq_acquire(&ioapic_lock);
+    ioapic_write_locked(IOAPIC_REDTBL_BASE + gsi * 2, low);
+    ioapic_write_locked(IOAPIC_REDTBL_BASE + gsi * 2 + 1, high);
+    spinlock_irq_release(&ioapic_lock, fl);
 }
 
 void ioapic_mask_irq(uint8 irq) {
     uint32 gsi = ioapic_get_gsi(irq);
     if (gsi >= ioapic_max_redir) return;
-    uint32 low = ioapic_read(IOAPIC_REDTBL_BASE + gsi * 2);
-    ioapic_write(IOAPIC_REDTBL_BASE + gsi * 2, low | IOAPIC_INT_MASKED);
+    irq_state_t fl = spinlock_irq_acquire(&ioapic_lock);
+    uint32 low = ioapic_read_locked(IOAPIC_REDTBL_BASE + gsi * 2);
+    ioapic_write_locked(IOAPIC_REDTBL_BASE + gsi * 2, low | IOAPIC_INT_MASKED);
+    spinlock_irq_release(&ioapic_lock, fl);
 }
 
 void ioapic_unmask_irq(uint8 irq) {
     uint32 gsi = ioapic_get_gsi(irq);
     if (gsi >= ioapic_max_redir) return;
-    uint32 low = ioapic_read(IOAPIC_REDTBL_BASE + gsi * 2);
-    ioapic_write(IOAPIC_REDTBL_BASE + gsi * 2, low & ~IOAPIC_INT_MASKED);
+    irq_state_t fl = spinlock_irq_acquire(&ioapic_lock);
+    uint32 low = ioapic_read_locked(IOAPIC_REDTBL_BASE + gsi * 2);
+    ioapic_write_locked(IOAPIC_REDTBL_BASE + gsi * 2, low & ~IOAPIC_INT_MASKED);
+    spinlock_irq_release(&ioapic_lock, fl);
 }
 
 bool ioapic_is_enabled(void) {

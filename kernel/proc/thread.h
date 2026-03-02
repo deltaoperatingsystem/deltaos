@@ -39,6 +39,7 @@ typedef struct thread {
     
     //scheduler state
     int cpu_id;             //ID of CPU currently running this thread (-1 if none)
+    int wait_cpu;           //CPU this thread blocked on (for targeted wakeups)
     spinlock_t lock;        //thread-specific lock for state changes
 
     //linked list within process
@@ -73,4 +74,3 @@ thread_t *thread_current(void);
 void thread_set_current(thread_t *thread);
 
 #endif
-

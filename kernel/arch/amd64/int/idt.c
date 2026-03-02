@@ -5,6 +5,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
 #include <drivers/rtl8139.h>
+#include <drivers/xhci.h>
 #include <lib/io.h>
 #include <arch/amd64/context.h>
 #include <arch/amd64/int/apic.h>
@@ -55,11 +56,15 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
             pic_send_eoi(irq);
         }
         
-        //check if we were interrupted from usermode (userspace RIP is low, kernel is high)
-        int from_usermode = (rip < 0xFFFF800000000000ULL) ? 1 : 0;
+        //check if we were interrupted from usermode using CS.RPL (authoritative)
+        int from_usermode = ((frame->cs & 3) == 3) ? 1 : 0;
         
         if (vector == IPI_RESCHEDULE) {
-            sched_yield();
+            //if interrupted from usermode, use sched_preempt() which updates the current-thread pointer
+            //the ISRs user_return path then loads the new thread's context cleanly
+            if (from_usermode) {
+                sched_preempt();
+            }
             return;
         }
 
@@ -80,6 +85,8 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
                 if (vector >= 0x40 && vector <= 0x47) {
                     extern void nvme_isr_callback(uint64);
                     nvme_isr_callback(vector);
+                } else if (vector == XHCI_MSI_VECTOR) {
+                    xhci_irq();
                 } else {
                     printf("Unhandled IRQ: 0x%X (vector 0x%X)\n", irq + 32, vector);
                 }
