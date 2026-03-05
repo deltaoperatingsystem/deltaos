@@ -13,6 +13,7 @@
 #include <proc/process.h>
 #include <drivers/pci.h>
 #include <arch/amd64/int/apic.h>
+#include <arch/amd64/int/iommu.h>
 #include <arch/amd64/acpi/acpi.h>
 #include <arch/amd64/smp/smp.h>
 #include <arch/percpu.h>
@@ -52,6 +53,12 @@ void arch_init(struct db_boot_info *boot_info) {
             if (strcmp(arg, "noapic") == 0) {
                 apic_set_force_pic(true);
                 printf("[amd64] PIC mode forced via command line\n");
+            } else if (strcmp(arg, "nox2apic") == 0) {
+                apic_set_force_x2apic_disabled(true);
+                printf("[amd64] x2APIC disabled via command line\n");
+            } else if (strcmp(arg, "nointremap") == 0 || strcmp(arg, "noiommu") == 0) {
+                iommu_set_force_disable(true);
+                printf("[amd64] interrupt remapping disabled via command line\n");
             }
             arg = strtok(NULL, " ");
         }

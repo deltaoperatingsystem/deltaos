@@ -10,6 +10,7 @@
 #include <proc/sched.h>
 #include <proc/thread.h>
 #include <drivers/init.h>
+#include <arch/irq.h>
 #include <arch/cpu.h>
 #include <obj/namespace.h>
 #include <obj/object.h>
@@ -485,9 +486,12 @@ static int nvme_enable_msix(nvme_ctrl_t *ctrl) {
 
     uint32 num_vectors = 1 + NVME_MAX_IO_QUEUES;
     for (uint32 i = 0; i < num_vectors; i++) {
-        ctrl->msix_table[i].msg_addr_low = 0xFEE00000;
-        ctrl->msix_table[i].msg_addr_high = 0;
-        ctrl->msix_table[i].msg_data = 0x40 + i;
+        irq_msi_msg_t msg;
+        if (irq_compose_msi(0x40 + i, &msg) < 0) return -1;
+
+        ctrl->msix_table[i].msg_addr_low = msg.addr_lo;
+        ctrl->msix_table[i].msg_addr_high = msg.addr_hi;
+        ctrl->msix_table[i].msg_data = msg.data;
         ctrl->msix_table[i].vector_control = 0; //unmask
     }
 

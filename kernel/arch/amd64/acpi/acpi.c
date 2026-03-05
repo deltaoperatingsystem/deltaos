@@ -1,4 +1,5 @@
 #include <arch/amd64/acpi/acpi.h>
+#include <arch/amd64/acpi/dmar.h>
 #include <boot/db.h>
 #include <mm/mm.h>
 #include <lib/string.h>
@@ -56,8 +57,10 @@ void *acpi_find_table(const char *signature) {
 }
 
 uint32 acpi_cpu_count = 0;
-uint8 acpi_cpu_ids[64];
+uint32 acpi_cpu_ids[64];
+uint8 acpi_ioapic_id = 0;
 uint32 acpi_ioapic_addr = 0;
+uint32 acpi_ioapic_gsi_base = 0;
 uint32 acpi_lapic_addr = 0;
 acpi_iso_t acpi_isos[16];
 uint32 acpi_iso_count = 0;
@@ -141,9 +144,20 @@ static void acpi_parse_madt(acpi_madt_t *madt) {
                 }
                 break;
             }
+            case ACPI_MADT_TYPE_LOCAL_X2APIC: {
+                acpi_madt_local_x2apic_t *x2apic = (acpi_madt_local_x2apic_t *)entry;
+                if (x2apic->flags & 1) { //enabled
+                    if (acpi_cpu_count < 64) {
+                        acpi_cpu_ids[acpi_cpu_count++] = x2apic->x2apic_id;
+                    }
+                }
+                break;
+            }
             case ACPI_MADT_TYPE_IO_APIC: {
                 acpi_madt_io_apic_t *ioapic = (acpi_madt_io_apic_t *)entry;
+                acpi_ioapic_id = ioapic->io_apic_id;
                 acpi_ioapic_addr = ioapic->io_apic_address;
+                acpi_ioapic_gsi_base = ioapic->global_system_interrupt_base;
                 break;
             }
             case ACPI_MADT_TYPE_INT_SRC_OVERRIDE: {
@@ -160,8 +174,9 @@ static void acpi_parse_madt(acpi_madt_t *madt) {
         p += entry->length;
     }
 
-    printf("[acpi] MADT: %u CPUs, Local APIC @ 0x%x, IO APIC @ 0x%x\n", 
-           acpi_cpu_count, acpi_lapic_addr, acpi_ioapic_addr);
+    printf("[acpi] MADT: %u CPUs, Local APIC @ 0x%x, IO APIC @ 0x%x (id %u, GSI base %u)\n",
+           acpi_cpu_count, acpi_lapic_addr, acpi_ioapic_addr,
+           acpi_ioapic_id, acpi_ioapic_gsi_base);
 }
 
 void acpi_shutdown(void) {
@@ -242,6 +257,8 @@ void acpi_init(void) {
     if (mcfg) {
         acpi_parse_mcfg(mcfg);
     }
+
+    dmar_init();
 
     acpi_fadt_t *f = acpi_find_table(ACPI_FADT_SIGNATURE);
     if (f) {

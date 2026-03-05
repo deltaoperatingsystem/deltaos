@@ -3,13 +3,8 @@
 
 int main(int argc, char *argv[]) {
     puts("[init] DeltaOS starting...\n");
-    
-    printf("[init] argc = %d\n", argc);
-    for (int i = 0; i < argc; i++) {
-        printf("[init] argv[%d] = %s\n", i, argv[i]);
-    }
-    
-    printf("[init] PID = %d\n", (int)getpid());
+    (void)argc;
+    (void)argv;
     
     //spawn shell
     puts("[init] starting shell...\n");

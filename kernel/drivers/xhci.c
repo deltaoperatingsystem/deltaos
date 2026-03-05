@@ -10,8 +10,7 @@
 #include <arch/mmu.h>
 #include <arch/cpu.h>
 #include <arch/timer.h>
-#include <arch/percpu.h>
-#include <arch/amd64/int/apic.h>
+#include <arch/irq.h>
 #include <lib/io.h>
 #include <lib/string.h>
 #include <proc/thread.h>
@@ -202,24 +201,64 @@ static int xhci_enable_msix(xhci_ctrl_t *c) {
     c->msix_table   = (xhci_msix_entry_t *)P2V(tbl_phys);
     vmm_kernel_map((uintptr)c->msix_table, tbl_phys, 1, MMU_FLAG_WRITE | MMU_FLAG_NOCACHE);
 
-    //route MSI-X to BSP (CPU0) LAPIC ID
-    //this keeps runtime IRQ affinity correct even if init ever runs off-BSP
-    uint8 dest_apic_id = (uint8)apic_get_id();
-    percpu_t *bsp = percpu_get_by_index(0);
-    if (bsp) dest_apic_id = (uint8)bsp->apic_id;
+    //compose MSI message
+    irq_msi_msg_t msg;
+    if (irq_compose_msi(XHCI_MSI_VECTOR, &msg) < 0) return -1;
 
-    c->msix_table[0].msg_addr_lo  = 0xFEE00000 | ((uint32)dest_apic_id << 12);
-    c->msix_table[0].msg_addr_hi  = 0;
-    c->msix_table[0].msg_data     = XHCI_MSI_VECTOR;
-    c->msix_table[0].vector_ctrl  = 0; //unmask
+    c->msix_table[0].msg_addr_lo = msg.addr_lo;
+    c->msix_table[0].msg_addr_hi = msg.addr_hi;
+    c->msix_table[0].msg_data    = msg.data;
+    c->msix_table[0].vector_ctrl = 0; //unmask
 
     //enable MSI-X in the capability (bit 15 of message control)
     uint16 msgctl = pci_config_read(pci->bus, pci->dev, pci->func, c->msix_cap + 2, 2);
     pci_config_write(pci->bus, pci->dev, pci->func, c->msix_cap + 2, 2, msgctl | (1 << 15));
 
-    printf("[xhci] MSI-X enabled (vector 0x%02X, dest APIC ID %u)\n",
-           XHCI_MSI_VECTOR, dest_apic_id);
+    printf("[xhci] MSI-X enabled (vector 0x%02X)\n", XHCI_MSI_VECTOR);
     return 0;
+}
+
+static int xhci_enable_msi(xhci_ctrl_t *c) {
+    pci_device_t *pci = c->pci;
+    if (!(pci->status & (1 << 4))) return -1;
+
+    uint8 ptr = pci_config_read(pci->bus, pci->dev, pci->func, 0x34, 1);
+    uint8 msi_cap = 0;
+    while (ptr) {
+        uint8 id = pci_config_read(pci->bus, pci->dev, pci->func, ptr, 1);
+        if (id == 0x05) { //PCI_CAP_MSI
+            msi_cap = ptr;
+            break;
+        }
+        ptr = pci_config_read(pci->bus, pci->dev, pci->func, ptr + 1, 1);
+    }
+    if (!msi_cap) return -1;
+
+    irq_msi_msg_t msg;
+    if (irq_compose_msi(XHCI_MSI_VECTOR, &msg) < 0) return -1;
+
+    uint16 msgctl = pci_config_read(pci->bus, pci->dev, pci->func, msi_cap + 2, 2);
+    bool is_64bit = (msgctl & (1 << 7)) != 0;
+
+    pci_config_write(pci->bus, pci->dev, pci->func, msi_cap + 4, 4, msg.addr_lo);
+    if (is_64bit) {
+        pci_config_write(pci->bus, pci->dev, pci->func, msi_cap + 8, 4, msg.addr_hi);
+        pci_config_write(pci->bus, pci->dev, pci->func, msi_cap + 12, 2, msg.data);
+    } else {
+        pci_config_write(pci->bus, pci->dev, pci->func, msi_cap + 8, 2, msg.data);
+    }
+
+    //enable MSI (bit 0)
+    pci_config_write(pci->bus, pci->dev, pci->func, msi_cap + 2, 2, msgctl | 1);
+
+    printf("[xhci] MSI enabled (vector 0x%02X)\n", XHCI_MSI_VECTOR);
+    return 0;
+}
+
+static int xhci_enable_interrupts(xhci_ctrl_t *c) {
+    if (xhci_enable_msix(c) == 0) return 0;
+    if (xhci_enable_msi(c) == 0) return 0;
+    return -1;
 }
 
 //wait for a command completion event
@@ -1251,9 +1290,9 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     //max slots
     op_write32(c, XHCI_OP_CONFIG, CONFIG_MAX_SLOTS_EN(c->max_slots));
 
-    //MSI-X
-    if (xhci_enable_msix(c) < 0)
-        printf("[xhci] MSI-X unavailable - interrupts will not work\n");
+    //interrupts
+    if (xhci_enable_interrupts(c) < 0)
+        printf("[xhci] MSI/MSI-X unavailable - interrupts will not work\n");
 
     //start controller
     op_write32(c, XHCI_OP_USBCMD, USBCMD_RUN | USBCMD_INTE | USBCMD_HSEE);

@@ -56,19 +56,21 @@ run_qemu() {
     print_step "launching qemu"
     pwd
     local QEMU_ARGS=(
-        -machine q35
-        -cpu qemu64
+        -machine q35,kernel-irqchip=split
+        -cpu qemu64,+x2apic
+        -smp 4
         -m 256M
         -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
         -drive "file=$DISK_IMG,format=raw"
         -drive "file=$NVME_IMG,format=raw,if=none,id=nvm"
         -device nvme,serial=deadbeef,drive=nvm
+        -device intel-iommu,intremap=on,eim=on
         -netdev user,id=net0,hostfwd=tcp::8080-:80 -device rtl8139,netdev=net0
         -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0
-	    -enable-kvm
-	    -no-reboot
-	    -no-shutdown
-	    )
+        -enable-kvm
+        -no-reboot
+        -no-shutdown
+        )
 
     #handle writable variables if available
     if [[ -n "$OVMF_VARS" ]]; then

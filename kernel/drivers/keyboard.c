@@ -18,6 +18,12 @@
 
 #define KBD_STATUS      0x64
 #define KBD_SC          0x60
+#define KBD_CMD         0x64
+
+//8042 controller commands
+#define PS2_CMD_READ_CONFIG     0x20
+#define PS2_CMD_WRITE_CONFIG    0x60
+#define PS2_CMD_ENABLE_PORT1    0xAE
 
 //scancode flags
 #define SC_RELEASE      0x80
@@ -45,6 +51,18 @@ static const char scancodes_shift[128] = {
 
 //channel endpoint for pushing events
 static channel_endpoint_t *kbd_channel_ep = NULL;
+
+//must be called with ps2_lock held
+static void ps2_wait_write(void) {
+    int timeout = 100000;
+    while ((inb(KBD_STATUS) & 2) && --timeout);
+}
+
+//must be called with ps2_lock held
+static void ps2_wait_read(void) {
+    int timeout = 100000;
+    while (!(inb(KBD_STATUS) & 1) && --timeout);
+}
 
 //push event to channel
 static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
@@ -154,14 +172,33 @@ void keyboard_irq(void) {
 }
 
 void keyboard_init(void) {
-    printf("[kbd] initialising\n");
     irq_state_t flags = spinlock_irq_acquire(&ps2_lock);
+
+    //explicitly enable the first PS/2 port and IRQ1 instead of relying on
+    //firmware leaving the 8042 in a keyboard-friendly state
+    ps2_wait_write();
+    outb(KBD_CMD, PS2_CMD_ENABLE_PORT1);
+
+    ps2_wait_write();
+    outb(KBD_CMD, PS2_CMD_READ_CONFIG);
+    ps2_wait_read();
+    uint8 config = inb(KBD_SC);
+
+    //bit 0 = IRQ1 enable, bit 4 = port 1 clock disable
+    config |= (1 << 0);
+    config &= ~(1 << 4);
+
+    ps2_wait_write();
+    outb(KBD_CMD, PS2_CMD_WRITE_CONFIG);
+    ps2_wait_write();
+    outb(KBD_SC, config);
+
     //flush any pending scancodes
     while (inb(KBD_STATUS) & 1) {
         inb(KBD_SC);
     }
     spinlock_irq_release(&ps2_lock, flags);
-    
+
     interrupt_unmask(1);
     
     //create channel for keyboard events

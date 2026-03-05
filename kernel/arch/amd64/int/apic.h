@@ -42,15 +42,20 @@
 //MSR addresses
 #define MSR_APIC_BASE           0x1B
 #define APIC_BASE_ENABLE        (1 << 11)
+#define APIC_BASE_X2APIC_ENABLE (1 << 10)
+
+#define MSR_X2APIC_BASE         0x800
 
 //default vectors
 #define APIC_SPURIOUS_VECTOR    0xFF
 #define APIC_TIMER_VECTOR       0x20
 
 //interface
+extern bool x2apic_enabled;
 bool apic_is_supported(void);
 bool apic_init(void);
 void apic_set_force_pic(bool force);
+void apic_set_force_x2apic_disabled(bool force);
 void apic_send_eoi(void);
 bool apic_is_enabled(void);
 uint32 apic_get_id(void);
@@ -59,6 +64,9 @@ void apic_write(uint32 reg, uint32 val);
 void apic_init_ap(void);
 void apic_timer_init(uint32 hz);
 void apic_wait_icr_idle(void);
-void apic_send_ipi(uint8 apic_id, uint8 vector);
+void apic_send_ipi(uint32 apic_id, uint8 vector);
+void apic_send_init_ipi(uint32 apic_id);
+void apic_send_init_deassert(uint32 apic_id);
+void apic_send_startup_ipi(uint32 apic_id, uint8 vector);
 
 #endif

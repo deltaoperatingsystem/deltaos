@@ -54,30 +54,8 @@ static void delay_us(uint32 us) {
     }
 }
 
-//send INIT IPI to an AP
-static void apic_send_init(uint8 apic_id) {
-    apic_wait_icr_idle();
-    apic_write(APIC_ICR_HIGH, (uint32)apic_id << 24);
-    //INIT IPI: delivery mode = 5 (INIT), level = 1 (assert)
-    apic_write(APIC_ICR_LOW, (5 << 8) | (1 << 14));
-    
-    //wait for delivery
-    apic_wait_icr_idle();
-}
-
-//send SIPI to an AP
-static void apic_send_sipi(uint8 apic_id, uint8 vector) {
-    apic_wait_icr_idle();
-    apic_write(APIC_ICR_HIGH, (uint32)apic_id << 24);
-    //SIPI: delivery mode = 6 (Startup), vector = page number of startup code
-    apic_write(APIC_ICR_LOW, vector | (6 << 8));
-    
-    //wait for delivery
-    apic_wait_icr_idle();
-}
-
 //start a single AP
-static bool start_ap(uint32 cpu_index, uint8 apic_id) {
+static bool start_ap(uint32 cpu_index, uint32 apic_id) {
     printf("[smp] Starting AP %u (APIC ID %u)...\n", cpu_index, apic_id);
     
     //allocate stack for this AP
@@ -107,22 +85,20 @@ static bool start_ap(uint32 cpu_index, uint8 apic_id) {
     uint32 prev_count = ap_started_count;
     
     //INIT-SIPI-SIPI sequence
-    apic_send_init(apic_id);
+    apic_send_init_ipi(apic_id);
     delay_us(10000);  //10ms delay after INIT
     
-    //de-assert INIT
-    apic_wait_icr_idle();
-    apic_write(APIC_ICR_HIGH, (uint32)apic_id << 24);
-    apic_write(APIC_ICR_LOW, (5 << 8) | (0 << 14));  //INIT, de-assert
+    //de-assert INIT (no-op in x2APIC mode)
+    apic_send_init_deassert(apic_id);
     
     delay_us(200);  //200us delay
     
     //first SIPI
-    apic_send_sipi(apic_id, TRAMPOLINE_ADDR >> 12);
+    apic_send_startup_ipi(apic_id, TRAMPOLINE_ADDR >> 12);
     delay_us(200);  //200us delay
     
     //second SIPI (some processors need it)
-    apic_send_sipi(apic_id, TRAMPOLINE_ADDR >> 12);
+    apic_send_startup_ipi(apic_id, TRAMPOLINE_ADDR >> 12);
     
     //wait for AP to start (with timeout)
     for (int i = 0; i < 1000; i++) {
@@ -177,7 +153,7 @@ void smp_init(void) {
     //start each AP (skip BSP at index 0)
     uint32 started = 1;  //BSP counts as 1
     for (uint32 i = 0; i < cpu_count && i < MAX_CPUS; i++) {
-        uint8 apic_id = acpi_cpu_ids[i];
+        uint32 apic_id = acpi_cpu_ids[i];
         
         //skip BSP
         if (apic_id == bsp_apic_id) continue;
@@ -208,7 +184,7 @@ bool smp_ap_started(uint32 cpu_index) {
 //AP entry point - called after trampoline brings AP to long mode
 void ap_entry(uint32 cpu_index) {
     //get our data from the percpu array
-    uint8 apic_id = acpi_cpu_ids[cpu_index];
+    uint32 apic_id = acpi_cpu_ids[cpu_index];
     
     //initialize per-CPU data
     percpu_init_ap(cpu_index, apic_id);

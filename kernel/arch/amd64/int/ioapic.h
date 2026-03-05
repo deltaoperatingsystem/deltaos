@@ -26,9 +26,10 @@
 
 //interface
 bool ioapic_init(void);
-void ioapic_set_irq(uint8 irq, uint8 vector, uint8 dest_apic_id, bool masked);
+void ioapic_set_irq(uint8 irq, uint8 vector, uint32 dest_apic_id, bool masked);
 void ioapic_mask_irq(uint8 irq);
 void ioapic_unmask_irq(uint8 irq);
 bool ioapic_is_enabled(void);
+void ioapic_reconfigure_for_ir(void);
 
 #endif

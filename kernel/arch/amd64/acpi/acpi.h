@@ -56,6 +56,7 @@ typedef struct acpi_madt {
 #define ACPI_MADT_TYPE_NMI_INT_SRC          3
 #define ACPI_MADT_TYPE_LOCAL_APIC_NMI       4
 #define ACPI_MADT_TYPE_LOCAL_APIC_OVERRIDE  5
+#define ACPI_MADT_TYPE_LOCAL_X2APIC         9
 
 typedef struct acpi_madt_entry {
     uint8 type;
@@ -68,6 +69,14 @@ typedef struct acpi_madt_local_apic {
     uint8 apic_id;
     uint32 flags; //bit 0 = enabled
 } __attribute__((packed)) acpi_madt_local_apic_t;
+
+typedef struct acpi_madt_local_x2apic {
+    acpi_madt_entry_t header;
+    uint16 reserved;
+    uint32 x2apic_id;
+    uint32 flags;
+    uint32 acpi_id;
+} __attribute__((packed)) acpi_madt_local_x2apic_t;
 
 typedef struct acpi_madt_io_apic {
     acpi_madt_entry_t header;
@@ -176,8 +185,10 @@ void acpi_reboot(void);
 
 //system configuration derived from ACPI
 extern uint32 acpi_cpu_count;
-extern uint8 acpi_cpu_ids[64];
+extern uint32 acpi_cpu_ids[64];
+extern uint8  acpi_ioapic_id;
 extern uint32 acpi_ioapic_addr;
+extern uint32 acpi_ioapic_gsi_base;
 extern uint32 acpi_lapic_addr;
 
 typedef struct acpi_iso {
