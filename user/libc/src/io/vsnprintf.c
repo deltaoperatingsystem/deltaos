@@ -258,7 +258,7 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                     frac -= digit;
                 }
             } else if (*p == 'b') {
-                uintmax_t num;
+                uintmax num;
 
                 if (is_long || is_size)
                     num = va_arg(args, unsigned long);
