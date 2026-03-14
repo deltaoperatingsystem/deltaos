@@ -553,10 +553,8 @@ void handle_input() {
         }
 
         // then forward if possible
-        if (focused < 0 || focused >= num_clients) {
-            WARN("Got keyboard event but focused index invalid: %d\n", focused);
-            return;
-        }
+        if (focused < 0 || focused >= num_clients) return;
+
         wm_server_msg_t msg = {
             .type = KBD,
             .u.kbd = { .data = ev },
@@ -604,10 +602,8 @@ void handle_input() {
         mprev = m;
    
         //now we forward if possible
-        if (focused < 0 || focused >= num_clients) {
-            WARN("Got mouse event but focused index invalid: %d\n", focused);
-            continue;
-        }
+        if (focused < 0 || focused >= num_clients) continue;
+
         wm_server_msg_t msg = {
             .type = MOUSE,
             .u.mouse = {
