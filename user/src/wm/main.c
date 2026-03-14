@@ -504,10 +504,35 @@ int32 mouse_x = FB_W / 2;
 int32 mouse_y = FB_H / 2;
 mouse_event_t mprev = {0};
 
+typedef struct {
+    uint8 mods;
+    uint32 codepoint;
+    void (*callback)(void);
+} keybind_t;
+
+void kbind_ctrl(void) {
+    INFO("ooooooh\n");
+}
+
+keybind_t keybinds[] = (keybind_t[]){
+    {
+        KBD_MOD_CTRL, 'b', kbind_ctrl
+    }
+};
+
 void handle_input() {
     if (focused == -1) return;
     kbd_event_t ev;
     if (kbd_try_read(&ev) == 0) {
+        // handle our own things first
+        for (size_t i = 0; i < sizeof(keybinds) / sizeof(keybinds[0]); i++) {
+            if (keybinds[i].mods == ev.mods && keybinds[i].codepoint == ev.codepoint) {
+                keybinds[i].callback();
+                return;
+            }
+        }
+
+        // then forward if possible
         if (focused < 0 || focused >= num_clients) {
             WARN("Got keyboard event but focused index invalid: %d\n", focused);
             return;
@@ -521,7 +546,7 @@ void handle_input() {
             WARN("Failed to forward keyboard to pid=%u idx=%d rc=%d - tearing down\n", clients[focused].pid, focused, rc);
             client_teardown_by_index(focused);
         } else {
-            INFO("Forwarded keyboard to pid=%u idx=%d key=%c down=%u\n", clients[focused].pid, focused, ev.codepoint, ev.pressed);
+            INFO("Forwarded keyboard to pid=%u idx=%d key=%X down=%u mods=%b\n", clients[focused].pid, focused, ev.codepoint, ev.pressed, ev.mods);
         }
     }
     mouse_event_t m;
