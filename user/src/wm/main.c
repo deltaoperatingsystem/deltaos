@@ -650,7 +650,10 @@ void render_mouse(uint32 *fb) {
         for (int j = 0; j < cursor_get_height(); j++) {
             uint32 c = cursor_get_pixel(i, j);
             if (c == 0) continue;
-            fb_putpixel(fb, (uint32)(i + mouse_x), (uint32)(j + mouse_y), c);
+            uint32 x = i + mouse_x;
+            uint32 y = j + mouse_y;
+            if (x >= screen_width || y >= screen_height) continue;
+            fb[y * screen_width + x] = c;
         }
     }
 }

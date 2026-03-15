@@ -12,8 +12,4 @@
 #define FB_BLUE    FB_RGB(0, 0, 255)
 #define FB_GRAY    FB_RGB(128, 128, 128)
 
-void fb_putpixel(uint32 *fb, uint32 x, uint32 y, uint32 colour);
-void fb_fillrect(uint32 *fb, uint32 x, uint32 y, uint32 w, uint32 h, uint32 colour);
-void fb_drawimage(uint32 *fb, const unsigned char *src, uint32 x, uint32 y, uint32 w, uint32 h);
-
 #endif
