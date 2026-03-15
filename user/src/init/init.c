@@ -6,17 +6,17 @@ int main(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
     
-    //spawn shell
-    puts("[init] starting shell...\n");
-    int shell_pid = spawn("$files/system/binaries/shell", 0, NULL);
-    if (shell_pid < 0) {
-        printf("[init] failed to start shell (error %d)\n", shell_pid);
+    //spawn login
+    puts("[init] starting login...\n");
+    int login_pid = spawn("$files/system/binaries/login", 0, NULL);
+    if (login_pid < 0) {
+        printf("[init] failed to start login (error %d)\n", login_pid);
         return 1;
     }
     
-    //wait for shell to exit
-    wait(shell_pid);
+    //wait for login to exit
+    wait(login_pid);
     
-    puts("[init] shell exited, system halting.\n");
+    puts("[init] login exited, system halting.\n");
     return 0;
 }
