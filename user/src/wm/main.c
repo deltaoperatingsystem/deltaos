@@ -500,7 +500,16 @@ void render_surfaces(uint32 *fb_backbuffer) {
         for (int row = 0; row < copy_h; row++) {
             uint32 *src_row = c->surface + (size)(src_y0 + row) * c->surface_w + src_x0;
             uint32 *dst_row = fb_backbuffer + (size)(dst_y0 + row) * screen_width + dst_x0;
-            memcpy(dst_row, src_row, (size)copy_w * sizeof(uint32));
+            for (int col = 0; col < copy_w; col++) {
+                uint32 src = src_row[col];
+                uint8 alpha = src >> 24;
+
+                if (alpha == 0) {
+                    continue; // skip transparent pixel
+                }
+
+                dst_row[col] = src; // copy opaque pixel
+            }
         }
 
         c->dirty = false;

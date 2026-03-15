@@ -12,8 +12,8 @@ int main(void) {
     px_rect_t rect = px_create_rect(0, 0, 10, 10, 0xFFFFFFFF);
     while (1) {
         // px_draw_image(surface, image, 0, 0);
-        // px_draw_rect(surface, rect);
-        // px_update_window(w);
+        px_draw_rect(surface, rect);
+        px_update_window(w);
 
         yield();
     }
