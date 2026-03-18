@@ -7,7 +7,6 @@
 #include <lib/string.h>
 #include <lib/io.h>
 #include <lib/mem.h>
-#include <boot/db.h>
 #include <mm/pmm.h>
 #include <mm/mm.h>
 #include <mm/kheap.h>
@@ -228,9 +227,18 @@ void parse_cmdline(const char *cmdline) {
     buf[len] = '\0';
     char *arg = strtok(buf, " ");
     while (arg) {
-        if (strcmp(arg, "debug") == '\0') io_enable_serial();
-        else if (strcmp(arg, "init") == '=') init_path = strdup(arg + 5);
-        else printf("[cmdline] unknown option %s\n", arg);
+        if (strcmp(arg, "debug") == 0) {
+            io_enable_serial();
+        } else if (strcmp(arg, "nox2apic") == 0 || strcmp(arg, "noiommu") == 0 ||
+                   strcmp(arg, "noapic") == 0 || strcmp(arg, "nointremap") == 0) {
+            //already handled by arch_init(); keep kernel_main quiet about them
+        } else if (strncmp(arg, "console=", 8) == 0) {
+            //console selection is consumed by the bootloader / early init path
+        } else if (strncmp(arg, "init=", 5) == 0) {
+            init_path = strdup(arg + 5);
+        } else {
+            printf("[cmdline] unknown option %s\n", arg);
+        }
         arg = strtok(NULL, " ");
     }
 }

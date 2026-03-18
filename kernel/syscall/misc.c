@@ -3,6 +3,7 @@
 #include <arch/timer.h>
 #include <net/net.h>
 #include <net/icmp.h>
+#include <net/icmpv6.h>
 #include <net/dns.h>
 #include <proc/process.h>
 
@@ -53,5 +54,40 @@ intptr sys_dns_resolve(const char *hostname, uint32 *ip_out) {
     if (dns_resolve(hostname, &ip) != 0) return -1;
     
     *ip_out = ip;
+    return 0;
+}
+
+intptr sys_ping6(const uint8 *dst_ipv6, uint32 count) {
+    if (!dst_ipv6) return -1;
+    if ((uintptr)dst_ipv6 < USER_SPACE_START || (uintptr)dst_ipv6 >= USER_SPACE_END) return -1;
+
+    netif_t *nif = net_get_default_netif();
+    if (!nif) return -1;
+
+    //copy 16-byte IPv6 address from userland
+    uint8 dst[NET_IPV6_ADDR_LEN];
+    const uint8 *src = dst_ipv6;
+    for (int i = 0; i < NET_IPV6_ADDR_LEN; i++) dst[i] = src[i];
+
+    if (count == 0) count = 1;
+    if (count > 100) count = 100;
+
+    for (uint32 i = 0; i < count; i++) {
+        int res = icmpv6_send_echo(nif, dst, 0x4F53, (uint16)(i + 1), "DeltaOS", 7);
+        if (res != 0) return -(intptr)(i + 1);
+    }
+    return (intptr)count;
+}
+
+intptr sys_dns_resolve_aaaa(const char *hostname, uint8 *ipv6_out) {
+    if (!hostname || !ipv6_out) return -1;
+    if ((uintptr)hostname < USER_SPACE_START || (uintptr)hostname >= USER_SPACE_END) return -1;
+    if ((uintptr)ipv6_out < USER_SPACE_START || (uintptr)ipv6_out >= USER_SPACE_END) return -1;
+
+    uint8 ipv6[NET_IPV6_ADDR_LEN];
+    if (dns_resolve_aaaa(hostname, ipv6) != 0) return -1;
+
+    uint8 *dst = ipv6_out;
+    for (int i = 0; i < NET_IPV6_ADDR_LEN; i++) dst[i] = ipv6[i];
     return 0;
 }

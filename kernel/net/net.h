@@ -13,6 +13,19 @@
 #define MAC_ADDR_LEN 6
 #define MAX_NETIFS   4
 
+#define NET_IPV6_ADDR_LEN       16
+#define NET_ADDR_FAMILY_NONE    0
+#define NET_ADDR_FAMILY_IPV4    4
+#define NET_ADDR_FAMILY_IPV6    6
+
+typedef struct {
+    uint8 family;
+    union {
+        uint32 ipv4;
+        uint8  ipv6[NET_IPV6_ADDR_LEN];
+    } addr;
+} net_addr_t;
+
 typedef struct netif {
     char name[16];  //interface name (e.g. "eth0")
     uint8 mac[MAC_ADDR_LEN]; //MAC address
@@ -20,6 +33,10 @@ typedef struct netif {
     uint32 subnet_mask; //subnet mask (network byte order)
     uint32 gateway; //default gateway (network byte order)
     uint32 dns_server; //DNS server (network byte order)
+    uint8 ipv6_addr[NET_IPV6_ADDR_LEN];
+    uint8 ipv6_gateway[NET_IPV6_ADDR_LEN];
+    uint8 ipv6_dns_server[NET_IPV6_ADDR_LEN];
+    uint8 ipv6_prefix_len;
     bool up; //interface is active
     
     //driver callbacks
@@ -41,6 +58,9 @@ void net_rx(netif_t *nif, void *data, size len);
 //initialize the networking subsystem
 void net_init(void);
 
+//opportunistically service network RX while waiting for replies
+void net_poll(void);
+
 //send a test ping to the gateway
 void net_test(void);
 //make an IPv4 address from 4 octets (in network byte order)
@@ -51,5 +71,7 @@ static inline uint32 ip_make(uint8 a, uint8 b, uint8 c, uint8 d) {
 //print helpers
 void net_print_mac(const uint8 *mac);
 void net_print_ip(uint32 ip);
+void net_print_ipv6(const uint8 *addr);
+void net_print_addr(const net_addr_t *addr);
 
 #endif

@@ -29,6 +29,7 @@ typedef struct __attribute__((packed)) {
 #define DNS_TYPE_PTR     12
 #define DNS_TYPE_MX      15
 #define DNS_TYPE_TXT     16
+#define DNS_TYPE_AAAA    28      //IPv6 address
 
 //DNS classes
 #define DNS_CLASS_IN     1       //internet
@@ -36,5 +37,9 @@ typedef struct __attribute__((packed)) {
 //resolve a hostname to an IPv4 address (blocking)
 //returns 0 on success fills ip_out. returns < 0 on error
 int dns_resolve(const char *hostname, uint32 *ip_out);
+
+//resolve a hostname to an IPv6 address via AAAA record (blocking)
+//returns 0 on success and fills ipv6_out (16 bytes). returns < 0 on error
+int dns_resolve_aaaa(const char *hostname, uint8 *ipv6_out);
 
 #endif

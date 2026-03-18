@@ -1,6 +1,7 @@
 #include <arch/amd64/types.h>
 #include <arch/amd64/io.h>
 #include <arch/amd64/interrupts.h>
+#include <net/net.h>
 #include <lib/io.h>
 #include <arch/amd64/int/apic.h>
 
@@ -13,6 +14,7 @@ volatile uint32 timer_freq = 0;
 
 void arch_timer_tick(void) {
     timer_ticks++;
+    net_poll();
 }
 
 uint64 arch_timer_get_ticks(void) {

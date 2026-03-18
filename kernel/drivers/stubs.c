@@ -105,3 +105,4 @@ WEAK void vt_write_cells(vt_t *vt, uint32 col, uint32 row, const vt_cell_t *cell
 //RTL8139 stubs
 WEAK void rtl8139_init(void) {}
 WEAK void rtl8139_irq(void) {}
+WEAK void rtl8139_poll(void) {}

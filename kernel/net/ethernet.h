@@ -12,6 +12,7 @@
 //EtherTypes
 #define ETH_TYPE_IPV4   0x0800
 #define ETH_TYPE_ARP    0x0806
+#define ETH_TYPE_IPV6   0x86DD
 
 typedef struct __attribute__((packed)) {
     uint8  dst[ETH_ALEN];

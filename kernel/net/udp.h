@@ -28,4 +28,8 @@ void udp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len);
 int udp_send(netif_t *nif, uint32 dst_ip, uint16 src_port, uint16 dst_port,
              const void *payload, size payload_len);
 
+//send a UDP packet with checksum disabled
+int udp_send_no_checksum(netif_t *nif, uint32 dst_ip, uint16 src_port, uint16 dst_port,
+                         const void *payload, size payload_len);
+
 #endif

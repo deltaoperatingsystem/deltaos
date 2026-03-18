@@ -4,6 +4,7 @@
 #include <mm/kheap.h>
 #include <arch/timer.h>
 #include <drivers/rtc.h>
+#include <boot/db.h>
 #include <string.h>
 #include <obj/namespace.h>
 #include <arch/cpu.h>
@@ -109,6 +110,20 @@ static intptr system_get_info(object_t *obj, uint32 topic, void *buf, size len) 
         
         memcpy(buf, &st, sizeof(st));
         return 0;
+    } else if (topic == OBJ_INFO_BOOT_CMDLINE) {
+        if (len == 0) return -1;
+
+        const char *cmdline = db_get_cmdline();
+        if (!cmdline) {
+            ((char *)buf)[0] = '\0';
+            return 0;
+        }
+
+        size n = strlen(cmdline);
+        if (n >= len) n = len - 1;
+        memcpy(buf, cmdline, n);
+        ((char *)buf)[n] = '\0';
+        return (intptr)n;
     }
     
     return -1;
