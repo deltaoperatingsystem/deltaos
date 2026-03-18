@@ -19,6 +19,7 @@ static uint64 invq_phys = 0;
 static uint32 invq_tail = 0;
 static int irt_next_free = 0;
 static bool force_disable_iommu_ir = false;
+static uint32 iommu_active_gcmd = 0; //shadow of currently-active GCMD bits
 
 void iommu_set_force_disable(bool force) {
     force_disable_iommu_ir = force;
@@ -56,6 +57,14 @@ static void iommu_dump_state(const char *reason) {
            iommu_read64(IOMMU_IRTA));
 }
 
+//GCMD is write-only: every write must set ALL bits that should stay active
+//GSTS mirrors which features are currently enabled, so we read it back and
+//translate status bits -> command bits, then OR in the new command
+static void iommu_issue_gcmd(uint32 new_bit) {
+    iommu_active_gcmd |= new_bit;
+    iommu_write32(IOMMU_GCMD, iommu_active_gcmd);
+}
+
 static int iommu_wait_gsts(uint32 bit, const char *what) {
     for (int i = 0; i < 100000; i++) {
         if (iommu_read32(IOMMU_GSTS) & bit) return 0;
@@ -87,9 +96,16 @@ static int iommu_invq_enable(void) {
     memset(invq, 0, PAGE_SIZE);
     invq_tail = 0;
 
-    iommu_write64(IOMMU_IQA, invq_phys);
+    //IQA bits [2:0] encode queue size as QS where size = 2^(QS+8) bytes
+    //IOMMU_INVQ_BYTES is the actual byte size, so QS = log2(IOMMU_INVQ_BYTES) - 8
+    uint32 qs = 0;
+    {
+        uint32 bytes = IOMMU_INVQ_BYTES;
+        while (bytes > 256) { bytes >>= 1; qs++; }
+    }
+    iommu_write64(IOMMU_IQA, invq_phys | (uint64)qs);
     iommu_write32(IOMMU_IQT, 0);
-    iommu_write32(IOMMU_GCMD, GCMD_QIE);
+    iommu_issue_gcmd(GCMD_QIE);
 
     if (iommu_wait_gsts(GSTS_QIES, "QIES") < 0) {
         return -1;
@@ -198,7 +214,7 @@ int iommu_init(void) {
     iommu_write64(IOMMU_IRTA, irta_val);
 
     //set interrupt remap table pointer (SIRTP)
-    iommu_write32(IOMMU_GCMD, GCMD_SIRTP);
+    iommu_issue_gcmd(GCMD_SIRTP);
 
     if (iommu_wait_gsts(GSTS_IRTPS, "IRTPS") < 0) {
         return -1;
@@ -211,7 +227,7 @@ int iommu_init(void) {
     //keep compatibility-format interrupts available so selected legacy lines
     //such as PS/2 IRQ1/IRQ12 can stay in IOAPIC compatibility mode on
     //hardware that dislikes remapped delivery for those sourced
-    iommu_write32(IOMMU_GCMD, GCMD_CFI);
+    iommu_issue_gcmd(GCMD_CFI);
 
     if (iommu_wait_gsts(GSTS_CFIS, "CFIS") == 0) {
         serial_write("[iommu] compatibility-format interrupts enabled\n");
@@ -220,7 +236,7 @@ int iommu_init(void) {
     }
 
     //enable interrupt remapping (IRE)
-    iommu_write32(IOMMU_GCMD, GCMD_IRE);
+    iommu_issue_gcmd(GCMD_IRE);
 
     if (iommu_wait_gsts(GSTS_IRES, "IRES") < 0) {
         return -1;

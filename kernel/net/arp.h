@@ -28,6 +28,9 @@ void arp_recv(netif_t *nif, void *data, size len);
 //returns 0 on success and -1 on failure
 int arp_resolve(netif_t *nif, uint32 ip, uint8 *mac_out);
 
+//manually seed the ARP cache (e.g like for known-MAC virtual hosts like QEMU SLIRP)
+void arp_seed(uint32 ip, const uint8 *mac);
+
 //initialize ARP subsystem
 void arp_init(void);
 

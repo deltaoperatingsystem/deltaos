@@ -1,5 +1,6 @@
 #include <net/tcp.h>
 #include <net/ipv4.h>
+#include <net/ipv6.h>
 #include <net/ethernet.h>
 #include <net/endian.h>
 #include <lib/io.h>
@@ -10,6 +11,46 @@
 
 static tcp_conn_t connections[TCP_MAX_CONNECTIONS];
 static spinlock_irq_t tcp_lock = SPINLOCK_IRQ_INIT;
+
+static void tcp_addr_from_ipv4(net_addr_t *addr, uint32 ip) {
+    addr->family = NET_ADDR_FAMILY_IPV4;
+    addr->addr.ipv4 = ip;
+}
+
+static void tcp_addr_from_ipv6(net_addr_t *addr, const uint8 ip[NET_IPV6_ADDR_LEN]) {
+    addr->family = NET_ADDR_FAMILY_IPV6;
+    memcpy(addr->addr.ipv6, ip, NET_IPV6_ADDR_LEN);
+}
+
+static bool tcp_addr_equal(const net_addr_t *a, const net_addr_t *b) {
+    if (a->family != b->family) return false;
+    if (a->family == NET_ADDR_FAMILY_IPV4) {
+        return a->addr.ipv4 == b->addr.ipv4;
+    }
+    if (a->family == NET_ADDR_FAMILY_IPV6) {
+        return memcmp(a->addr.ipv6, b->addr.ipv6, NET_IPV6_ADDR_LEN) == 0;
+    }
+    return false;
+}
+
+static bool tcp_addr_is_unspecified(const net_addr_t *addr) {
+    if (addr->family == NET_ADDR_FAMILY_IPV4) {
+        return addr->addr.ipv4 == 0;
+    }
+    if (addr->family == NET_ADDR_FAMILY_IPV6) {
+        return ipv6_addr_is_unspecified(addr->addr.ipv6);
+    }
+    return true;
+}
+
+static bool tcp_listener_matches(const tcp_conn_t *listener, const net_addr_t *dst_addr,
+                                 uint16 dst_port) {
+    if (!listener->active || !listener->listening) return false;
+    if (listener->local_port != dst_port) return false;
+    if (listener->local_addr.family != dst_addr->family) return false;
+    return tcp_addr_is_unspecified(&listener->local_addr) ||
+           tcp_addr_equal(&listener->local_addr, dst_addr);
+}
 
 void tcp_init(void) {
     memset(connections, 0, sizeof(connections));
@@ -59,22 +100,29 @@ static tcp_conn_t *tcp_alloc_conn(void) {
     return NULL;
 }
 
-static tcp_conn_t *tcp_find_conn(uint32 local_ip, uint16 local_port,
-                                  uint32 remote_ip, uint16 remote_port) {
+static tcp_conn_t *tcp_find_conn(const net_addr_t *local_addr, uint16 local_port,
+                                 const net_addr_t *remote_addr, uint16 remote_port) {
     for (int i = 0; i < TCP_MAX_CONNECTIONS; i++) {
         tcp_conn_t *c = &connections[i];
         if (c->active &&
-            c->local_ip == local_ip && c->local_port == local_port &&
-            c->remote_ip == remote_ip && c->remote_port == remote_port) {
+            tcp_addr_equal(&c->local_addr, local_addr) && c->local_port == local_port &&
+            tcp_addr_equal(&c->remote_addr, remote_addr) && c->remote_port == remote_port) {
             return c;
         }
     }
     return NULL;
 }
 
-static uint16 tcp_checksum(uint32 src_ip, uint32 dst_ip,
-                            const void *tcp_data, size tcp_len) {
+static uint16 tcp_checksum(const net_addr_t *src_addr, const net_addr_t *dst_addr,
+                           const void *tcp_data, size tcp_len) {
+    if (src_addr->family == NET_ADDR_FAMILY_IPV6) {
+        return ipv6_upper_checksum(src_addr->addr.ipv6, dst_addr->addr.ipv6,
+                                   IPPROTO_TCP, tcp_data, tcp_len);
+    }
+
     uint32 sum = 0;
+    uint32 src_ip = src_addr->addr.ipv4;
+    uint32 dst_ip = dst_addr->addr.ipv4;
     
     //sum pseudo-header
     //IPs are in network byte order; split each into two uint16 halves
@@ -126,7 +174,7 @@ static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
         memcpy(packet + header_len, payload, payload_len);
     }
     
-    tcp->checksum = tcp_checksum(conn->local_ip, conn->remote_ip, packet, total);
+    tcp->checksum = tcp_checksum(&conn->local_addr, &conn->remote_addr, packet, total);
     
     //advance sequence number
     if (flags & TCP_SYN) conn->snd_nxt++;
@@ -134,15 +182,21 @@ static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
     conn->snd_nxt += payload_len;
     
     printf("[tcp] TX flags=0x%02x to ", flags);
-    net_print_ip(conn->remote_ip);
+    net_print_addr(&conn->remote_addr);
     printf(":%u\n", conn->remote_port);
     
-    return ipv4_send(conn->nif, conn->remote_ip, IPPROTO_TCP, packet, total);
+    if (conn->remote_addr.family == NET_ADDR_FAMILY_IPV4) {
+        return ipv4_send(conn->nif, conn->remote_addr.addr.ipv4, IPPROTO_TCP, packet, total);
+    }
+    if (conn->remote_addr.family == NET_ADDR_FAMILY_IPV6) {
+        return ipv6_send(conn->nif, conn->remote_addr.addr.ipv6, IPPROTO_TCP, packet, total);
+    }
+    return -1;
 }
 
-static void tcp_send_rst(netif_t *nif, uint32 dst_ip,
-                          uint16 src_port, uint16 dst_port,
-                          uint32 seq, uint32 ack) {
+static void tcp_send_rst(netif_t *nif, const net_addr_t *src_addr,
+                         const net_addr_t *dst_addr, uint16 src_port,
+                         uint16 dst_port, uint32 seq, uint32 ack) {
     uint8 packet[sizeof(tcp_header_t)];
     tcp_header_t *tcp = (tcp_header_t *)packet;
     tcp->src_port = htons(src_port);
@@ -155,13 +209,17 @@ static void tcp_send_rst(netif_t *nif, uint32 dst_ip,
     tcp->checksum = 0;
     tcp->urgent = 0;
     
-    tcp->checksum = tcp_checksum(nif->ip_addr, dst_ip,
-                                 packet, sizeof(tcp_header_t));
+    tcp->checksum = tcp_checksum(src_addr, dst_addr, packet, sizeof(tcp_header_t));
     
-    ipv4_send(nif, dst_ip, IPPROTO_TCP, packet, sizeof(tcp_header_t));
+    if (dst_addr->family == NET_ADDR_FAMILY_IPV4) {
+        ipv4_send(nif, dst_addr->addr.ipv4, IPPROTO_TCP, packet, sizeof(tcp_header_t));
+    } else if (dst_addr->family == NET_ADDR_FAMILY_IPV6) {
+        ipv6_send(nif, dst_addr->addr.ipv6, IPPROTO_TCP, packet, sizeof(tcp_header_t));
+    }
 }
 
-void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) {
+static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
+                            const net_addr_t *dst_addr, void *data, size len) {
     if (len < sizeof(tcp_header_t)) return;
     
     tcp_header_t *tcp = (tcp_header_t *)data;
@@ -182,25 +240,25 @@ void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) 
     size payload_len = len - data_off;
     
     printf("[tcp] RX flags=0x%02x from ", flags);
-    net_print_ip(src_ip);
+    net_print_addr(src_addr);
     printf(":%u -> :%u seq=%u ack=%u\n", src_port, dst_port, seq, ack);
     
-    tcp_conn_t *conn = tcp_find_conn(dst_ip, dst_port, src_ip, src_port);
+    tcp_conn_t *conn = tcp_find_conn(dst_addr, dst_port, src_addr, src_port);
     
     if (!conn) {
         //check for listening sockets on this port
         for (int i = 0; i < TCP_MAX_CONNECTIONS; i++) {
             tcp_conn_t *l = &connections[i];
-            if (l->active && l->listening && l->local_port == dst_port) {
+            if (tcp_listener_matches(l, dst_addr, dst_port)) {
                 //incoming SYN on a listening socket - create new connection
                 if (flags & TCP_SYN) {
                     tcp_conn_t *newconn = tcp_alloc_conn();
                     if (!newconn) return;
                     
                     newconn->nif = nif;
-                    newconn->local_ip = dst_ip;
+                    newconn->local_addr = *dst_addr;
                     newconn->local_port = dst_port;
-                    newconn->remote_ip = src_ip;
+                    newconn->remote_addr = *src_addr;
                     newconn->remote_port = src_port;
                     newconn->state = TCP_STATE_SYN_RECEIVED;
                     newconn->rcv_nxt = seq + 1;
@@ -218,12 +276,12 @@ void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) 
         //no connection and no listener send RST
         if (!(flags & TCP_RST)) {
             if (flags & TCP_ACK) {
-                tcp_send_rst(nif, src_ip, dst_port, src_port, ack, 0);
+                tcp_send_rst(nif, dst_addr, src_addr, dst_port, src_port, ack, 0);
             } else {
                 uint32 rst_ack = seq + payload_len;
                 if (flags & TCP_SYN) rst_ack++;
                 if (flags & TCP_FIN) rst_ack++;
-                tcp_send_rst(nif, src_ip, dst_port, src_port, 0, rst_ack);
+                tcp_send_rst(nif, dst_addr, src_addr, dst_port, src_port, 0, rst_ack);
             }
         }
         return;
@@ -235,7 +293,7 @@ void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) 
                 conn->snd_una = ack;
                 conn->state = TCP_STATE_ESTABLISHED;
                 printf("[tcp] Connection established from ");
-                net_print_ip(conn->remote_ip);
+                net_print_addr(&conn->remote_addr);
                 printf(":%u\n", conn->remote_port);
             }
             break;
@@ -250,7 +308,7 @@ void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) 
                     //send ACK
                     tcp_send_segment(conn, TCP_ACK, NULL, 0);
                     printf("[tcp] Connection established to ");
-                    net_print_ip(conn->remote_ip);
+                    net_print_addr(&conn->remote_addr);
                     printf(":%u\n", conn->remote_port);
                 }
             }
@@ -329,7 +387,25 @@ void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) 
     }
 }
 
-tcp_conn_t *tcp_connect(netif_t *nif, uint32 dst_ip, uint16 dst_port, uint16 src_port) {
+void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) {
+    net_addr_t src_addr;
+    net_addr_t dst_addr;
+    tcp_addr_from_ipv4(&src_addr, src_ip);
+    tcp_addr_from_ipv4(&dst_addr, dst_ip);
+    tcp_recv_common(nif, &src_addr, &dst_addr, data, len);
+}
+
+void tcp_recv_ipv6(netif_t *nif, const uint8 src_ip[NET_IPV6_ADDR_LEN],
+                   const uint8 dst_ip[NET_IPV6_ADDR_LEN], void *data, size len) {
+    net_addr_t src_addr;
+    net_addr_t dst_addr;
+    tcp_addr_from_ipv6(&src_addr, src_ip);
+    tcp_addr_from_ipv6(&dst_addr, dst_ip);
+    tcp_recv_common(nif, &src_addr, &dst_addr, data, len);
+}
+
+static tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
+                                    uint16 dst_port, uint16 src_port) {
     if (src_port == 0) {
         src_port = tcp_get_free_port();
         if (src_port == 0) return NULL;
@@ -339,9 +415,24 @@ tcp_conn_t *tcp_connect(netif_t *nif, uint32 dst_ip, uint16 dst_port, uint16 src
     if (!conn) return NULL;
     
     conn->nif = nif;
-    conn->local_ip = nif->ip_addr;
+    if (dst_addr->family == NET_ADDR_FAMILY_IPV4) {
+        if (nif->ip_addr == 0) {
+            conn->active = false;
+            return NULL;
+        }
+        tcp_addr_from_ipv4(&conn->local_addr, nif->ip_addr);
+    } else if (dst_addr->family == NET_ADDR_FAMILY_IPV6) {
+        if (ipv6_addr_is_unspecified(nif->ipv6_addr)) {
+            conn->active = false;
+            return NULL;
+        }
+        tcp_addr_from_ipv6(&conn->local_addr, nif->ipv6_addr);
+    } else {
+        conn->active = false;
+        return NULL;
+    }
     conn->local_port = src_port;
-    conn->remote_ip = dst_ip;
+    conn->remote_addr = *dst_addr;
     conn->remote_port = dst_port;
     conn->state = TCP_STATE_SYN_SENT;
     conn->snd_nxt = (uint32)(arch_timer_get_ticks() & 0xFFFFFFFF);
@@ -378,14 +469,29 @@ tcp_conn_t *tcp_connect(netif_t *nif, uint32 dst_ip, uint16 dst_port, uint16 src
     return NULL;
 }
 
+tcp_conn_t *tcp_connect(netif_t *nif, uint32 dst_ip, uint16 dst_port, uint16 src_port) {
+    net_addr_t dst_addr;
+    tcp_addr_from_ipv4(&dst_addr, dst_ip);
+    return tcp_connect_addr(nif, &dst_addr, dst_port, src_port);
+}
+
+tcp_conn_t *tcp_connect_ipv6(netif_t *nif, const uint8 dst_ip[NET_IPV6_ADDR_LEN],
+                             uint16 dst_port, uint16 src_port) {
+    net_addr_t dst_addr;
+    tcp_addr_from_ipv6(&dst_addr, dst_ip);
+    return tcp_connect_addr(nif, &dst_addr, dst_port, src_port);
+}
+
 int tcp_send(tcp_conn_t *conn, const void *data, size len) {
     if (!conn || conn->state != TCP_STATE_ESTABLISHED) return -1;
     
     const uint8 *ptr = (const uint8 *)data;
     size remaining = len;
+    size mss = (conn->remote_addr.family == NET_ADDR_FAMILY_IPV6) ?
+               TCP_MSS_IPV6 : TCP_MSS_IPV4;
     
     while (remaining > 0) {
-        size chunk = (remaining < TCP_MSS) ? remaining : TCP_MSS;
+        size chunk = (remaining < mss) ? remaining : mss;
         int res = tcp_send_segment(conn, TCP_ACK | TCP_PSH, ptr, chunk);
         if (res != 0) return -1;
         ptr += chunk;
@@ -426,18 +532,31 @@ int tcp_close(tcp_conn_t *conn) {
     return 0;
 }
 
-tcp_conn_t *tcp_listen(netif_t *nif, uint16 port) {
+static tcp_conn_t *tcp_listen_addr(netif_t *nif, const net_addr_t *local_addr, uint16 port) {
     tcp_conn_t *conn = tcp_alloc_conn();
     if (!conn) return NULL;
     
     conn->nif = nif;
-    conn->local_ip = nif->ip_addr;
+    conn->local_addr = *local_addr;
     conn->local_port = port;
     conn->state = TCP_STATE_LISTEN;
     conn->listening = true;
     
     printf("[tcp] Listening on port %u\n", port);
     return conn;
+}
+
+tcp_conn_t *tcp_listen(netif_t *nif, uint16 port) {
+    net_addr_t local_addr;
+    tcp_addr_from_ipv4(&local_addr, 0);
+    return tcp_listen_addr(nif, &local_addr, port);
+}
+
+tcp_conn_t *tcp_listen_ipv6(netif_t *nif, uint16 port) {
+    net_addr_t local_addr;
+    local_addr.family = NET_ADDR_FAMILY_IPV6;
+    memset(local_addr.addr.ipv6, 0, NET_IPV6_ADDR_LEN);
+    return tcp_listen_addr(nif, &local_addr, port);
 }
 
 tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
@@ -454,6 +573,8 @@ tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
             tcp_conn_t *c = &connections[i];
             if (c->active && !c->listening && !c->accepted &&
                 c->local_port == listener->local_port &&
+                (tcp_addr_is_unspecified(&listener->local_addr) ||
+                 tcp_addr_equal(&c->local_addr, &listener->local_addr)) &&
                 c->state == TCP_STATE_ESTABLISHED) {
                 c->accepted = true;
                 return c;

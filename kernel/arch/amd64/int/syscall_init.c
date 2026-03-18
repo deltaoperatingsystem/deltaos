@@ -31,5 +31,5 @@ void syscall_init(void) {
     efer |= EFER_SCE;
     wrmsr(IA32_EFER, efer);
     
-    printf("[syscall] initialized for cpu %d\n", arch_cpu_index());
+    printf("[syscall] initialized for cpu %u\n", arch_cpu_index());
 }

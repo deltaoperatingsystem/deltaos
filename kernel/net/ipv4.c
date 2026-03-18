@@ -61,6 +61,13 @@ void ipv4_recv(netif_t *nif, void *data, size len) {
     
     //check if packet is for us (or broadcast OR we're unconfigured)
     if (ip->dst_ip != nif->ip_addr && ip->dst_ip != 0xFFFFFFFF && nif->ip_addr != 0) {
+        if (ip->protocol == IPPROTO_UDP) {
+            printf("[ipv4] Dropped UDP packet for ");
+            net_print_ip(ip->dst_ip);
+            printf(" (our IP is ");
+            net_print_ip(nif->ip_addr);
+            printf(")\n");
+        }
         return;
     }
     
@@ -72,6 +79,7 @@ void ipv4_recv(netif_t *nif, void *data, size len) {
             icmp_recv(nif, ip->src_ip, payload, payload_len);
             break;
         case IPPROTO_UDP:
+            //printf("[ipv4] Got UDP from "); net_print_ip(ip->src_ip); printf("\n");
             udp_recv(nif, ip->src_ip, ip->dst_ip, payload, payload_len);
             break;
         case IPPROTO_TCP:

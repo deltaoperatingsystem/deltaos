@@ -2,6 +2,7 @@
 #include <net/udp.h>
 #include <net/ipv4.h>
 #include <net/ethernet.h>
+#include <net/arp.h>
 #include <net/endian.h>
 #include <lib/io.h>
 #include <lib/string.h>
@@ -60,6 +61,35 @@ static const uint8 *dhcp_parse_option(const uint8 *opt, const uint8 *end,
     return opt + 2 + len;
 }
 
+static uint8 *dhcp_append_client_id(uint8 *opt, const uint8 mac[6]) {
+    *opt++ = 61;  //client identifier
+    *opt++ = 7;
+    *opt++ = 1;   //ethernet
+    memcpy(opt, mac, 6);
+    return opt + 6;
+}
+
+static uint8 *dhcp_append_common_request_options(uint8 *opt) {
+    static const uint8 prl[] = {
+        DHCP_OPT_SUBNET_MASK,
+        DHCP_OPT_ROUTER,
+        DHCP_OPT_DNS_SERVER,
+        DHCP_OPT_LEASE_TIME,
+    };
+
+    *opt++ = 55;  //parameter request list
+    *opt++ = sizeof(prl);
+    memcpy(opt, prl, sizeof(prl));
+    opt += sizeof(prl);
+
+    *opt++ = 12;  //hostname
+    *opt++ = 7;
+    memcpy(opt, "DeltaOS", 7);
+    opt += 7;
+
+    return opt;
+}
+
 //build and send a DHCP DISCOVER
 static void dhcp_send_discover(netif_t *nif) {
     uint8 buf[DHCP_MAX_MSG_SIZE];
@@ -78,7 +108,7 @@ static void dhcp_send_discover(netif_t *nif) {
     msg->siaddr = 0;
     msg->giaddr = 0;
     memcpy(msg->chaddr, nif->mac, 6);
-    msg->magic = DHCP_MAGIC_COOKIE;
+    msg->magic = htonl(DHCP_MAGIC_COOKIE);
     
     //add options
     uint8 *opt = buf + DHCP_OPTIONS_OFFSET;
@@ -87,44 +117,20 @@ static void dhcp_send_discover(netif_t *nif) {
     *opt++ = DHCP_OPT_MSG_TYPE;
     *opt++ = 1;
     *opt++ = DHCP_DISCOVER;
+
+    opt = dhcp_append_client_id(opt, nif->mac);
+    opt = dhcp_append_common_request_options(opt);
     
     //end
     *opt++ = DHCP_OPT_END;
     
     size msg_len = (size)(opt - buf);
-    if (msg_len < DHCP_MAX_MSG_SIZE) msg_len = DHCP_MAX_MSG_SIZE;
-    
-    //build UDP header + payload
-    uint8 udp_pkt[sizeof(udp_header_t) + DHCP_MAX_MSG_SIZE];
-    udp_header_t *udp = (udp_header_t *)udp_pkt;
-    udp->src_port = htons(DHCP_CLIENT_PORT);
-    udp->dst_port = htons(DHCP_SERVER_PORT);
-    udp->length   = htons(sizeof(udp_header_t) + msg_len);
-    udp->checksum = 0;  //optional in IPv4
-    memcpy(udp_pkt + sizeof(udp_header_t), buf, msg_len);
-    
-    size udp_total = sizeof(udp_header_t) + msg_len;
-    
-    //build IP header
-    uint8 ip_pkt[IPV4_HEADER_MIN_LEN + sizeof(udp_pkt)];
-    ipv4_header_t *ip = (ipv4_header_t *)ip_pkt;
-    ip->ver_ihl    = 0x45;
-    ip->tos        = 0;
-    ip->total_len  = htons(IPV4_HEADER_MIN_LEN + udp_total);
-    ip->id         = 0;
-    ip->flags_frag = htons(0x4000);
-    ip->ttl        = 64;
-    ip->protocol   = IPPROTO_UDP;
-    ip->checksum   = 0;
-    ip->src_ip     = 0;           //0.0.0.0
-    ip->dst_ip     = 0xFFFFFFFF;  //255.255.255.255
-    ip->checksum   = ipv4_checksum(ip, IPV4_HEADER_MIN_LEN);
-    
-    memcpy(ip_pkt + IPV4_HEADER_MIN_LEN, udp_pkt, udp_total);
-    
-    //send via ethernet broadcast
-    ethernet_send(nif, ETH_BROADCAST, ETH_TYPE_IPV4,
-                  ip_pkt, IPV4_HEADER_MIN_LEN + udp_total);
+    if (msg_len < DHCP_MIN_MSG_SIZE) {
+        msg_len = DHCP_MIN_MSG_SIZE;
+    }
+    if (udp_send_no_checksum(nif, 0xFFFFFFFF, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, msg_len) < 0) {
+        printf("[dhcp] Failed to send discover\n");
+    }
 }
 
 //build and send a DHCP REQUEST
@@ -145,7 +151,7 @@ static void dhcp_send_request(netif_t *nif) {
     msg->siaddr = 0;
     msg->giaddr = 0;
     memcpy(msg->chaddr, nif->mac, 6);
-    msg->magic = DHCP_MAGIC_COOKIE;
+    msg->magic = htonl(DHCP_MAGIC_COOKIE);
     
     //add options
     uint8 *opt = buf + DHCP_OPTIONS_OFFSET;
@@ -154,6 +160,8 @@ static void dhcp_send_request(netif_t *nif) {
     *opt++ = DHCP_OPT_MSG_TYPE;
     *opt++ = 1;
     *opt++ = DHCP_REQUEST;
+
+    opt = dhcp_append_client_id(opt, nif->mac);
     
     //option 50: Requested IP Address
     *opt++ = DHCP_OPT_REQUESTED_IP;
@@ -166,42 +174,19 @@ static void dhcp_send_request(netif_t *nif) {
     *opt++ = 4;
     memcpy(opt, &dhcp_ctx.server_ip, 4);
     opt += 4;
+
+    opt = dhcp_append_common_request_options(opt);
     
     //end
     *opt++ = DHCP_OPT_END;
     
     size msg_len = (size)(opt - buf);
-    if (msg_len < DHCP_MAX_MSG_SIZE) msg_len = DHCP_MAX_MSG_SIZE;
-    
-    //same raw UDP/IP build as discover
-    uint8 udp_pkt[sizeof(udp_header_t) + DHCP_MAX_MSG_SIZE];
-    udp_header_t *udp = (udp_header_t *)udp_pkt;
-    udp->src_port = htons(DHCP_CLIENT_PORT);
-    udp->dst_port = htons(DHCP_SERVER_PORT);
-    udp->length   = htons(sizeof(udp_header_t) + msg_len);
-    udp->checksum = 0;
-    memcpy(udp_pkt + sizeof(udp_header_t), buf, msg_len);
-    
-    size udp_total = sizeof(udp_header_t) + msg_len;
-    
-    uint8 ip_pkt[IPV4_HEADER_MIN_LEN + sizeof(udp_pkt)];
-    ipv4_header_t *ip = (ipv4_header_t *)ip_pkt;
-    ip->ver_ihl    = 0x45;
-    ip->tos        = 0;
-    ip->total_len  = htons(IPV4_HEADER_MIN_LEN + udp_total);
-    ip->id         = 0;
-    ip->flags_frag = htons(0x4000);
-    ip->ttl        = 64;
-    ip->protocol   = IPPROTO_UDP;
-    ip->checksum   = 0;
-    ip->src_ip     = 0;
-    ip->dst_ip     = 0xFFFFFFFF;
-    ip->checksum   = ipv4_checksum(ip, IPV4_HEADER_MIN_LEN);
-    
-    memcpy(ip_pkt + IPV4_HEADER_MIN_LEN, udp_pkt, udp_total);
-    
-    ethernet_send(nif, ETH_BROADCAST, ETH_TYPE_IPV4,
-                  ip_pkt, IPV4_HEADER_MIN_LEN + udp_total);
+    if (msg_len < DHCP_MIN_MSG_SIZE) {
+        msg_len = DHCP_MIN_MSG_SIZE;
+    }
+    if (udp_send_no_checksum(nif, 0xFFFFFFFF, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, msg_len) < 0) {
+        printf("[dhcp] Failed to send request\n");
+    }
 }
 
 //UDP callback for port 68 (DHCP client)
@@ -209,7 +194,7 @@ static void dhcp_recv_handler(netif_t *nif, uint32 src_ip, uint16 src_port,
                                const void *data, size len) {
     (void)src_port;
     (void)nif;
-    
+
     if (len < sizeof(dhcp_msg_t)) return;
     
     const dhcp_msg_t *msg = (const dhcp_msg_t *)data;
@@ -217,7 +202,7 @@ static void dhcp_recv_handler(netif_t *nif, uint32 src_ip, uint16 src_port,
     //verify this is a reply for our transaction
     if (msg->op != DHCP_OP_REPLY) return;
     if (ntohl(msg->xid) != dhcp_ctx.xid) return;
-    if (msg->magic != DHCP_MAGIC_COOKIE) return;
+    if (msg->magic != htonl(DHCP_MAGIC_COOKIE)) return;
     
     //parse options
     const uint8 *opt = (const uint8 *)data + DHCP_OPTIONS_OFFSET;
@@ -271,11 +256,6 @@ static void dhcp_recv_handler(netif_t *nif, uint32 src_ip, uint16 src_port,
         dhcp_ctx.lease_time  = lease;
         dhcp_ctx.state       = DHCP_STATE_REQUESTING;
         
-        printf("[dhcp] Offer: ");
-        net_print_ip(msg->yiaddr);
-        printf(" from ");
-        net_print_ip(dhcp_ctx.server_ip);
-        printf("\n");
     }
     else if (dhcp_ctx.state == DHCP_STATE_REQUESTING && msg_type == DHCP_ACK) {
         dhcp_ctx.offered_ip  = msg->yiaddr;
@@ -284,11 +264,8 @@ static void dhcp_recv_handler(netif_t *nif, uint32 src_ip, uint16 src_port,
         if (dns)    dhcp_ctx.dns_server  = dns;
         if (lease)  dhcp_ctx.lease_time  = lease;
         dhcp_ctx.state = DHCP_STATE_BOUND;
-        
-        printf("[dhcp] ACK: lease acquired\n");
     }
     else if (msg_type == DHCP_NAK) {
-        printf("[dhcp] NAK received, restarting\n");
         dhcp_ctx.state = DHCP_STATE_ERROR;
     }
 }
@@ -309,27 +286,26 @@ int dhcp_init(netif_t *nif) {
         return -1;
     }
     
-    printf("[dhcp] Starting DHCP discovery on %s...\n", nif->name);
-    
     //phase 1: DISCOVER -> OFFER
     dhcp_ctx.state = DHCP_STATE_DISCOVERING;
     
+    uint32 freq = arch_timer_getfreq();
+    if (freq == 0) freq = 1000;
+
     for (int attempt = 0; attempt < 4; attempt++) {
         dhcp_send_discover(nif);
         
-        //wait for offer (poll ~2 seconds)
-        for (int i = 0; i < 2000000; i++) {
+        //wait up to 2 seconds using the real system timer
+        uint64 start = arch_timer_get_ticks();
+        uint32 timeout_ticks = freq * 2;
+        while (arch_timer_get_ticks() - start < timeout_ticks) {
+            net_poll();
             arch_pause();
             if (dhcp_ctx.state != DHCP_STATE_DISCOVERING) goto got_offer;
         }
-        printf("[dhcp] Discover attempt %d timed out, retrying...\n", attempt + 1);
     }
     
-    printf("[dhcp] DHCP discovery failed, using static fallback\n");
-    nif->ip_addr     = ip_make(10, 0, 2, 15);
-    nif->subnet_mask = ip_make(255, 255, 255, 0);
-    nif->gateway     = ip_make(10, 0, 2, 2);
-    nif->dns_server  = ip_make(10, 0, 2, 3);
+    printf("[dhcp] DHCP failed\n");
     udp_unbind(DHCP_CLIENT_PORT);
     return -1;
 
@@ -340,21 +316,19 @@ got_offer:
     for (int attempt = 0; attempt < 4; attempt++) {
         dhcp_send_request(nif);
         
-        //wait for ACK (~2 seconds)
-        for (int i = 0; i < 2000000; i++) {
+        //wait up to 2 seconds using the real system timer
+        uint64 start = arch_timer_get_ticks();
+        uint32 timeout_ticks = freq * 2;
+        while (arch_timer_get_ticks() - start < timeout_ticks) {
+            net_poll();
             arch_pause();
             if (dhcp_ctx.state == DHCP_STATE_BOUND) goto bound;
             if (dhcp_ctx.state == DHCP_STATE_ERROR) goto fallback;
         }
-        printf("[dhcp] Request attempt %d timed out, retrying...\n", attempt + 1);
     }
 
 fallback:
-    printf("[dhcp] DHCP request failed, using static fallback\n");
-    nif->ip_addr     = ip_make(10, 0, 2, 15);
-    nif->subnet_mask = ip_make(255, 255, 255, 0);
-    nif->gateway     = ip_make(10, 0, 2, 2);
-    nif->dns_server  = ip_make(10, 0, 2, 3);
+    printf("[dhcp] DHCP failed\n");
     udp_unbind(DHCP_CLIENT_PORT);
     return -1;
 
@@ -364,22 +338,6 @@ bound:
     nif->subnet_mask = dhcp_ctx.subnet_mask ? dhcp_ctx.subnet_mask : ip_make(255, 255, 255, 0);
     nif->gateway     = dhcp_ctx.gateway;
     nif->dns_server  = dhcp_ctx.dns_server;
-    
-    printf("[dhcp] Lease acquired: ");
-    net_print_ip(nif->ip_addr);
-    printf("\n");
-    printf("[dhcp]   Subnet: ");
-    net_print_ip(nif->subnet_mask);
-    printf("\n");
-    printf("[dhcp]   Gateway: ");
-    net_print_ip(nif->gateway);
-    printf("\n");
-    printf("[dhcp]   DNS: ");
-    net_print_ip(nif->dns_server);
-    printf("\n");
-    if (dhcp_ctx.lease_time > 0) {
-        printf("[dhcp]   Lease: %u seconds\n", dhcp_ctx.lease_time);
-    }
     
     udp_unbind(DHCP_CLIENT_PORT);
     return 0;

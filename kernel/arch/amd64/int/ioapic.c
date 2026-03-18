@@ -64,6 +64,12 @@ static uint16 ioapic_get_irq_flags(uint8 irq) {
             return acpi_isos[i].flags;
         }
     }
+    //default flags if no ISO is found
+    //ISA interrupts (0-15 except known PCI ones like 11) are active-high, edge-triggered (0)
+    //PCI interrupts (>= 16, and often 11) are active-low, level-triggered (0x0F)
+    if (irq == 11 || irq >= 16) {
+        return 0x000F; //polarity=3 (active low), trigger=3 (level)
+    }
     return 0;
 }
 
@@ -127,7 +133,8 @@ static uint32 ioapic_build_rte_low(uint8 irq, uint8 vector, bool masked, bool re
 }
 
 static bool ioapic_use_compat_format(uint8 irq) {
-    return irq < 16;
+    (void)irq;
+    return false; //use remapped format for all IRQs under VT-d
 }
 
 bool ioapic_init(void) {

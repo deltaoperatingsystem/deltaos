@@ -128,8 +128,11 @@ int arp_resolve(netif_t *nif, uint32 ip, uint8 *mac_out) {
         return 0;
     }
     
+    
     //check cache first
-    if (arp_cache_lookup(ip, mac_out)) return 0;
+    if (arp_cache_lookup(ip, mac_out)) {
+        return 0;
+    }
     
     uint32 freq = arch_timer_getfreq();
     if (freq == 0) freq = 1000; //fallback
@@ -142,10 +145,9 @@ int arp_resolve(netif_t *nif, uint32 ip, uint8 *mac_out) {
         uint64 start = arch_timer_get_ticks();
         uint32 timeout_ticks = freq / 2;
         
-        //safety count to prevent permanent lockup if timer is stuck
-        for (volatile int safety = 0; safety < 50000000; safety++) {
+        while (arch_timer_get_ticks() - start < timeout_ticks) {
             if (arp_cache_lookup(ip, mac_out)) return 0;
-            if (arch_timer_get_ticks() - start >= timeout_ticks) break;
+            net_poll();
             arch_pause();
         }
     }
@@ -158,4 +160,8 @@ int arp_resolve(netif_t *nif, uint32 ip, uint8 *mac_out) {
 
 void arp_init(void) {
     memset(arp_cache, 0, sizeof(arp_cache));
+}
+
+void arp_seed(uint32 ip, const uint8 *mac) {
+    arp_cache_update(ip, mac);
 }

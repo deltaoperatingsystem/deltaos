@@ -3,13 +3,23 @@
 #include <system.h>
 
 int main(int argc, char **argv) {
-    (void)argc; (void)argv;
+    bool use_ipv6 = false;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-6") == 0) {
+            use_ipv6 = true;
+        } else {
+            printf("Usage: httpd [-6]\n");
+            return 1;
+        }
+    }
     
-    printf("httpd: listening on port 80...\n");
+    printf("httpd: listening on port 80 (%s)...\n", use_ipv6 ? "IPv6" : "IPv4");
     
-    handle_t listener = tcp_listen(80);
+    handle_t listener = use_ipv6 ? tcp_listen_ipv6(80) : tcp_listen(80);
     if (listener < 0) {
-        printf("httpd: error: failed to listen on port 80\n");
+        printf("httpd: error: failed to listen on port 80 (%s)\n",
+               use_ipv6 ? "IPv6" : "IPv4");
         return 1;
     }
     
