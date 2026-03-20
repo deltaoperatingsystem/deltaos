@@ -9,7 +9,8 @@ int main(void) {
     
     // default root password, can change lol
     struct passwd* root = get_user("root");
-    if (root == NULL) {
+    // we dont do a null check here because get_user could return an error code (negative) or null
+    if (root <= 0) {
         if (create_user("root", "toor") < 0) {
             puts("Failed to create root user\n");
         }

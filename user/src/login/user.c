@@ -42,6 +42,7 @@ int create_user(const char* username, const char* pt_pwd) {
     if (passwd == INVALID_HANDLE) {
         return -1;
     }
+    
     if (handle_seek(passwd, 0, HANDLE_SEEK_END) < 0) {
         handle_close(passwd);
         return -1;
@@ -75,7 +76,7 @@ int create_user(const char* username, const char* pt_pwd) {
 struct passwd* get_user(const char* username) {
     handle_t hdl = get_obj(INVALID_HANDLE, "$files/conf/passwd", RIGHT_READ);
     if (hdl == INVALID_HANDLE) {
-        return NULL;
+        return GETUSR_INTERNAL_ERROR;
     }
     
     const size_t line_sz = 256 + 1 + 64 + 2; // usrname + delim + pwdhash + endings
@@ -95,16 +96,19 @@ struct passwd* get_user(const char* username) {
     }
     
     handle_close(hdl);
-    return NULL;
+    return GETUSR_NOT_EXIST;
 }
 
 enum verif_stat verify_user(const char* username, const char* pt_pwd) {
     enum verif_stat code;
     
     struct passwd* passwd = get_user(username);
-    if (passwd == NULL) {
-        return V_ENUSR; // its possible this was also an internal error, such as failing to open /conf/passwd
-            // we should later make it so in that case, EINTR is actually returned, not ENUSR
+    if (passwd == GETUSR_NOT_EXIST) {
+        return V_ENUSR;
+    } 
+    
+    if (passwd == GETUSR_INTERNAL_ERROR) {
+        return V_EINTR;
     }
     
     uint8_t shabuf[32] = {0};
