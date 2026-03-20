@@ -7,7 +7,7 @@
 
 // this returns a malloc'd string, make sure to free it!!!
 char* serialize_passwd(struct passwd* pwd) {
-    size_t sz = strlen(pwd->username) + strlen(pwd->pwd_hash) + 1; // username + delim (,) + hex hash
+    size_t sz = strlen(pwd->username) + strlen(pwd->pwd_hash) + 2; // username + delim (,) + hex hash + null ending
     char* str = malloc(sz);
     if (str == NULL) {
         return NULL;
