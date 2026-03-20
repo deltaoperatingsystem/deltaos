@@ -14,6 +14,7 @@ char* serialize_passwd(struct passwd* pwd) {
     }
     
     if (snprintf(str, sz, "%s,%s", pwd->username, pwd->pwd_hash) != (sz - 1)) {
+        free(str);
         return NULL;
     }
     return str;

@@ -10,9 +10,11 @@ char* fgets(char* buf, int bufsz, FILE* f) {
     size_t pos = 0;
     
     while ((c = fgetc(f)) != -1) {
+        if (pos >= (size_t)(bufsz - 1)) {
+            break;
+        }
         buf[pos++] = (char)c;
-        if (c == '\n' ||
-           (pos >= (size_t)(bufsz - 1))) {
+        if (c == '\n') {
             break;
         }
     }

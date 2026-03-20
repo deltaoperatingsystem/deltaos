@@ -7,8 +7,10 @@ int main(void) {
     if (kbd_init() < 0) return 1;
     
     // default root password, can change lol
-    if (create_user("root", "toor") < 0) {
-        puts("Failed to create root user\n");
+    if (get_user("root") == NULL) {
+        if (create_user("root", "toor") < 0) {
+            puts("Failed to create root user\n");
+        }
     }
     
     while (1) {
