@@ -90,8 +90,6 @@ void arch_init(struct db_boot_info *boot_info) {
     arch_timer_init(1000);
     puts("[amd64] timer initialized @ 1000Hz\n");
     
-    pci_init();
-    
     //initialize SMP (start APs)
     smp_init();
     

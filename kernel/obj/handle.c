@@ -378,4 +378,3 @@ int handle_remove(const char *path) {
     object_deref(root);
     return result;
 }
-

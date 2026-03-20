@@ -3,6 +3,7 @@
 #include <arch/amd64/int/iommu.h>
 #include <arch/amd64/io.h>
 #include <arch/amd64/cpu.h>
+#include <arch/amd64/percpu.h>
 #include <arch/amd64/interrupts.h>
 #include <mm/mm.h>
 #include <mm/vmm.h>
@@ -44,6 +45,10 @@ bool apic_is_supported(void) {
 }
 
 uint32 apic_get_id(void) {
+    percpu_t *cpu = percpu_get();
+    if (!apic_available && cpu) {
+        return cpu->apic_id;
+    }
     if (x2apic_enabled) {
         return apic_read(APIC_ID);
     }

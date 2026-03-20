@@ -41,7 +41,11 @@
 #define RTL_RCR_APM    (1 << 1)  //accept physical match
 #define RTL_RCR_AM     (1 << 2)  //accept multicast
 #define RTL_RCR_AB     (1 << 3)  //accept broadcast
-#define RTL_RCR_WRAP   (1 << 7)  //wrap around
+#define RTL_RCR_WRAP   (1 << 7)  //RxNoWrap in the vendor docs
+#define RTL_RCR_FIFO_SHIFT 13    //FIFO threshold shift
+#define RTL_RCR_DMA_SHIFT   8    //max DMA burst shift
+#define RTL_RCR_FIFO_EOP     (7 << RTL_RCR_FIFO_SHIFT)
+#define RTL_RCR_DMA_EOP      (7 << RTL_RCR_DMA_SHIFT)
 
 //receive buffer sizes
 #define RTL_RXBUF_8K   0         //8K + 16
@@ -54,7 +58,7 @@
 #define RTL_TSD_TOK    (1 << 15) //transmit OK
 
 //buffer sizes
-#define RTL_RX_BUF_SIZE  (8192 + 16 + 1500)  //8K + header + max packet
+#define RTL_RX_BUF_SIZE  (32768 + 16 + 2048)  //32K ring + pad + wrap slack
 #define RTL_TX_BUF_SIZE  2048
 
 //number of TX descriptors
@@ -63,5 +67,6 @@
 //driver interface
 void rtl8139_init(void);
 void rtl8139_irq(void);
+void rtl8139_poll(void);
 
 #endif

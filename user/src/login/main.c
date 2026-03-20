@@ -1,12 +1,22 @@
 #include <io.h>
 #include <system.h>
-#include <string.h>
+#include "user.h"
 #include <keyboard.h>
-#include "sha256.h"
+#include <stdlib.h>
 
 int main(void) {
     if (kbd_init() < 0) return 1;
-
+    
+    // default root password, can change lol
+    struct passwd* root = get_user("root");
+    if (root == NULL) {
+        if (create_user("root", "toor") < 0) {
+            puts("Failed to create root user\n");
+        }
+    } else {
+        free(root);
+    }
+    
     while (1) {
         kbd_flush();
         
@@ -63,14 +73,21 @@ int main(void) {
 
         putc('\n');
         
-        // TODO: actual passwd logic lol
-        if (strcmp(username, passwd) == 0) {
+        enum verif_stat vstat = verify_user(username, passwd);
+        if (vstat == V_VALID) {
             int pid = spawn("$files/system/binaries/shell", 0, NULL);
             if (pid < 0) {
                 puts("Failed to spawn shell!\n");
                 continue;
             }
             wait(pid);
+        } else {
+            switch (vstat) {
+                case V_EWPWD: puts("Wrong password\n"); continue;
+                case V_ENUSR: puts("Unknown user\n"); continue;
+                case V_EINTR: puts("Internal error in authentication\n"); continue;
+                default: continue;
+            }
         }
     }
 }

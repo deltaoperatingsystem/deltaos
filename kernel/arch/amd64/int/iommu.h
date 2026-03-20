@@ -41,7 +41,7 @@ typedef struct iommu_irte {
 //IRTE low word fields
 #define IRTE_PRESENT        (1ULL << 0)
 #define IRTE_DLM_SHIFT      5           //delivery mode (3 bits)
-#define IRTE_TM_SHIFT       4           //trigger mode (not used for MSI)
+#define IRTE_TM_SHIFT       4           //trigger mode (0=edge, 1=level)
 #define IRTE_VECTOR_SHIFT   16
 #define IRTE_DST_SHIFT      32          //destination APIC ID
 

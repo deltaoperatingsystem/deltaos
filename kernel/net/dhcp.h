@@ -66,6 +66,7 @@ typedef struct __attribute__((packed)) {
 
 #define DHCP_OPTIONS_OFFSET  (sizeof(dhcp_msg_t))
 #define DHCP_MAX_MSG_SIZE    576   //minimum UDP payload for DHCP
+#define DHCP_MIN_MSG_SIZE    300   //classic BOOTP/DHCP minimum on the wire
 
 //initialize DHCP on an interface (blocking so waits for lease)
 int dhcp_init(netif_t *nif);

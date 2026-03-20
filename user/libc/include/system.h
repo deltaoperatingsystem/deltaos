@@ -113,7 +113,8 @@ typedef enum {
     OBJ_INFO_THREAD_STATS = 2,  //thread_stats_t
     OBJ_INFO_KMEM_STATS = 3,    //kmem_stats_t (requires system handle)
     OBJ_INFO_TIME_STATS = 4,    //time_stats_t (requires system handle)
-    OBJ_INFO_SYSTEM_STATS = 5   //system_stats_t (requires system handle)
+    OBJ_INFO_SYSTEM_STATS = 5,  //system_stats_t (requires system handle)
+    OBJ_INFO_BOOT_CMDLINE = 6   //boot cmdline string (requires system handle)
 } object_info_topic_t;
 
 typedef struct {
@@ -158,10 +159,17 @@ typedef struct {
 int object_get_info(handle_t h, uint32 topic, void *ptr, uint64 len);
 
 //networking
+#define IPV6_ADDR_LEN 16
+
 int ping(uint8 a, uint8 b, uint8 c, uint8 d, uint32 count);
+int ping6(const uint8 addr[IPV6_ADDR_LEN], uint32 count);
 int dns_resolve(const char *hostname, uint32 *ip_out);
+int dns_resolve_aaaa(const char *hostname, uint8 ipv6_out[IPV6_ADDR_LEN]);
+int get_cmdline(char *buf, size len);
 handle_t tcp_connect(const char *hostname, uint16 port);
+handle_t tcp_connect_ipv6(const uint8 addr[IPV6_ADDR_LEN], uint16 port);
 handle_t tcp_listen(uint16 port);
+handle_t tcp_listen_ipv6(uint16 port);
 handle_t tcp_accept(handle_t listener);
 
 #endif

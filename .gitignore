@@ -4,3 +4,6 @@
 initrd/
 darc
 *.img
+
+.zed
+.clangd

@@ -40,19 +40,11 @@ typedef struct __attribute__((packed)) {
     uint16 urgent;      //big-endian
 } tcp_header_t;
 
-//TCP pseudo-header for checksum
-typedef struct __attribute__((packed)) {
-    uint32 src_ip;
-    uint32 dst_ip;
-    uint8  zero;
-    uint8  protocol;
-    uint16 tcp_len;
-} tcp_pseudo_header_t;
-
 #define TCP_MAX_CONNECTIONS 16
 #define TCP_RX_BUF_SIZE     4096
 #define TCP_TX_BUF_SIZE     4096
-#define TCP_MSS             1460  //max segment size (ETH_MTU - IP header - TCP header)
+#define TCP_MSS_IPV4        1460
+#define TCP_MSS_IPV6        1440
 #define TCP_DEFAULT_WINDOW  4096
 #define TCP_EPHEMERAL_START 49152
 #define TCP_EPHEMERAL_END   65535
@@ -62,9 +54,9 @@ typedef struct tcp_conn {
     tcp_state_t state;
     
     //endpoints
-    uint32 local_ip;
+    net_addr_t local_addr;
     uint16 local_port;
-    uint32 remote_ip;
+    net_addr_t remote_addr;
     uint16 remote_port;
     
     //sequence numbers
@@ -89,11 +81,15 @@ typedef struct tcp_conn {
     bool accepted;          //true if this connection has been returned by tcp_accept
 } tcp_conn_t;
 
-//receive a TCP segment (called from IPv4 layer)
+//receive a TCP segment (called from IPv4/IPv6 layers)
 void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len);
+void tcp_recv_ipv6(netif_t *nif, const uint8 src_ip[NET_IPV6_ADDR_LEN],
+                   const uint8 dst_ip[NET_IPV6_ADDR_LEN], void *data, size len);
 
 //create a TCP connection (active open)
 tcp_conn_t *tcp_connect(netif_t *nif, uint32 dst_ip, uint16 dst_port, uint16 src_port);
+tcp_conn_t *tcp_connect_ipv6(netif_t *nif, const uint8 dst_ip[NET_IPV6_ADDR_LEN],
+                             uint16 dst_port, uint16 src_port);
 
 //send data on an established connection
 int tcp_send(tcp_conn_t *conn, const void *data, size len);
@@ -106,6 +102,7 @@ int tcp_close(tcp_conn_t *conn);
 
 //passive open: listen on a port
 tcp_conn_t *tcp_listen(netif_t *nif, uint16 port);
+tcp_conn_t *tcp_listen_ipv6(netif_t *nif, uint16 port);
 
 //accept an incoming connection on a listening socket
 tcp_conn_t *tcp_accept(tcp_conn_t *listener);

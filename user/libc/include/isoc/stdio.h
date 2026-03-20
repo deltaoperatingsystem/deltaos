@@ -34,5 +34,7 @@ int remove(const char *pathname);
 int rename(const char *oldpath, const char *newpath);
 int fscanf(FILE *f, const char *fmt, ...);
 int sscanf(const char *str, const char *fmt, ...);
+int fgetc(FILE* f);
+char* fgets(char* buf, int bufsz, FILE* f);
 
 #endif

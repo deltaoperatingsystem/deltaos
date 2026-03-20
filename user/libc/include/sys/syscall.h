@@ -48,6 +48,10 @@
 #define SYS_TCP_CONNECT     66
 #define SYS_TCP_LISTEN      67
 #define SYS_TCP_ACCEPT      68
+#define SYS_TCP_CONNECT_IPV6 69
+#define SYS_TCP_LISTEN_IPV6 70
+#define SYS_PING6           71  //send ICMPv6 echo to IPv6 address
+#define SYS_DNS_RESOLVE_AAAA 72 //resolve hostname to IPv6 address (AAAA)
 
 #define SYS_MAX             256
 

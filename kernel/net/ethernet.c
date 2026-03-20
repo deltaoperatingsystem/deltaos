@@ -2,6 +2,7 @@
 #include <net/endian.h>
 #include <net/arp.h>
 #include <net/ipv4.h>
+#include <net/ipv6.h>
 #include <lib/io.h>
 #include <lib/string.h>
 
@@ -12,7 +13,7 @@ void ethernet_recv(netif_t *nif, void *data, size len) {
     
     eth_header_t *eth = (eth_header_t *)data;
     uint16 ethertype = ntohs(eth->ethertype);
-    
+        
     void *payload = (uint8 *)data + ETH_HEADER_LEN;
     size payload_len = len - ETH_HEADER_LEN;
     
@@ -22,6 +23,9 @@ void ethernet_recv(netif_t *nif, void *data, size len) {
             break;
         case ETH_TYPE_IPV4:
             ipv4_recv(nif, payload, payload_len);
+            break;
+        case ETH_TYPE_IPV6:
+            ipv6_recv(nif, payload, payload_len);
             break;
         default:
             break;
