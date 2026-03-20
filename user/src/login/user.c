@@ -28,11 +28,11 @@ int create_user(const char* username, const char* pt_pwd) {
     struct stat st;
     if (stat("/conf/passwd", &st) < 0) {
         if (stat("/conf", &st) < 0) {
-            if (mkdir("conf") < 0) {
+            if (mkdir("/conf") < 0) {
                 return -1;
             }
         }
-        if (mkfile("conf/passwd") < 0) {
+        if (mkfile("/conf/passwd") < 0) {
             return -1;
         }
     }

@@ -93,7 +93,7 @@ intptr sys_mknode(const char *path, uint32 type) {
 
     char full_path[256];
     if (path[0] == '/') {
-        strncpy(full_path, path, sizeof(full_path) - 1);
+        snprintf(full_path, sizeof(full_path), "$files/%s", path);
     } else {
         snprintf(full_path, sizeof(full_path), "$files/%s/%s", proc->cwd, path);
     }
