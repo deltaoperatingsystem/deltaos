@@ -147,7 +147,6 @@ enum verif_stat verify_user(const char* username, const char* pt_pwd) {
         code = V_EWPWD;
     }
     
-    free(passwd);
     free_get_user_stat(passwd);
     return code;
 }

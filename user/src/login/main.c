@@ -7,7 +7,7 @@ int main(void) {
     if (kbd_init() < 0) return 1;
     
     struct getusr_stat* root = get_user("root");
-    if (root->status != G_OK) {
+    if (root == NULL || root->status != G_OK) {
         // default root password, can change lol
         if (create_user("root", "toor") < 0) {
             puts("Failed to create root user\n");
