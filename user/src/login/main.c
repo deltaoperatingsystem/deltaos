@@ -7,15 +7,14 @@
 int main(void) {
     if (kbd_init() < 0) return 1;
     
-    // default root password, can change lol
-    struct passwd* root = get_user("root");
-    // we dont do a null check here because get_user could return an error code (negative) or null
-    if (root <= 0) {
+    struct getusr_stat* root = get_user("root");
+    if (root->status != G_OK) {
+        // default root password, can change lol
         if (create_user("root", "toor") < 0) {
             puts("Failed to create root user\n");
         }
     } else {
-        free(root);
+        free_get_user_stat(root);
     }
     
     while (1) {

@@ -73,10 +73,16 @@ int create_user(const char* username, const char* pt_pwd) {
 }
 
 // the struct returnd will be malloc'd, free it when your done!
-struct passwd* get_user(const char* username) {
+struct getusr_stat* get_user(const char* username) {
+    struct getusr_stat* result = calloc(1, sizeof(*result));
+    if (result == NULL) {
+        return NULL;
+    }
+    
     handle_t hdl = get_obj(INVALID_HANDLE, "$files/conf/passwd", RIGHT_READ);
     if (hdl == INVALID_HANDLE) {
-        return GETUSR_INTERNAL_ERROR;
+        result->status = G_EINTR;
+        return result;
     }
     
     const size_t line_sz = 256 + 1 + 64 + 2; // usrname + delim + pwdhash + endings
@@ -89,25 +95,44 @@ struct passwd* get_user(const char* username) {
         }
         if (strcmp(pwd->username, username) == 0) {
             handle_close(hdl);
-            return pwd;
+            result->status = G_OK;
+            result->pwd = pwd;
+            return result;
         } else {
             free(pwd);
         }
     }
     
     handle_close(hdl);
-    return GETUSR_NOT_EXIST;
+    result->status = G_ENUSR;
+    return result;
+}
+
+void free_get_user_stat(struct getusr_stat* stat) {
+    if (stat == NULL) return;
+    
+    if (stat->pwd != NULL) {
+        free(stat->pwd);
+    }
+    
+    free(stat);
 }
 
 enum verif_stat verify_user(const char* username, const char* pt_pwd) {
     enum verif_stat code;
     
-    struct passwd* passwd = get_user(username);
-    if (passwd == GETUSR_NOT_EXIST) {
+    struct getusr_stat* passwd = get_user(username);
+    if (passwd == NULL) {
+        return V_EINTR;
+    }
+    
+    if (passwd->status == G_ENUSR) {
+        free_get_user_stat(passwd);
         return V_ENUSR;
     } 
     
-    if (passwd == GETUSR_INTERNAL_ERROR) {
+    if (passwd->status == G_EINTR) {
+        free_get_user_stat(passwd);
         return V_EINTR;
     }
     
@@ -116,12 +141,13 @@ enum verif_stat verify_user(const char* username, const char* pt_pwd) {
     sha256(pt_pwd, strlen(pt_pwd), shabuf);
     sha256_to_hex(shabuf, shahex);
     
-    if (ct_memcmp(passwd->pwd_hash, shahex, 64)) {
+    if (ct_memcmp(passwd->pwd->pwd_hash, shahex, 64)) {
         code = V_VALID;
     } else {
         code = V_EWPWD;
     }
     
     free(passwd);
+    free_get_user_stat(passwd);
     return code;
 }

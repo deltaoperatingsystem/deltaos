@@ -12,17 +12,29 @@
 //       0 - success
 int create_user(const char* username, const char* pwd);
 
-#define GETUSR_INTERNAL_ERROR ((void*)-1)
-#define GETUSR_NOT_EXIST ((void*)0)
+// get user status struct
+struct getusr_stat {
+    struct passwd* pwd; // pointer to result (if succeeded)
+    enum {
+        G_OK, // succeeded
+        G_EINTR, // internal error
+        G_ENUSR // user not exist
+    } status;
+};
 
 // get user
 // params:
 //      username - string containing username to search
-// return codes:
-//      GETUSR_INTERNAL_ERROR - an internal error occured, for example failing to open passwd file
-//      GETUSR_NOT_EXIST - user does not exist
-//      struct passwd* - a `malloc`d pointer to a passwd struct, meaning success
-struct passwd* get_user(const char* username);
+// returns:
+//      a pointer to a getusr_stat struct
+//      this should be free'd with free_get_user_stat
+//      if we failed to allocate the result struct, we'll return NULL
+struct getusr_stat* get_user(const char* username);
+
+// free get user status
+// params:
+//      stat - pointer to result from `get_user` function
+void free_get_user_stat(struct getusr_stat* stat);
 
 enum verif_stat {
     V_EWPWD, // wrong password
