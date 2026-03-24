@@ -6,6 +6,7 @@
 #include <net/icmpv6.h>
 #include <net/dns.h>
 #include <proc/process.h>
+#include <arch/percpu.h>
 
 intptr sys_debug_write(const char *buf, size count) {
     debug_write(buf, count);
@@ -26,21 +27,42 @@ intptr sys_object_get_info(handle_t h, uint32 topic, void *ptr, size len) {
     return ret;
 }
 
-intptr sys_ping(uint32 ip_a, uint32 ip_b, uint32 ip_c, uint32 ip_d, uint32 count) {
+static intptr sys_ping_impl(uint8 family, const void *dst_addr, uint32 addr_len, uint32 count) {
     netif_t *nif = net_get_default_netif();
     if (!nif) return -1;
-    
-    uint32 dst_ip = ip_make((uint8)ip_a, (uint8)ip_b, (uint8)ip_c, (uint8)ip_d);
-    
+
     if (count == 0) count = 1;
     if (count > 100) count = 100;  //cap at 100
-    
-    for (uint32 i = 0; i < count; i++) {
-        int res = icmp_send_echo(nif, dst_ip, 0x4F53, i + 1, "DeltaOS", 7);
-        if (res != 0) return -(intptr)(i + 1);
+
+    if (family == NET_ADDR_FAMILY_IPV4) {
+        if (!dst_addr || addr_len != 4) return -1;
+        uint32 dst_ip = 0;
+        if (copy_user_bytes(dst_addr, &dst_ip, sizeof(dst_ip)) != 0) return -1;
+
+        for (uint32 i = 0; i < count; i++) {
+            int res = icmp_send_echo(nif, dst_ip, 0x4F53, i + 1, "DeltaOS", 7);
+            if (res != 0) return -(intptr)(i + 1);
+        }
+        return (intptr)count;
     }
-    
-    return (intptr)count;
+
+    if (family == NET_ADDR_FAMILY_IPV6) {
+        if (!dst_addr || addr_len != NET_IPV6_ADDR_LEN) return -1;
+        uint8 dst[NET_IPV6_ADDR_LEN];
+        if (copy_user_bytes(dst_addr, dst, sizeof(dst)) != 0) return -1;
+
+        for (uint32 i = 0; i < count; i++) {
+            int res = icmpv6_send_echo(nif, dst, 0x4F53, (uint16)(i + 1), "DeltaOS", 7);
+            if (res != 0) return -(intptr)(i + 1);
+        }
+        return (intptr)count;
+    }
+
+    return -1;
+}
+
+intptr sys_ping(uint32 family, const void *dst_addr, uint32 addr_len, uint32 count) {
+    return sys_ping_impl((uint8)family, dst_addr, addr_len, count);
 }
 
 intptr sys_dns_resolve(const char *hostname, uint32 *ip_out) {
@@ -57,35 +79,16 @@ intptr sys_dns_resolve(const char *hostname, uint32 *ip_out) {
     return 0;
 }
 
-intptr sys_ping6(const uint8 *dst_ipv6, uint32 count) {
-    if (!dst_ipv6) return -1;
-    if ((uintptr)dst_ipv6 < USER_SPACE_START || (uintptr)dst_ipv6 >= USER_SPACE_END) return -1;
-
-    netif_t *nif = net_get_default_netif();
-    if (!nif) return -1;
-
-    //copy 16-byte IPv6 address from userland
-    uint8 dst[NET_IPV6_ADDR_LEN];
-    const uint8 *src = dst_ipv6;
-    for (int i = 0; i < NET_IPV6_ADDR_LEN; i++) dst[i] = src[i];
-
-    if (count == 0) count = 1;
-    if (count > 100) count = 100;
-
-    for (uint32 i = 0; i < count; i++) {
-        int res = icmpv6_send_echo(nif, dst, 0x4F53, (uint16)(i + 1), "DeltaOS", 7);
-        if (res != 0) return -(intptr)(i + 1);
-    }
-    return (intptr)count;
-}
-
 intptr sys_dns_resolve_aaaa(const char *hostname, uint8 *ipv6_out) {
     if (!hostname || !ipv6_out) return -1;
     if ((uintptr)hostname < USER_SPACE_START || (uintptr)hostname >= USER_SPACE_END) return -1;
-    if ((uintptr)ipv6_out < USER_SPACE_START || (uintptr)ipv6_out >= USER_SPACE_END) return -1;
+    if ((uintptr)ipv6_out < USER_SPACE_START || (uintptr)ipv6_out > USER_SPACE_END - NET_IPV6_ADDR_LEN) return -1;
+
+    char k_hostname[256];
+    if (copy_user_cstr(hostname, k_hostname, sizeof(k_hostname)) != 0) return -1;
 
     uint8 ipv6[NET_IPV6_ADDR_LEN];
-    if (dns_resolve_aaaa(hostname, ipv6) != 0) return -1;
+    if (dns_resolve_aaaa(k_hostname, ipv6) != 0) return -1;
 
     uint8 *dst = ipv6_out;
     for (int i = 0; i < NET_IPV6_ADDR_LEN; i++) dst[i] = ipv6[i];

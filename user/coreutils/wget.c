@@ -9,14 +9,39 @@ static int hex_value(char c) {
     return -1;
 }
 
+static int parse_ipv4_literal(const char *str, uint8 out[4]) {
+    int parts[4] = {0};
+    int idx = 0;
+    const char *p = str;
+
+    while (*p && idx < 4) {
+        if (*p >= '0' && *p <= '9') {
+            int digit = (*p - '0');
+            if (parts[idx] > (255 - digit) / 10) return -1;
+            parts[idx] = parts[idx] * 10 + digit;
+        } else if (*p == '.') {
+            idx++;
+        } else {
+            return -1;
+        }
+        p++;
+    }
+
+    if (idx != 3) return -1;
+    for (int i = 0; i < 4; i++) {
+        if (parts[i] > 255) return -1;
+        out[i] = (uint8)parts[i];
+    }
+    return 0;
+}
+
 static int parse_ipv6_literal(const char *str, uint8 out[IPV6_ADDR_LEN]) {
+    if (!str || !out) return -1;
     uint16 words[8] = {0};
     int word_count = 0;
     int compress_at = -1;
     const char *start = str;
     const char *end = str + strlen(str);
-
-    if (!str || !out) return -1;
     if (start < end && *start == '[') {
         if (end <= start + 1 || end[-1] != ']') return -1;
         start++;
@@ -83,6 +108,10 @@ static int parse_ipv6_literal(const char *str, uint8 out[IPV6_ADDR_LEN]) {
     return 0;
 }
 
+static handle_t connect_addr(uint8 family, const void *addr, uint32 addr_len) {
+    return tcp_connect(family, addr, addr_len, 80);
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         printf("Usage: wget <hostname-or-ipv6> [path]\n");
@@ -103,9 +132,23 @@ int main(int argc, char **argv) {
             printf("Error: invalid IPv6 literal '%s'\n", hostname);
             return 1;
         }
-        sock = tcp_connect_ipv6(ipv6_addr, 80);
+        sock = connect_addr(NET_ADDR_FAMILY_IPV6, ipv6_addr, sizeof(ipv6_addr));
     } else {
-        sock = tcp_connect(hostname, 80);
+        uint8 ipv4_addr[4];
+        if (parse_ipv4_literal(hostname, ipv4_addr) == 0) {
+            sock = connect_addr(NET_ADDR_FAMILY_IPV4, ipv4_addr, sizeof(ipv4_addr));
+        } else {
+            uint32 ip4;
+            uint8 ipv6_tmp[IPV6_ADDR_LEN];
+            if (dns_resolve(hostname, &ip4) == 0) {
+                sock = connect_addr(NET_ADDR_FAMILY_IPV4, &ip4, sizeof(ip4));
+            } else if (dns_resolve_aaaa(hostname, ipv6_tmp) == 0) {
+                sock = connect_addr(NET_ADDR_FAMILY_IPV6, ipv6_tmp, sizeof(ipv6_tmp));
+            } else {
+                printf("Error: failed to resolve %s\n", hostname);
+                return 1;
+            }
+        }
     }
 
     if (sock < 0) {

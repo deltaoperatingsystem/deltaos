@@ -14,7 +14,7 @@ static uint32 checksum_add(const void *data, size len, uint32 sum) {
         len -= 2;
     }
     if (len == 1) {
-        sum += *(const uint8 *)ptr;
+        sum += (uint32)(*(const uint8 *)ptr);
     }
     return sum;
 }
@@ -175,9 +175,11 @@ int ipv6_send_ex(netif_t *nif, const uint8 dst_addr[NET_IPV6_ADDR_LEN],
         ipv6_multicast_to_mac(dst_addr, dst_mac);
     } else {
         memcpy(next_hop, dst_addr, NET_IPV6_ADDR_LEN);
-        if (!ipv6_prefix_match(dst_addr, nif->ipv6_addr, nif->ipv6_prefix_len) &&
-            !ipv6_addr_is_unspecified(nif->ipv6_gateway)) {
-            memcpy(next_hop, nif->ipv6_gateway, NET_IPV6_ADDR_LEN);
+        if (!ipv6_prefix_match(dst_addr, nif->ipv6_addr, nif->ipv6_prefix_len)) {
+            uint8 router[NET_IPV6_ADDR_LEN];
+            if (ndp_get_default_router(nif, router)) {
+                memcpy(next_hop, router, NET_IPV6_ADDR_LEN);
+            }
         }
         if (ndp_resolve(nif, next_hop, dst_mac) != 0) {
             return -1;

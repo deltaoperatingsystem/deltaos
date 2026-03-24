@@ -113,11 +113,6 @@ void arp_recv(netif_t *nif, void *data, size len) {
             arp_send_reply(nif, arp->spa, arp->sha);
         }
     } else if (op == ARP_OP_REPLY) {
-        printf("[arp] Reply: ");
-        net_print_ip(arp->spa);
-        printf(" is ");
-        net_print_mac(arp->sha);
-        printf("\n");
     }
 }
 

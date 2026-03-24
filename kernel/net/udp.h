@@ -13,10 +13,10 @@ typedef struct __attribute__((packed)) {
 
 //UDP receive callback
 typedef void (*udp_recv_cb_t)(netif_t *nif, uint32 src_ip, uint16 src_port,
-                               const void *data, size len);
+                               const void *data, size len, void *ctx);
 
 //bind a port to a receive callback
-int udp_bind(uint16 port, udp_recv_cb_t callback);
+int udp_bind(uint16 port, udp_recv_cb_t callback, void *ctx);
 
 //unbind a port
 void udp_unbind(uint16 port);

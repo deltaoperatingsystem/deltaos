@@ -19,11 +19,12 @@ typedef struct __attribute__((packed)) {
 typedef struct {
     uint16 port;
     udp_recv_cb_t callback;
+    void *ctx;
     bool active;
 } udp_bind_entry_t;
 
 static udp_bind_entry_t udp_binds[UDP_MAX_BINDS];
-static spinlock_t udp_lock = SPINLOCK_INIT;
+static spinlock_irq_t udp_lock = SPINLOCK_IRQ_INIT;
 
 static uint16 udp_checksum_ipv4(netif_t *nif, uint32 dst_ip, const udp_header_t *udp,
                                 const void *payload, size payload_len) {
@@ -44,30 +45,31 @@ static uint16 udp_checksum_ipv4(netif_t *nif, uint32 dst_ip, const udp_header_t 
     return cksum == 0 ? 0xFFFF : cksum;
 }
 
-int udp_bind(uint16 port, udp_recv_cb_t callback) {
-    spinlock_acquire(&udp_lock);
+int udp_bind(uint16 port, udp_recv_cb_t callback, void *ctx) {
+    irq_state_t flags = spinlock_irq_acquire(&udp_lock);
     for (int i = 0; i < UDP_MAX_BINDS; i++) {
         if (!udp_binds[i].active) {
             udp_binds[i].port = port;
             udp_binds[i].callback = callback;
+            udp_binds[i].ctx = ctx;
             udp_binds[i].active = true;
-            spinlock_release(&udp_lock);
+            spinlock_irq_release(&udp_lock, flags);
             return 0;
         }
     }
-    spinlock_release(&udp_lock);
+    spinlock_irq_release(&udp_lock, flags);
     return -1;
 }
 
 void udp_unbind(uint16 port) {
-    spinlock_acquire(&udp_lock);
+    irq_state_t flags = spinlock_irq_acquire(&udp_lock);
     for (int i = 0; i < UDP_MAX_BINDS; i++) {
         if (udp_binds[i].active && udp_binds[i].port == port) {
             udp_binds[i].active = false;
             break;
         }
     }
-    spinlock_release(&udp_lock);
+    spinlock_irq_release(&udp_lock, flags);
 }
 
 void udp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) {
@@ -88,16 +90,17 @@ void udp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) 
     size payload_len = (size)udp_len - sizeof(udp_header_t);
     
     //dispatch to bound handler
-    spinlock_acquire(&udp_lock);
+    irq_state_t flags = spinlock_irq_acquire(&udp_lock);
     for (int i = 0; i < UDP_MAX_BINDS; i++) {
         if (udp_binds[i].active && udp_binds[i].port == dst_port) {
             udp_recv_cb_t cb = udp_binds[i].callback;
-            spinlock_release(&udp_lock);
-            cb(nif, src_ip, src_port, payload, payload_len);
+            void *ctx = udp_binds[i].ctx;
+            spinlock_irq_release(&udp_lock, flags);
+            cb(nif, src_ip, src_port, payload, payload_len, ctx);
             return;
         }
     }
-    spinlock_release(&udp_lock);
+    spinlock_irq_release(&udp_lock, flags);
 }
 
 int udp_send(netif_t *nif, uint32 dst_ip, uint16 src_port, uint16 dst_port,

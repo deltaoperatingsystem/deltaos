@@ -11,9 +11,13 @@
 
 static volatile uint64 timer_ticks = 0;
 volatile uint32 timer_freq = 0;
+#include <arch/percpu.h>
 
 void arch_timer_tick(void) {
-    timer_ticks++;
+    //only BSP increments the global tick counter to keep it in sync with timer_freq
+    if (percpu_get()->cpu_index == 0) {
+        timer_ticks++;
+    }
     net_poll();
 }
 

@@ -235,7 +235,11 @@ void parse_cmdline(const char *cmdline) {
         } else if (strncmp(arg, "console=", 8) == 0) {
             //console selection is consumed by the bootloader / early init path
         } else if (strncmp(arg, "init=", 5) == 0) {
+            if (init_path) free(init_path);
             init_path = strdup(arg + 5);
+            if (!init_path) {
+                printf("[cmdline] error: strdup failed for init path\n");
+            }
         } else {
             printf("[cmdline] unknown option %s\n", arg);
         }

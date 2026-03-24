@@ -11,7 +11,9 @@ static int parse_ipv4(const char *str, uint8 *a, uint8 *b, uint8 *c, uint8 *d) {
     
     while (*p && idx < 4) {
         if (*p >= '0' && *p <= '9') {
-            parts[idx] = parts[idx] * 10 + (*p - '0');
+            int digit = (*p - '0');
+            if (parts[idx] > (255 - digit) / 10) return -1;
+            parts[idx] = parts[idx] * 10 + digit;
         } else if (*p == '.') {
             idx++;
         } else {
@@ -122,7 +124,12 @@ int main(int argc, char **argv) {
             count = 0;
             const char *p = argv[++i];
             while (*p >= '0' && *p <= '9') {
-                count = count * 10 + (uint32)(*p - '0');
+                uint32 digit = (uint32)(*p - '0');
+                if (count > (UINT32_MAX - digit) / 10) {
+                    printf("ping: count overflow\n");
+                    return 1;
+                }
+                count = count * 10 + digit;
                 p++;
             }
         } else {
@@ -144,9 +151,8 @@ int main(int argc, char **argv) {
     uint8 a, b, c, d;
     if (parse_ipv4(target, &a, &b, &c, &d) == 0) {
         uint32 ip_val = (uint32)a | ((uint32)b << 8) | ((uint32)c << 16) | ((uint32)d << 24);
-        (void)ip_val;
         printf("PING %u.%u.%u.%u: %u packets\n", a, b, c, d, count);
-        int res = ping(a, b, c, d, count);
+        int res = ping(NET_ADDR_FAMILY_IPV4, &ip_val, sizeof(ip_val), count);
         if (res > 0) {
             printf("Sent %d ICMP echo request(s)\n", res);
             return 0;
@@ -161,7 +167,7 @@ int main(int argc, char **argv) {
         printf("PING6 ");
         print_ipv6(ipv6);
         printf(": %u packets\n", count);
-        int res = ping6(ipv6, count);
+        int res = ping(NET_ADDR_FAMILY_IPV6, ipv6, sizeof(ipv6), count);
         if (res > 0) {
             printf("Sent %d ICMPv6 echo request(s)\n", res);
             return 0;
@@ -178,7 +184,7 @@ int main(int argc, char **argv) {
         a = pb[0]; b = pb[1]; c = pb[2]; d = pb[3];
         printf("%u.%u.%u.%u\n", a, b, c, d);
         printf("PING %u.%u.%u.%u: %u packets\n", a, b, c, d, count);
-        int res = ping(a, b, c, d, count);
+        int res = ping(NET_ADDR_FAMILY_IPV4, &ip_val, sizeof(ip_val), count);
         if (res > 0) {
             printf("Sent %d ICMP echo request(s)\n", res);
             return 0;
@@ -195,7 +201,7 @@ int main(int argc, char **argv) {
         printf("PING6 ");
         print_ipv6(ipv6);
         printf(": %u packets\n", count);
-        int res = ping6(ipv6, count);
+        int res = ping(NET_ADDR_FAMILY_IPV6, ipv6, sizeof(ipv6), count);
         if (res > 0) {
             printf("Sent %d ICMPv6 echo request(s)\n", res);
             return 0;

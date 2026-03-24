@@ -9,9 +9,9 @@ NVME_SIZE_MB=128
 EFI_BINARY="BOOTX64.EFI"
 OVMF_CODE=
 QEMU_NET_MODE="${QEMU_NET_MODE:-passt}"
+QEMU_HOSTFWD="${QEMU_HOSTFWD:-tcp::8080-:80}"
 QEMU_BRIDGE="${QEMU_BRIDGE:-}"
 QEMU_TAP_IFACE="${QEMU_TAP_IFACE:-tap0}"
-QEMU_NET_DUMP="${QEMU_NET_DUMP:-}"
 QEMU_KERNEL_IRQCHIP="${QEMU_KERNEL_IRQCHIP:-}"
 
 print_step() {
@@ -41,6 +41,21 @@ detect_bridge_name() {
         [[ -d "/sys/class/net/$bridge" ]] && { echo "$bridge"; return 0; }
     done
     return 1
+}
+
+qemu_supports_passt_netdev() {
+    command -v passt >/dev/null 2>&1 && qemu-system-x86_64 -netdev help 2>/dev/null | grep -q '^passt$'
+}
+
+append_rtl8139_netdev() {
+    local -n qemu_args_out=$1
+    local netdev_id=$2
+    local netdev_spec=$3
+
+    qemu_args_out+=(
+        -netdev "$netdev_spec"
+        -device "rtl8139,netdev=$netdev_id"
+    )
 }
 
 append_network_args() {
@@ -77,42 +92,38 @@ append_network_args() {
             ;;
     esac
 
+    if [[ -n "$QEMU_HOSTFWD" && "$QEMU_NET_MODE" != "tap" && "$QEMU_NET_MODE" != "bridge" ]]; then
+        if [[ "$QEMU_NET_MODE" == "passt" || "$QEMU_NET_MODE" == "auto" ]] && qemu_supports_passt_netdev; then
+            print_step "using passt primary NIC plus user-mode forwarding NIC"
+            append_rtl8139_netdev qemu_args_ref net0 passt,id=net0,ipv6=on
+            append_rtl8139_netdev qemu_args_ref net1 "user,id=net1,hostfwd=$QEMU_HOSTFWD,ipv6=on"
+            echo "primary NIC: passt"
+            echo "forwarding host port(s) via $QEMU_HOSTFWD on secondary NIC"
+            return 0
+        fi
+
+        print_step "using QEMU user networking for host forwarding"
+        append_rtl8139_netdev qemu_args_ref net0 "user,id=net0,hostfwd=$QEMU_HOSTFWD,ipv6=on"
+        echo "forwarding host port(s) via $QEMU_HOSTFWD"
+        return 0
+    fi
+
     if [[ "$QEMU_NET_MODE" == "passt" || "$QEMU_NET_MODE" == "user" || "$QEMU_NET_MODE" == "auto" ]]; then
-        if command -v passt >/dev/null 2>&1 && qemu-system-x86_64 -netdev help 2>/dev/null | grep -q '^passt$'; then
+        if qemu_supports_passt_netdev; then
             print_step "using QEMU passt networking"
-            qemu_args_ref+=(
-                -netdev passt,id=net0
-                -device rtl8139,netdev=net0
-            )
+            append_rtl8139_netdev qemu_args_ref net0 passt,id=net0,ipv6=on
             return 0
         fi
 
         print_step "using QEMU user networking (slirp fallback)"
-        qemu_args_ref+=(
-            -netdev user,id=net0
-            -device rtl8139,netdev=net0
-        )
+        append_rtl8139_netdev qemu_args_ref net0 user,id=net0,ipv6=on
         echo "passt is unavailable, falling back to slirp"
         return 0
     fi
 
     print_step "using QEMU user networking (slirp fallback)"
-    qemu_args_ref+=(
-        -netdev user,id=net0
-        -device rtl8139,netdev=net0
-    )
+    append_rtl8139_netdev qemu_args_ref net0 user,id=net0,ipv6=on
     echo "    classic user-mode networking"
-
-    if [[ -n "$QEMU_NET_DUMP" ]]; then
-        local dump_file="$QEMU_NET_DUMP"
-        if [[ "$dump_file" == "auto" || "$dump_file" == "1" ]]; then
-            dump_file="/tmp/deltaos-net-$(date +%Y%m%d-%H%M%S).pcap"
-        fi
-        qemu_args_ref+=(
-            -object "filter-dump,id=netdump,netdev=net0,file=$dump_file"
-        )
-        echo "dumping QEMU network traffic to $dump_file"
-    fi
 }
 
 prepare_boot_config() {
@@ -143,6 +154,21 @@ configure_tap_ipv6() {
         || sudo ip6tables -A FORWARD -i "$QEMU_TAP_IFACE" -o "$out_if" -j ACCEPT
     sudo ip6tables -C FORWARD -i "$out_if" -o "$QEMU_TAP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
         || sudo ip6tables -A FORWARD -i "$out_if" -o "$QEMU_TAP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT
+}
+
+cleanup_tap_ipv6() {
+    print_step "cleaning up TAP IPv6 NAT66"
+    local out_if
+    out_if=$(ip -6 route show default | awk 'NR==1 {print $5; exit}')
+    
+    sudo ip6tables -t nat -D POSTROUTING -s fd42:76:76::/64 -o "$out_if" -j MASQUERADE 2>/dev/null || true
+    sudo ip6tables -D FORWARD -i "$QEMU_TAP_IFACE" -o "$out_if" -j ACCEPT 2>/dev/null || true
+    sudo ip6tables -D FORWARD -i "$out_if" -o "$QEMU_TAP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+    
+    sudo ip addr del 192.168.76.1/24 dev "$QEMU_TAP_IFACE" 2>/dev/null || true
+    sudo ip -6 addr del fd42:76:76::1/64 dev "$QEMU_TAP_IFACE" 2>/dev/null || true
+    sudo ip link set "$QEMU_TAP_IFACE" down 2>/dev/null || true
+    sudo ip tuntap del dev "$QEMU_TAP_IFACE" mode tap 2>/dev/null || true
 }
 
 #create GPT disk image and ESP
@@ -188,11 +214,10 @@ create_disk_image() {
 #execute qemu with ovmf
 run_qemu() {
     print_step "launching qemu"
-    pwd
     local machine_spec="q35"
     if [[ "$QEMU_KERNEL_IRQCHIP" == "off" ]]; then
         machine_spec="q35,kernel_irqchip=off"
-        echo "    kernel IRQ chip disabled for RTL8139 receive debugging"
+        echo "    kernel IRQ chip disabled"
     fi
     local accel_spec="-enable-kvm"
     if [[ "$QEMU_KERNEL_IRQCHIP" == "off" ]]; then
@@ -202,7 +227,6 @@ run_qemu() {
     local QEMU_ARGS=(
         -machine "$machine_spec"
         -cpu qemu64
-        -smp 4
         -m 256M
         -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
         -drive "file=$DISK_IMG,format=raw"
@@ -212,10 +236,11 @@ run_qemu() {
         -no-reboot
         -no-shutdown
     )
-    QEMU_ARGS+=($accel_spec)
+    QEMU_ARGS+=("$accel_spec")
 
     if [[ "$QEMU_NET_MODE" == "tap" ]]; then
         configure_tap_ipv6
+        trap cleanup_tap_ipv6 EXIT
     fi
 
     append_network_args QEMU_ARGS

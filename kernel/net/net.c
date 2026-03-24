@@ -2,15 +2,51 @@
 #include <net/ethernet.h>
 #include <net/icmp.h>
 #include <net/dhcp.h>
+#include <net/ndp.h>
 #include <net/tcp.h>
 #include <net/ipv6.h>
-#include <drivers/rtl8139.h>
 #include <lib/io.h>
 #include <lib/string.h>
 #include <lib/spinlock.h>
 
 static netif_t *netif_list = NULL;
+static netif_t *netif_tail = NULL;
+static netif_t *default_netif = NULL;
 static spinlock_irq_t netif_lock = SPINLOCK_IRQ_INIT;
+
+static bool netif_has_ipv6_route(const netif_t *nif) {
+    return nif && !ipv6_addr_is_unspecified(nif->ipv6_gateway);
+}
+
+static netif_t *net_pick_default_locked(void) {
+    netif_t *fallback = default_netif ? default_netif : netif_list;
+
+    for (netif_t *nif = netif_list; nif; nif = nif->next) {
+        if (nif->gateway != 0) {
+            return nif;
+        }
+    }
+
+    for (netif_t *nif = netif_list; nif; nif = nif->next) {
+        if (nif->ip_addr != 0) {
+            return nif;
+        }
+    }
+
+    for (netif_t *nif = netif_list; nif; nif = nif->next) {
+        if (nif->dns_server != 0) {
+            return nif;
+        }
+    }
+
+    for (netif_t *nif = netif_list; nif; nif = nif->next) {
+        if (netif_has_ipv6_route(nif)) {
+            return nif;
+        }
+    }
+
+    return fallback;
+}
 
 void net_register_netif(netif_t *nif) {
     if (ipv6_addr_is_unspecified(nif->ipv6_addr)) {
@@ -21,8 +57,15 @@ void net_register_netif(netif_t *nif) {
     }
 
     irq_state_t flags = spinlock_irq_acquire(&netif_lock);
-    nif->next = netif_list;
-    netif_list = nif;
+    nif->next = NULL;
+    if (!netif_list) {
+        netif_list = nif;
+        netif_tail = nif;
+        if (!default_netif) default_netif = nif;
+    } else {
+        netif_tail->next = nif;
+        netif_tail = nif;
+    }
     spinlock_irq_release(&netif_lock, flags);
     
     printf("[net] Interface %s registered, MAC: ", nif->name);
@@ -35,7 +78,7 @@ void net_register_netif(netif_t *nif) {
 
 netif_t *net_get_default_netif(void) {
     irq_state_t flags = spinlock_irq_acquire(&netif_lock);
-    netif_t *res = netif_list;
+    netif_t *res = net_pick_default_locked();
     spinlock_irq_release(&netif_lock, flags);
     return res;
 }
@@ -46,7 +89,13 @@ void net_rx(netif_t *nif, void *data, size len) {
 
 void net_poll(void) {
     //keep RX moving even if the interrupt line is flaky or delayed
-    rtl8139_poll();
+    irq_state_t flags = spinlock_irq_acquire(&netif_lock);
+    for (netif_t *nif = netif_list; nif; nif = nif->next) {
+        if (nif->poll) {
+            nif->poll(nif);
+        }
+    }
+    spinlock_irq_release(&netif_lock, flags);
 }
 
 void net_init(void) {
@@ -55,21 +104,43 @@ void net_init(void) {
     //initialize TCP subsystem (zero connections table)
     tcp_init();
     
-    //run DHCP on the default interface
-    netif_t *nif = net_get_default_netif();
-    if (nif && nif->ip_addr == 0) {
-        dhcp_init(nif);
+    //probe DHCP in reverse registration order so we hit the NIC that actually leases first
+    netif_t *order[MAX_NETIFS];
+    size count = 0;
+    for (netif_t *nif = netif_list; nif && count < MAX_NETIFS; nif = nif->next) {
+        order[count++] = nif;
     }
-    
-    //print final IP config
-    if (nif) {
+
+    for (size i = count; i > 0; i--) {
+        netif_t *nif = order[i - 1];
+
+        if (nif->ip_addr == 0) {
+            if (dhcp_init(nif) != 0) {
+                printf("[net] %s DHCP probe failed\n", nif->name);
+                continue;
+            }
+        }
+
         printf("[net] %s configured: ", nif->name);
         net_print_ip(nif->ip_addr);
         printf("\n");
         printf("[net] %s IPv6: ", nif->name);
         net_print_ipv6(nif->ipv6_addr);
         printf("/%u\n", nif->ipv6_prefix_len);
+
+        if (nif->up) {
+            ndp_discover_router(nif);
+        }
+
+        break;
     }
+
+    irq_state_t flags = spinlock_irq_acquire(&netif_lock);
+    netif_t *best = net_pick_default_locked();
+    if (best && best != default_netif) {
+        default_netif = best;
+    }
+    spinlock_irq_release(&netif_lock, flags);
 }
 
 void net_print_mac(const uint8 *mac) {

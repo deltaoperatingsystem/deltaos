@@ -41,6 +41,7 @@ typedef struct netif {
     
     //driver callbacks
     int (*send)(struct netif *nif, const void *data, size len);
+    void (*poll)(struct netif *nif);
     void *driver_data; //driver private data
     
     struct netif *next;

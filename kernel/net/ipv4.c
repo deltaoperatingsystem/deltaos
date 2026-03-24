@@ -21,7 +21,7 @@ uint16 ipv4_checksum(const void *data, size len) {
     
     //handle odd byte
     if (len == 1) {
-        sum += *(const uint8 *)ptr;
+        sum += (uint32)(*(const uint8 *)ptr);
     }
     
     //fold 32-bit sum into 16 bits
@@ -79,7 +79,6 @@ void ipv4_recv(netif_t *nif, void *data, size len) {
             icmp_recv(nif, ip->src_ip, payload, payload_len);
             break;
         case IPPROTO_UDP:
-            //printf("[ipv4] Got UDP from "); net_print_ip(ip->src_ip); printf("\n");
             udp_recv(nif, ip->src_ip, ip->dst_ip, payload, payload_len);
             break;
         case IPPROTO_TCP:
@@ -107,7 +106,6 @@ int ipv4_send(netif_t *nif, uint32 dst_ip, uint8 protocol,
     ip->checksum = 0;
     ip->src_ip = nif->ip_addr;
     ip->dst_ip = dst_ip;
-    
     ip->checksum = ipv4_checksum(ip, IPV4_HEADER_MIN_LEN);
     
     memcpy(packet + IPV4_HEADER_MIN_LEN, payload, payload_len);

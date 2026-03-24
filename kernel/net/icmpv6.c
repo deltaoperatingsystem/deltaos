@@ -47,7 +47,9 @@ void icmpv6_recv(netif_t *nif, const uint8 src[NET_IPV6_ADDR_LEN],
         printf("[icmpv6] Echo reply from ");
         net_print_ipv6(src);
         printf(" seq=%u\n", ntohs(echo->sequence));
-    } else if (icmp->type == ICMPV6_TYPE_NEIGHBOR_SOLICIT ||
+    } else if (icmp->type == ICMPV6_TYPE_ROUTER_SOLICIT ||
+               icmp->type == ICMPV6_TYPE_ROUTER_ADVERT ||
+               icmp->type == ICMPV6_TYPE_NEIGHBOR_SOLICIT ||
                icmp->type == ICMPV6_TYPE_NEIGHBOR_ADVERT) {
         ndp_recv(nif, src, dst, hop_limit, data, len);
     }

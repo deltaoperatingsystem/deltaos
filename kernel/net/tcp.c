@@ -8,9 +8,19 @@
 #include <lib/spinlock.h>
 #include <arch/cpu.h>
 #include <arch/timer.h>
+#include <proc/sched.h>
 
 static tcp_conn_t connections[TCP_MAX_CONNECTIONS];
 static spinlock_irq_t tcp_lock = SPINLOCK_IRQ_INIT;
+
+typedef struct __attribute__((packed)) {
+    uint32 src_ip;
+    uint32 dst_ip;
+    uint8  zero;
+    uint8  protocol;
+    uint16 tcp_len;
+} tcp_pseudoheader_t;
+
 
 static void tcp_addr_from_ipv4(net_addr_t *addr, uint32 ip) {
     addr->family = NET_ADDR_FAMILY_IPV4;
@@ -52,14 +62,42 @@ static bool tcp_listener_matches(const tcp_conn_t *listener, const net_addr_t *d
            tcp_addr_equal(&listener->local_addr, dst_addr);
 }
 
+static inline void tcp_write_u16(uint8 *p, uint16 v) {
+    p[0] = (uint8)(v >> 8);
+    p[1] = (uint8)v;
+}
+
+static inline void tcp_write_u32(uint8 *p, uint32 v) {
+    p[0] = (uint8)(v >> 24);
+    p[1] = (uint8)(v >> 16);
+    p[2] = (uint8)(v >> 8);
+    p[3] = (uint8)v;
+}
+
+static inline uint16 tcp_read_u16(const uint8 *p) {
+    return ((uint16)p[0] << 8) | p[1];
+}
+
+static inline uint32 tcp_read_u32(const uint8 *p) {
+    return ((uint32)p[0] << 24) |
+           ((uint32)p[1] << 16) |
+           ((uint32)p[2] << 8) |
+           (uint32)p[3];
+}
+
 void tcp_init(void) {
     memset(connections, 0, sizeof(connections));
 }
 
 static uint16 tcp_get_free_port(void) {
-    static uint16 next_port = TCP_EPHEMERAL_START;
+    static uint16 next_port = 0;
     
     irq_state_t flags = spinlock_irq_acquire(&tcp_lock);
+    
+    if (next_port == 0) {
+        next_port = TCP_EPHEMERAL_START + (arch_timer_get_ticks() % (TCP_EPHEMERAL_END - TCP_EPHEMERAL_START + 1));
+    }
+    
     for (int i = 0; i < (TCP_EPHEMERAL_END - TCP_EPHEMERAL_START + 1); i++) {
         uint16 port = next_port;
         if (next_port >= TCP_EPHEMERAL_END) {
@@ -86,18 +124,22 @@ static uint16 tcp_get_free_port(void) {
     return 0;
 }
 
-static tcp_conn_t *tcp_alloc_conn(void) {
-    irq_state_t flags = spinlock_irq_acquire(&tcp_lock);
+static tcp_conn_t *tcp_alloc_conn_locked(void) {
     for (int i = 0; i < TCP_MAX_CONNECTIONS; i++) {
         if (!connections[i].active) {
             memset(&connections[i], 0, sizeof(tcp_conn_t));
             connections[i].active = true;
-            spinlock_irq_release(&tcp_lock, flags);
             return &connections[i];
         }
     }
-    spinlock_irq_release(&tcp_lock, flags);
     return NULL;
+}
+
+static tcp_conn_t *tcp_alloc_conn(void) {
+    irq_state_t flags = spinlock_irq_acquire(&tcp_lock);
+    tcp_conn_t *conn = tcp_alloc_conn_locked();
+    spinlock_irq_release(&tcp_lock, flags);
+    return conn;
 }
 
 static tcp_conn_t *tcp_find_conn(const net_addr_t *local_addr, uint16 local_port,
@@ -120,36 +162,20 @@ static uint16 tcp_checksum(const net_addr_t *src_addr, const net_addr_t *dst_add
                                    IPPROTO_TCP, tcp_data, tcp_len);
     }
 
-    uint32 sum = 0;
-    uint32 src_ip = src_addr->addr.ipv4;
-    uint32 dst_ip = dst_addr->addr.ipv4;
-    
-    //sum pseudo-header
-    //IPs are in network byte order; split each into two uint16 halves
-    sum += src_ip & 0xFFFF;
-    sum += src_ip >> 16;
-    sum += dst_ip & 0xFFFF;
-    sum += dst_ip >> 16;
-    sum += htons(IPPROTO_TCP);
-    sum += htons((uint16)tcp_len);
-    
-    //sum TCP segment data
-    const uint16 *ptr = (const uint16 *)tcp_data;
-    size remaining = tcp_len;
-    while (remaining > 1) {
-        sum += *ptr++;
-        remaining -= 2;
-    }
-    if (remaining == 1) {
-        sum += *(const uint8 *)ptr;
-    }
-    
-    //fold 32-bit sum into 16 bits
-    while (sum >> 16) {
-        sum = (sum & 0xFFFF) + (sum >> 16);
-    }
-    
-    return (uint16)~sum;
+    tcp_pseudoheader_t pseudo;
+    pseudo.src_ip = src_addr->addr.ipv4;
+    pseudo.dst_ip = dst_addr->addr.ipv4;
+    pseudo.zero = 0;
+    pseudo.protocol = IPPROTO_TCP;
+    pseudo.tcp_len = htons((uint16)tcp_len);
+
+    uint16 buf[800]; //enough for 12 + 1500 bytes, 16-bit aligned
+    if (sizeof(tcp_pseudoheader_t) + tcp_len > sizeof(buf)) return 0;
+
+    memcpy(buf, &pseudo, sizeof(pseudo));
+    memcpy((uint8 *)buf + sizeof(pseudo), tcp_data, tcp_len);
+
+    return ipv4_checksum(buf, sizeof(pseudo) + tcp_len);
 }
 
 static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
@@ -159,37 +185,66 @@ static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
     size total = header_len + payload_len;
     if (total > ETH_MTU) return -1;
     
-    tcp_header_t *tcp = (tcp_header_t *)packet;
-    tcp->src_port = htons(conn->local_port);
-    tcp->dst_port = htons(conn->remote_port);
-    tcp->seq_num = htonl(conn->snd_nxt);
-    tcp->ack_num = htonl(conn->rcv_nxt);
-    tcp->data_off = (5 << 4);  //5 × 32-bit words = 20 bytes
-    tcp->flags = flags;
-    tcp->window = htons(conn->rcv_wnd > 0 ? conn->rcv_wnd : TCP_DEFAULT_WINDOW);
-    tcp->checksum = 0;
-    tcp->urgent = 0;
+    irq_state_t lock_flags = spinlock_irq_acquire(&tcp_lock);
+    memset(packet, 0, header_len);
+    tcp_write_u16(packet + 0, conn->local_port);
+    tcp_write_u16(packet + 2, conn->remote_port);
+    tcp_write_u32(packet + 4, conn->snd_nxt);
+    tcp_write_u32(packet + 8, conn->rcv_nxt);
+    
+    size opts_len = 0;
+    if (flags & TCP_SYN) {
+        uint8 *opts = packet + sizeof(tcp_header_t);
+        uint16 mss = (conn->remote_addr.family == NET_ADDR_FAMILY_IPV6) ?
+                     TCP_MSS_IPV6 : TCP_MSS_IPV4;
+        
+        //MSS option (kind=2, len=4, value=mss)
+        opts[0] = 2;
+        opts[1] = 4;
+        opts[2] = (uint8)(mss >> 8);
+        opts[3] = (uint8)(mss & 0xFF);
+        
+        //SACK permitted (kind=4, len=2)
+        opts[4] = 4;
+        opts[5] = 2;
+        
+        //NOP padding to 4-byte boundary (8 bytes total)
+        opts[6] = 1;
+        opts[7] = 1;
+        
+        opts_len = 8;
+        header_len += opts_len;
+        total += opts_len;
+        packet[12] = (uint8)((header_len / 4) << 4);  //7 × 32-bit words = 28 bytes
+    } else {
+        packet[12] = (5 << 4);  //5 × 32-bit words = 20 bytes
+    }
+    packet[13] = flags;
+    tcp_write_u16(packet + 14, conn->rcv_wnd > 0 ? conn->rcv_wnd : TCP_DEFAULT_WINDOW);
+    tcp_write_u16(packet + 16, 0);
+    tcp_write_u16(packet + 18, 0);
     
     if (payload_len > 0 && payload) {
         memcpy(packet + header_len, payload, payload_len);
     }
     
-    tcp->checksum = tcp_checksum(&conn->local_addr, &conn->remote_addr, packet, total);
-    
+    uint16 checksum = tcp_checksum(&conn->local_addr, &conn->remote_addr, packet, total);
+    memcpy(packet + 16, &checksum, sizeof(checksum));
+
     //advance sequence number
     if (flags & TCP_SYN) conn->snd_nxt++;
     if (flags & TCP_FIN) conn->snd_nxt++;
     conn->snd_nxt += payload_len;
     
-    printf("[tcp] TX flags=0x%02x to ", flags);
-    net_print_addr(&conn->remote_addr);
-    printf(":%u\n", conn->remote_port);
+    netif_t *nif = conn->nif;
+    net_addr_t remote_addr = conn->remote_addr;
+    spinlock_irq_release(&tcp_lock, lock_flags);
     
-    if (conn->remote_addr.family == NET_ADDR_FAMILY_IPV4) {
-        return ipv4_send(conn->nif, conn->remote_addr.addr.ipv4, IPPROTO_TCP, packet, total);
+    if (remote_addr.family == NET_ADDR_FAMILY_IPV4) {
+        return ipv4_send(nif, remote_addr.addr.ipv4, IPPROTO_TCP, packet, total);
     }
-    if (conn->remote_addr.family == NET_ADDR_FAMILY_IPV6) {
-        return ipv6_send(conn->nif, conn->remote_addr.addr.ipv6, IPPROTO_TCP, packet, total);
+    if (remote_addr.family == NET_ADDR_FAMILY_IPV6) {
+        return ipv6_send(nif, remote_addr.addr.ipv6, IPPROTO_TCP, packet, total);
     }
     return -1;
 }
@@ -198,19 +253,20 @@ static void tcp_send_rst(netif_t *nif, const net_addr_t *src_addr,
                          const net_addr_t *dst_addr, uint16 src_port,
                          uint16 dst_port, uint32 seq, uint32 ack) {
     uint8 packet[sizeof(tcp_header_t)];
-    tcp_header_t *tcp = (tcp_header_t *)packet;
-    tcp->src_port = htons(src_port);
-    tcp->dst_port = htons(dst_port);
-    tcp->seq_num = htonl(seq);
-    tcp->ack_num = htonl(ack);
-    tcp->data_off = (5 << 4);
-    tcp->flags = TCP_RST | TCP_ACK;
-    tcp->window = 0;
-    tcp->checksum = 0;
-    tcp->urgent = 0;
+    memset(packet, 0, sizeof(packet));
+    tcp_write_u16(packet + 0, src_port);
+    tcp_write_u16(packet + 2, dst_port);
+    tcp_write_u32(packet + 4, seq);
+    tcp_write_u32(packet + 8, ack);
+    packet[12] = (5 << 4);
+    packet[13] = TCP_RST | TCP_ACK;
     
-    tcp->checksum = tcp_checksum(src_addr, dst_addr, packet, sizeof(tcp_header_t));
-    
+    tcp_write_u16(packet + 14, 0);
+    tcp_write_u16(packet + 16, 0);
+    tcp_write_u16(packet + 18, 0);
+    uint16 checksum = tcp_checksum(src_addr, dst_addr, packet, sizeof(tcp_header_t));
+    memcpy(packet + 16, &checksum, sizeof(checksum));
+
     if (dst_addr->family == NET_ADDR_FAMILY_IPV4) {
         ipv4_send(nif, dst_addr->addr.ipv4, IPPROTO_TCP, packet, sizeof(tcp_header_t));
     } else if (dst_addr->family == NET_ADDR_FAMILY_IPV6) {
@@ -222,27 +278,23 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                             const net_addr_t *dst_addr, void *data, size len) {
     if (len < sizeof(tcp_header_t)) return;
     
-    tcp_header_t *tcp = (tcp_header_t *)data;
-    uint16 src_port = ntohs(tcp->src_port);
-    uint16 dst_port = ntohs(tcp->dst_port);
-    uint32 seq = ntohl(tcp->seq_num);
-    uint32 ack = ntohl(tcp->ack_num);
-    uint8 flags = tcp->flags;
-    uint8 data_off_raw = tcp->data_off >> 4;
+    const uint8 *tcp = (const uint8 *)data;
+    uint16 src_port = tcp_read_u16(tcp + 0);
+    uint16 dst_port = tcp_read_u16(tcp + 2);
+    uint32 seq = tcp_read_u32(tcp + 4);
+    uint32 ack = tcp_read_u32(tcp + 8);
+    uint8 data_off_raw = tcp[12] >> 4;
+    uint8 flags = tcp[13];
     uint8 data_off = data_off_raw * 4;
     
     if (data_off < sizeof(tcp_header_t) || data_off > len) {
-        printf("[tcp] Dropping invalid TCP packet: data_off=%u, len=%u\n", data_off, (uint32)len);
         return;
     }
     
     void *payload = (uint8 *)data + data_off;
     size payload_len = len - data_off;
     
-    printf("[tcp] RX flags=0x%02x from ", flags);
-    net_print_addr(src_addr);
-    printf(":%u -> :%u seq=%u ack=%u\n", src_port, dst_port, seq, ack);
-    
+    irq_state_t lock_flags = spinlock_irq_acquire(&tcp_lock);
     tcp_conn_t *conn = tcp_find_conn(dst_addr, dst_port, src_addr, src_port);
     
     if (!conn) {
@@ -252,8 +304,11 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
             if (tcp_listener_matches(l, dst_addr, dst_port)) {
                 //incoming SYN on a listening socket - create new connection
                 if (flags & TCP_SYN) {
-                    tcp_conn_t *newconn = tcp_alloc_conn();
-                    if (!newconn) return;
+                    tcp_conn_t *newconn = tcp_alloc_conn_locked();
+                    if (!newconn) {
+                        spinlock_irq_release(&tcp_lock, lock_flags);
+                        return;
+                    }
                     
                     newconn->nif = nif;
                     newconn->local_addr = *dst_addr;
@@ -265,14 +320,20 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                     newconn->snd_nxt = (uint32)arch_timer_get_ticks();
                     newconn->snd_una = newconn->snd_nxt;
                     newconn->rcv_wnd = TCP_DEFAULT_WINDOW;
-                    
+                    //release lock before sending
+                    spinlock_irq_release(&tcp_lock, lock_flags);
+
                     //send SYN-ACK
                     tcp_send_segment(newconn, TCP_SYN | TCP_ACK, NULL, 0);
+                } else {
+                    spinlock_irq_release(&tcp_lock, lock_flags);
                 }
                 return;
             }
         }
         
+        spinlock_irq_release(&tcp_lock, lock_flags);
+
         //no connection and no listener send RST
         if (!(flags & TCP_RST)) {
             if (flags & TCP_ACK) {
@@ -291,10 +352,10 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
         case TCP_STATE_SYN_RECEIVED:
             if ((flags & TCP_ACK) && ack == conn->snd_nxt) {
                 conn->snd_una = ack;
+                conn->snd_nxt = ack;
                 conn->state = TCP_STATE_ESTABLISHED;
-                printf("[tcp] Connection established from ");
-                net_print_addr(&conn->remote_addr);
-                printf(":%u\n", conn->remote_port);
+                spinlock_irq_release(&tcp_lock, lock_flags);
+                return;
             }
             break;
             
@@ -303,13 +364,12 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                 if (ack == conn->snd_nxt) {
                     conn->rcv_nxt = seq + 1;
                     conn->snd_una = ack;
+                    conn->snd_nxt = ack;
                     conn->state = TCP_STATE_ESTABLISHED;
-                    
+                    spinlock_irq_release(&tcp_lock, lock_flags);
                     //send ACK
                     tcp_send_segment(conn, TCP_ACK, NULL, 0);
-                    printf("[tcp] Connection established to ");
-                    net_print_addr(&conn->remote_addr);
-                    printf(":%u\n", conn->remote_port);
+                    return;
                 }
             }
             break;
@@ -318,10 +378,10 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
             if (flags & TCP_RST) {
                 conn->state = TCP_STATE_CLOSED;
                 conn->active = false;
-                printf("[tcp] Connection reset by peer\n");
+                spinlock_irq_release(&tcp_lock, lock_flags);
                 return;
             }
-            
+
             //handle ACK
             if (flags & TCP_ACK) {
                 conn->snd_una = ack;
@@ -336,11 +396,14 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                     conn->rx_len += copy;
                     conn->rcv_nxt += copy; //only advance by what was actually buffered
                     
+                    spinlock_irq_release(&tcp_lock, lock_flags);
                     //send ACK for the newly buffered data
                     tcp_send_segment(conn, TCP_ACK, NULL, 0);
+                    return;
                 } else {
+                    spinlock_irq_release(&tcp_lock, lock_flags);
                     //buffer full, don't advance rcv_nxt and don't ACK
-                    printf("[tcp] Receive buffer full, dropping payload\n");
+                    return;
                 }
             }
             
@@ -348,8 +411,9 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
             if (flags & TCP_FIN) {
                 conn->rcv_nxt = seq + payload_len + 1;
                 conn->state = TCP_STATE_CLOSE_WAIT;
+                spinlock_irq_release(&tcp_lock, lock_flags);
                 tcp_send_segment(conn, TCP_ACK, NULL, 0);
-                printf("[tcp] Peer sent FIN, connection closing\n");
+                return;
             }
             break;
             
@@ -358,8 +422,10 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                 if (flags & TCP_FIN) {
                     conn->rcv_nxt = seq + 1;
                     conn->state = TCP_STATE_CLOSED;
-                    tcp_send_segment(conn, TCP_ACK, NULL, 0);
                     conn->active = false;
+                    spinlock_irq_release(&tcp_lock, lock_flags);
+                    tcp_send_segment(conn, TCP_ACK, NULL, 0);
+                    return;
                 } else {
                     conn->state = TCP_STATE_FIN_WAIT_2;
                 }
@@ -370,8 +436,10 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
             if (flags & TCP_FIN) {
                 conn->rcv_nxt = seq + 1;
                 conn->state = TCP_STATE_CLOSED;
-                tcp_send_segment(conn, TCP_ACK, NULL, 0);
                 conn->active = false;
+                spinlock_irq_release(&tcp_lock, lock_flags);
+                tcp_send_segment(conn, TCP_ACK, NULL, 0);
+                return;
             }
             break;
             
@@ -381,10 +449,11 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                 conn->active = false;
             }
             break;
-            
+
         default:
             break;
     }
+    spinlock_irq_release(&tcp_lock, lock_flags);
 }
 
 void tcp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) {
@@ -404,31 +473,38 @@ void tcp_recv_ipv6(netif_t *nif, const uint8 src_ip[NET_IPV6_ADDR_LEN],
     tcp_recv_common(nif, &src_addr, &dst_addr, data, len);
 }
 
-static tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
-                                    uint16 dst_port, uint16 src_port) {
+tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
+                             uint16 dst_port, uint16 src_port) {
     if (src_port == 0) {
         src_port = tcp_get_free_port();
         if (src_port == 0) return NULL;
     }
     
-    tcp_conn_t *conn = tcp_alloc_conn();
-    if (!conn) return NULL;
+    irq_state_t lock_flags = spinlock_irq_acquire(&tcp_lock);
+    tcp_conn_t *conn = tcp_alloc_conn_locked();
+    if (!conn) {
+        spinlock_irq_release(&tcp_lock, lock_flags);
+        return NULL;
+    }
     
     conn->nif = nif;
     if (dst_addr->family == NET_ADDR_FAMILY_IPV4) {
         if (nif->ip_addr == 0) {
             conn->active = false;
+            spinlock_irq_release(&tcp_lock, lock_flags);
             return NULL;
         }
         tcp_addr_from_ipv4(&conn->local_addr, nif->ip_addr);
     } else if (dst_addr->family == NET_ADDR_FAMILY_IPV6) {
         if (ipv6_addr_is_unspecified(nif->ipv6_addr)) {
             conn->active = false;
+            spinlock_irq_release(&tcp_lock, lock_flags);
             return NULL;
         }
         tcp_addr_from_ipv6(&conn->local_addr, nif->ipv6_addr);
     } else {
         conn->active = false;
+        spinlock_irq_release(&tcp_lock, lock_flags);
         return NULL;
     }
     conn->local_port = src_port;
@@ -439,6 +515,7 @@ static tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
     conn->snd_una = conn->snd_nxt;
     conn->rcv_wnd = TCP_DEFAULT_WINDOW;
     conn->rx_len = 0;
+    spinlock_irq_release(&tcp_lock, lock_flags);
     
     //send SYN
     tcp_send_segment(conn, TCP_SYN, NULL, 0);
@@ -453,33 +530,21 @@ static tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
         
         while (arch_timer_get_ticks() - start < timeout) {
             if (conn->state == TCP_STATE_ESTABLISHED) return conn;
-            arch_pause();
+            sched_yield();
         }
         
         //retransmit SYN
         if (attempt < 2) {
+            lock_flags = spinlock_irq_acquire(&tcp_lock);
             conn->snd_nxt = conn->snd_una; //reset seq for retransmit
+            spinlock_irq_release(&tcp_lock, lock_flags);
             tcp_send_segment(conn, TCP_SYN, NULL, 0);
         }
     }
     
-    printf("[tcp] Connection timed out\n");
     conn->state = TCP_STATE_CLOSED;
     conn->active = false;
     return NULL;
-}
-
-tcp_conn_t *tcp_connect(netif_t *nif, uint32 dst_ip, uint16 dst_port, uint16 src_port) {
-    net_addr_t dst_addr;
-    tcp_addr_from_ipv4(&dst_addr, dst_ip);
-    return tcp_connect_addr(nif, &dst_addr, dst_port, src_port);
-}
-
-tcp_conn_t *tcp_connect_ipv6(netif_t *nif, const uint8 dst_ip[NET_IPV6_ADDR_LEN],
-                             uint16 dst_port, uint16 src_port) {
-    net_addr_t dst_addr;
-    tcp_addr_from_ipv6(&dst_addr, dst_ip);
-    return tcp_connect_addr(nif, &dst_addr, dst_port, src_port);
 }
 
 int tcp_send(tcp_conn_t *conn, const void *data, size len) {
@@ -504,9 +569,34 @@ int tcp_send(tcp_conn_t *conn, const void *data, size len) {
 int tcp_read(tcp_conn_t *conn, void *buf, size len) {
     if (!conn) return -1;
     
-    size copy = (conn->rx_len < len) ? conn->rx_len : len;
-    if (copy == 0) return 0;
+    uint32 freq = arch_timer_getfreq();
+    if (freq == 0) freq = 1000;
+    uint64 start = arch_timer_get_ticks();
+    uint64 timeout = (uint64)freq * 10; //10 seconds
     
+    irq_state_t flags = spinlock_irq_acquire(&tcp_lock);
+    while (conn->rx_len == 0) {
+        if (conn->state != TCP_STATE_ESTABLISHED && 
+            conn->state != TCP_STATE_SYN_SENT &&
+            conn->state != TCP_STATE_SYN_RECEIVED &&
+            conn->state != TCP_STATE_CLOSE_WAIT &&
+            conn->state != TCP_STATE_FIN_WAIT_1 &&
+            conn->state != TCP_STATE_FIN_WAIT_2) {
+            spinlock_irq_release(&tcp_lock, flags);
+            return 0; //connection closed/closing and no data
+        }
+        
+        if (arch_timer_get_ticks() - start > timeout) {
+            spinlock_irq_release(&tcp_lock, flags);
+            return -1; //timeout
+        }
+        
+        spinlock_irq_release(&tcp_lock, flags);
+        sched_yield();
+        flags = spinlock_irq_acquire(&tcp_lock);
+    }
+    
+    size copy = (conn->rx_len < len) ? conn->rx_len : len;
     memcpy(buf, conn->rx_buf, copy);
     
     //shift remaining data
@@ -515,6 +605,7 @@ int tcp_read(tcp_conn_t *conn, void *buf, size len) {
     }
     conn->rx_len -= copy;
     
+    spinlock_irq_release(&tcp_lock, flags);
     return (int)copy;
 }
 
@@ -532,7 +623,7 @@ int tcp_close(tcp_conn_t *conn) {
     return 0;
 }
 
-static tcp_conn_t *tcp_listen_addr(netif_t *nif, const net_addr_t *local_addr, uint16 port) {
+tcp_conn_t *tcp_listen_addr(netif_t *nif, const net_addr_t *local_addr, uint16 port) {
     tcp_conn_t *conn = tcp_alloc_conn();
     if (!conn) return NULL;
     
@@ -542,21 +633,7 @@ static tcp_conn_t *tcp_listen_addr(netif_t *nif, const net_addr_t *local_addr, u
     conn->state = TCP_STATE_LISTEN;
     conn->listening = true;
     
-    printf("[tcp] Listening on port %u\n", port);
     return conn;
-}
-
-tcp_conn_t *tcp_listen(netif_t *nif, uint16 port) {
-    net_addr_t local_addr;
-    tcp_addr_from_ipv4(&local_addr, 0);
-    return tcp_listen_addr(nif, &local_addr, port);
-}
-
-tcp_conn_t *tcp_listen_ipv6(netif_t *nif, uint16 port) {
-    net_addr_t local_addr;
-    local_addr.family = NET_ADDR_FAMILY_IPV6;
-    memset(local_addr.addr.ipv6, 0, NET_IPV6_ADDR_LEN);
-    return tcp_listen_addr(nif, &local_addr, port);
 }
 
 tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
@@ -577,7 +654,7 @@ tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
                  tcp_addr_equal(&c->local_addr, &listener->local_addr)) &&
                 c->state == TCP_STATE_ESTABLISHED) {
                 c->accepted = true;
-                return c;
+                return c;   
             }
         }
         arch_pause();

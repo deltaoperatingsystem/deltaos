@@ -162,16 +162,16 @@ int object_get_info(handle_t h, uint32 topic, void *ptr, uint64 len);
 
 //networking
 #define IPV6_ADDR_LEN 16
+#define NET_ADDR_FAMILY_NONE 0
+#define NET_ADDR_FAMILY_IPV4 4
+#define NET_ADDR_FAMILY_IPV6 6
 
-int ping(uint8 a, uint8 b, uint8 c, uint8 d, uint32 count);
-int ping6(const uint8 addr[IPV6_ADDR_LEN], uint32 count);
+int ping(uint8 family, const void *addr, uint32 addr_len, uint32 count);
 int dns_resolve(const char *hostname, uint32 *ip_out);
 int dns_resolve_aaaa(const char *hostname, uint8 ipv6_out[IPV6_ADDR_LEN]);
 int get_cmdline(char *buf, size len);
-handle_t tcp_connect(const char *hostname, uint16 port);
-handle_t tcp_connect_ipv6(const uint8 addr[IPV6_ADDR_LEN], uint16 port);
-handle_t tcp_listen(uint16 port);
-handle_t tcp_listen_ipv6(uint16 port);
+handle_t tcp_connect(uint8 family, const void *addr, uint32 addr_len, uint16 port);
+handle_t tcp_listen(uint8 family, const void *addr, uint32 addr_len, uint16 port);
 handle_t tcp_accept(handle_t listener);
 
 #endif

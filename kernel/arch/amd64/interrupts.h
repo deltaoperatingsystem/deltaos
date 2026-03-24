@@ -21,6 +21,7 @@ void pic_set_mask(uint8 irqline);
 void pic_clear_mask(uint8 irqline);
 void interrupt_mask(uint8 irq);
 void interrupt_unmask(uint8 irq);
+void interrupt_register(uint8 irq, void (*handler)(void));
 void apic_send_eoi(void);
 
 #endif

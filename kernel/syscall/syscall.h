@@ -64,10 +64,7 @@
 #define SYS_TCP_CONNECT     66  //connect to host:port, returns socket handle
 #define SYS_TCP_LISTEN      67  //listen on port, returns listener handle
 #define SYS_TCP_ACCEPT      68  //accept connection on listener, returns socket handle
-#define SYS_TCP_CONNECT_IPV6 69 //connect to IPv6 addr:port, returns socket handle
-#define SYS_TCP_LISTEN_IPV6 70  //listen on IPv6 address, returns listener handle
-#define SYS_PING6           71  //send ICMPv6 echo to IPv6 address
-#define SYS_DNS_RESOLVE_AAAA 72 //resolve hostname to IPv6 address (AAAA)
+#define SYS_DNS_RESOLVE_AAAA 71 //resolve hostname to IPv6 address (AAAA)
 
 #define SYS_MAX             256
 
@@ -178,14 +175,15 @@ intptr sys_get_ticks(void);
 intptr sys_reboot(void);
 intptr sys_shutdown(void);
 intptr sys_object_get_info(handle_t h, uint32 topic, void *ptr, size len);
-intptr sys_ping(uint32 ip_a, uint32 ip_b, uint32 ip_c, uint32 ip_d, uint32 count);
-intptr sys_ping6(const uint8 *dst_ipv6, uint32 count);
+intptr sys_ping(uint32 family, const void *dst_addr, uint32 addr_len, uint32 count);
 intptr sys_dns_resolve(const char *hostname, uint32 *ip_out);
 intptr sys_dns_resolve_aaaa(const char *hostname, uint8 *ipv6_out);
-intptr sys_tcp_connect(const char *hostname, uint16 port);
-intptr sys_tcp_listen(uint16 port);
+intptr sys_tcp_connect(uint32 family, const void *dst_addr, uint32 addr_len, uint16 port);
+intptr sys_tcp_listen(uint32 family, const void *local_addr, uint32 addr_len, uint16 port);
 intptr sys_tcp_accept(handle_t listen_h);
-intptr sys_tcp_connect_ipv6(const uint8 *dst_ip, uint16 port);
-intptr sys_tcp_listen_ipv6(uint16 port);
+
+//helper for safe user-space copies
+int copy_user_bytes(const void *user_ptr, void *kernel_buf, size len);
+int copy_user_cstr(const char *user_str, char *kernel_buf, size kernel_len);
 
 #endif

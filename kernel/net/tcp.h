@@ -87,8 +87,7 @@ void tcp_recv_ipv6(netif_t *nif, const uint8 src_ip[NET_IPV6_ADDR_LEN],
                    const uint8 dst_ip[NET_IPV6_ADDR_LEN], void *data, size len);
 
 //create a TCP connection (active open)
-tcp_conn_t *tcp_connect(netif_t *nif, uint32 dst_ip, uint16 dst_port, uint16 src_port);
-tcp_conn_t *tcp_connect_ipv6(netif_t *nif, const uint8 dst_ip[NET_IPV6_ADDR_LEN],
+tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
                              uint16 dst_port, uint16 src_port);
 
 //send data on an established connection
@@ -100,9 +99,8 @@ int tcp_read(tcp_conn_t *conn, void *buf, size len);
 //close a connection (graceful)
 int tcp_close(tcp_conn_t *conn);
 
-//passive open: listen on a port
-tcp_conn_t *tcp_listen(netif_t *nif, uint16 port);
-tcp_conn_t *tcp_listen_ipv6(netif_t *nif, uint16 port);
+//passive open: listen on a port/address
+tcp_conn_t *tcp_listen_addr(netif_t *nif, const net_addr_t *local_addr, uint16 port);
 
 //accept an incoming connection on a listening socket
 tcp_conn_t *tcp_accept(tcp_conn_t *listener);

@@ -8,6 +8,7 @@
 #include <lib/spinlock.h>
 #include <arch/cpu.h>
 #include <arch/timer.h>
+#include <proc/sched.h>
 
 #define NDP_CACHE_SIZE            32
 #define NDP_OPT_SOURCE_LLADDR     1
@@ -15,9 +16,37 @@
 #define NDP_NA_FLAG_SOLICITED     0x40000000u
 #define NDP_NA_FLAG_OVERRIDE      0x20000000u
 
+typedef struct __attribute__((packed)) {
+    uint8  type;
+    uint8  code;
+    uint16 checksum;
+    uint8  cur_hop_limit;
+    uint8  flags;
+    uint16 router_lifetime;
+    uint32 reachable_time;
+    uint32 retrans_timer;
+} ndp_ra_t;
+
+typedef struct __attribute__((packed)) {
+    uint8  type;
+    uint8  code;
+    uint16 checksum;
+    uint32 reserved;
+} ndp_rs_t;
+
+typedef enum {
+    NDP_STATE_INCOMPLETE,
+    NDP_STATE_REACHABLE,
+    NDP_STATE_STALE,
+    NDP_STATE_DELAY,
+    NDP_STATE_PROBE
+} ndp_state_t;
+
 typedef struct {
     uint8 ip[NET_IPV6_ADDR_LEN];
     uint8 mac[MAC_ADDR_LEN];
+    uint64 last_seen;
+    ndp_state_t state;
     bool  valid;
 } ndp_entry_t;
 
@@ -46,6 +75,11 @@ typedef struct __attribute__((packed)) {
 static ndp_entry_t ndp_cache[NDP_CACHE_SIZE];
 static spinlock_irq_t ndp_lock = SPINLOCK_IRQ_INIT;
 
+static unsigned ndp_next_evict = 0;
+
+static const uint8 ndp_all_routers[NET_IPV6_ADDR_LEN] =
+    {0xFF, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02};
+
 static void ndp_cache_update(const uint8 ip[NET_IPV6_ADDR_LEN],
                              const uint8 mac[MAC_ADDR_LEN]) {
     irq_state_t flags = spinlock_irq_acquire(&ndp_lock);
@@ -53,6 +87,8 @@ static void ndp_cache_update(const uint8 ip[NET_IPV6_ADDR_LEN],
     for (int i = 0; i < NDP_CACHE_SIZE; i++) {
         if (ndp_cache[i].valid && ipv6_addr_equal(ndp_cache[i].ip, ip)) {
             memcpy(ndp_cache[i].mac, mac, MAC_ADDR_LEN);
+            ndp_cache[i].last_seen = arch_timer_get_ticks();
+            ndp_cache[i].state = NDP_STATE_REACHABLE;
             spinlock_irq_release(&ndp_lock, flags);
             return;
         }
@@ -62,15 +98,22 @@ static void ndp_cache_update(const uint8 ip[NET_IPV6_ADDR_LEN],
         if (!ndp_cache[i].valid) {
             memcpy(ndp_cache[i].ip, ip, NET_IPV6_ADDR_LEN);
             memcpy(ndp_cache[i].mac, mac, MAC_ADDR_LEN);
+            ndp_cache[i].last_seen = arch_timer_get_ticks();
+            ndp_cache[i].state = NDP_STATE_REACHABLE;
             ndp_cache[i].valid = true;
             spinlock_irq_release(&ndp_lock, flags);
             return;
         }
     }
 
-    memcpy(ndp_cache[0].ip, ip, NET_IPV6_ADDR_LEN);
-    memcpy(ndp_cache[0].mac, mac, MAC_ADDR_LEN);
-    ndp_cache[0].valid = true;
+    unsigned idx = ndp_next_evict;
+    ndp_next_evict = (ndp_next_evict + 1) % NDP_CACHE_SIZE;
+
+    memcpy(ndp_cache[idx].ip, ip, NET_IPV6_ADDR_LEN);
+    memcpy(ndp_cache[idx].mac, mac, MAC_ADDR_LEN);
+    ndp_cache[idx].last_seen = arch_timer_get_ticks();
+    ndp_cache[idx].state = NDP_STATE_REACHABLE;
+    ndp_cache[idx].valid = true;
     spinlock_irq_release(&ndp_lock, flags);
 }
 
@@ -85,6 +128,32 @@ static bool ndp_cache_lookup(const uint8 ip[NET_IPV6_ADDR_LEN], uint8 mac_out[MA
     }
     spinlock_irq_release(&ndp_lock, flags);
     return false;
+}
+
+bool ndp_get_default_router(netif_t *nif, uint8 out[NET_IPV6_ADDR_LEN]) {
+    if (!nif || !out) return false;
+
+    irq_state_t flags = spinlock_irq_acquire(&ndp_lock);
+    bool ok = !ipv6_addr_is_unspecified(nif->ipv6_gateway);
+    if (ok) memcpy(out, nif->ipv6_gateway, NET_IPV6_ADDR_LEN);
+    spinlock_irq_release(&ndp_lock, flags);
+    return ok;
+}
+
+void ndp_set_default_router(netif_t *nif, const uint8 router[NET_IPV6_ADDR_LEN]) {
+    if (!nif || !router) return;
+
+    irq_state_t flags = spinlock_irq_acquire(&ndp_lock);
+    memcpy(nif->ipv6_gateway, router, NET_IPV6_ADDR_LEN);
+    spinlock_irq_release(&ndp_lock, flags);
+}
+
+void ndp_clear_default_router(netif_t *nif) {
+    if (!nif) return;
+
+    irq_state_t flags = spinlock_irq_acquire(&ndp_lock);
+    memset(nif->ipv6_gateway, 0, NET_IPV6_ADDR_LEN);
+    spinlock_irq_release(&ndp_lock, flags);
 }
 
 static const ndp_lladdr_opt_t *ndp_find_lladdr_option(const void *opt_data, size opt_len,
@@ -151,6 +220,19 @@ static void ndp_send_solicit(netif_t *nif, const uint8 target[NET_IPV6_ADDR_LEN]
     ipv6_send_ex(nif, multicast, IPPROTO_ICMPV6, 255, packet, total);
 }
 
+static void ndp_send_router_solicit(netif_t *nif) {
+    uint8 packet[sizeof(ndp_rs_t)];
+    ndp_rs_t *rs = (ndp_rs_t *)packet;
+
+    rs->type = ICMPV6_TYPE_ROUTER_SOLICIT;
+    rs->code = 0;
+    rs->checksum = 0;
+    rs->reserved = 0;
+    rs->checksum = ipv6_upper_checksum(nif->ipv6_addr, ndp_all_routers,
+                                       IPPROTO_ICMPV6, packet, sizeof(packet));
+    ipv6_send_ex(nif, ndp_all_routers, IPPROTO_ICMPV6, 255, packet, sizeof(packet));
+}
+
 void ndp_recv(netif_t *nif, const uint8 src[NET_IPV6_ADDR_LEN],
               const uint8 dst[NET_IPV6_ADDR_LEN], uint8 hop_limit,
               const void *data, size len) {
@@ -175,6 +257,24 @@ void ndp_recv(netif_t *nif, const uint8 src[NET_IPV6_ADDR_LEN],
         net_print_ipv6(src);
         printf(", replying\n");
         ndp_send_advert(nif, src);
+    } else if (icmp->type == ICMPV6_TYPE_ROUTER_ADVERT) {
+        if (len < sizeof(ndp_ra_t)) return;
+        const ndp_ra_t *ra = (const ndp_ra_t *)data;
+        uint16 lifetime = ntohs(ra->router_lifetime);
+
+        if (lifetime == 0) {
+            ndp_clear_default_router(nif);
+            return;
+        }
+
+        if (ipv6_addr_is_unspecified(src) || ipv6_addr_equal(src, nif->ipv6_addr)) {
+            return;
+        }
+
+        ndp_set_default_router(nif, src);
+        printf("[ndp] Router advertisement from ");
+        net_print_ipv6(src);
+        printf(", gateway learned\n");
     } else if (icmp->type == ICMPV6_TYPE_NEIGHBOR_ADVERT) {
         if (len < sizeof(ndp_na_t)) return;
         const ndp_na_t *na = (const ndp_na_t *)data;
@@ -192,6 +292,59 @@ void ndp_recv(netif_t *nif, const uint8 src[NET_IPV6_ADDR_LEN],
     }
 
     (void)dst;
+}
+
+int ndp_discover_router(netif_t *nif) {
+    if (!nif) return -1;
+
+    if (!ipv6_addr_is_unspecified(nif->ipv6_gateway)) {
+        return 0;
+    }
+
+    uint32 freq = arch_timer_getfreq();
+    if (freq == 0) freq = 1000;
+
+    for (int attempt = 0; attempt < 3; attempt++) {
+        ndp_send_router_solicit(nif);
+
+        uint64 start = arch_timer_get_ticks();
+        uint32 timeout_ticks = freq / 2;
+        if (timeout_ticks == 0) timeout_ticks = 1;
+
+        while (arch_timer_get_ticks() - start < timeout_ticks) {
+            net_poll();
+            if (!ipv6_addr_is_unspecified(nif->ipv6_gateway)) {
+                return 0;
+            }
+            sched_yield();
+        }
+    }
+
+    printf("[ndp] Failed to discover IPv6 router on ");
+    printf("%s\n", nif->name);
+    return -1;
+}
+
+void ndp_timer_tick(void) {
+    irq_state_t flags = spinlock_irq_acquire(&ndp_lock);
+    uint64 now = arch_timer_get_ticks();
+    uint32 freq = arch_timer_getfreq();
+    if (freq == 0) freq = 1000;
+
+    for (int i = 0; i < NDP_CACHE_SIZE; i++) {
+        if (!ndp_cache[i].valid) continue;
+        
+        //age REACHABLE entries to STALE after 30 seconds
+        if (ndp_cache[i].state == NDP_STATE_REACHABLE && (now - ndp_cache[i].last_seen) > (30 * freq)) {
+            ndp_cache[i].state = NDP_STATE_STALE;
+        }
+
+        //remove STALE entries after 2 hours (RFC-ish, but let's do 120s for now to be aggressive)
+        if (ndp_cache[i].state == NDP_STATE_STALE && (now - ndp_cache[i].last_seen) > (120 * freq)) {
+            ndp_cache[i].valid = false;
+        }
+    }
+    spinlock_irq_release(&ndp_lock, flags);
 }
 
 int ndp_resolve(netif_t *nif, const uint8 target[NET_IPV6_ADDR_LEN],
@@ -218,8 +371,9 @@ int ndp_resolve(netif_t *nif, const uint8 target[NET_IPV6_ADDR_LEN],
         uint32 timeout_ticks = freq / 2;
 
         while (arch_timer_get_ticks() - start < timeout_ticks) {
+            net_poll();
             if (ndp_cache_lookup(target, mac_out)) return 0;
-            arch_pause();
+            sched_yield();
         }
     }
 

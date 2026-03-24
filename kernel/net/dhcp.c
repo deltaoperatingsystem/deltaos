@@ -51,7 +51,6 @@ static const uint8 *dhcp_parse_option(const uint8 *opt, const uint8 *end,
     if (opt + 1 >= end) return NULL;
     uint8 len = opt[1];
     if (opt + 2 + len > end) {
-        printf("[dhcp] WARNING: Option 0x%02x length %u exceeds buffer\n", type, len);
         return NULL;
     }
     
@@ -128,9 +127,7 @@ static void dhcp_send_discover(netif_t *nif) {
     if (msg_len < DHCP_MIN_MSG_SIZE) {
         msg_len = DHCP_MIN_MSG_SIZE;
     }
-    if (udp_send_no_checksum(nif, 0xFFFFFFFF, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, msg_len) < 0) {
-        printf("[dhcp] Failed to send discover\n");
-    }
+    (void)udp_send_no_checksum(nif, 0xFFFFFFFF, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, msg_len);
 }
 
 //build and send a DHCP REQUEST
@@ -184,16 +181,15 @@ static void dhcp_send_request(netif_t *nif) {
     if (msg_len < DHCP_MIN_MSG_SIZE) {
         msg_len = DHCP_MIN_MSG_SIZE;
     }
-    if (udp_send_no_checksum(nif, 0xFFFFFFFF, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, msg_len) < 0) {
-        printf("[dhcp] Failed to send request\n");
-    }
+    (void)udp_send_no_checksum(nif, 0xFFFFFFFF, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, msg_len);
 }
 
 //UDP callback for port 68 (DHCP client)
 static void dhcp_recv_handler(netif_t *nif, uint32 src_ip, uint16 src_port,
-                               const void *data, size len) {
+                               const void *data, size len, void *ctx) {
     (void)src_port;
     (void)nif;
+    (void)ctx;
 
     if (len < sizeof(dhcp_msg_t)) return;
     
@@ -281,10 +277,7 @@ int dhcp_init(netif_t *nif) {
     dhcp_ctx.xid ^= (uint32)arch_timer_get_ticks();
     
     //bind UDP port 68 for incoming DHCP replies
-    if (udp_bind(DHCP_CLIENT_PORT, dhcp_recv_handler) < 0) {
-        printf("[dhcp] Failed to bind port %u\n", DHCP_CLIENT_PORT);
-        return -1;
-    }
+    if (udp_bind(DHCP_CLIENT_PORT, dhcp_recv_handler, NULL) < 0) return -1;
     
     //phase 1: DISCOVER -> OFFER
     dhcp_ctx.state = DHCP_STATE_DISCOVERING;
@@ -305,7 +298,6 @@ int dhcp_init(netif_t *nif) {
         }
     }
     
-    printf("[dhcp] DHCP failed\n");
     udp_unbind(DHCP_CLIENT_PORT);
     return -1;
 
@@ -328,7 +320,6 @@ got_offer:
     }
 
 fallback:
-    printf("[dhcp] DHCP failed\n");
     udp_unbind(DHCP_CLIENT_PORT);
     return -1;
 

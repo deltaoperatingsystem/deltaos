@@ -183,25 +183,23 @@ void pmm_init(void) {
     serial_write("\n");
 }
 
-void *pmm_alloc(size pages) {
+static void *pmm_alloc_internal(size pages, size limit_page) {
     if (pages == 0) return NULL;
-
-    irq_state_t flags = spinlock_irq_acquire(&pmm_lock);
 
     size consecutive = 0;
     size start_bit = 0;
 
     //word skipping optimization
     uword *bitmap_words = (uword *)bitmap;
-    size max_words = max_pages / ARCH_BITS;
+    size max_words = limit_page / ARCH_BITS;
 
-    for (size i = last_free_page; i < max_pages; ) {
+    for (size i = last_free_page; i < limit_page; ) {
         //if we are at the start of a word and need more than current bit try skipping
         if ((i % ARCH_BITS == 0) && (consecutive == 0)) {
             while (i / ARCH_BITS < max_words && bitmap_words[i / ARCH_BITS] == (uword)-1) {
                 i += ARCH_BITS;
             }
-            if (i >= max_pages) break;
+            if (i >= limit_page) break;
         }
 
         if (!BITMAP_TEST(i)) {
@@ -213,9 +211,7 @@ void *pmm_alloc(size pages) {
                 }
                 free_pages -= pages;
                 last_free_page = start_bit + pages;
-                void *res = (void *)(uintptr)(start_bit * PAGE_SIZE);
-                spinlock_irq_release(&pmm_lock, flags);
-                return res;
+                return (void *)(uintptr)(start_bit * PAGE_SIZE);
             }
         } else {
             consecutive = 0;
@@ -225,7 +221,7 @@ void *pmm_alloc(size pages) {
 
     //if we reached the end try searching from the beginning once
     if (last_free_page > 0) {
-        size search_limit = last_free_page;
+        size search_limit = (last_free_page < limit_page) ? last_free_page : limit_page;
         last_free_page = 0;
         consecutive = 0;
         for (size i = 0; i < search_limit; ) {
@@ -245,9 +241,7 @@ void *pmm_alloc(size pages) {
                     }
                     free_pages -= pages;
                     last_free_page = start_bit + pages;
-                    void *res = (void *)(uintptr)(start_bit * PAGE_SIZE);
-                    spinlock_irq_release(&pmm_lock, flags);
-                    return res;
+                    return (void *)(uintptr)(start_bit * PAGE_SIZE);
                 }
             } else {
                 consecutive = 0;
@@ -256,8 +250,24 @@ void *pmm_alloc(size pages) {
         }
     }
 
-    spinlock_irq_release(&pmm_lock, flags);
     return NULL;
+}
+
+void *pmm_alloc(size pages) {
+    irq_state_t flags = spinlock_irq_acquire(&pmm_lock);
+    void *res = pmm_alloc_internal(pages, max_pages);
+    spinlock_irq_release(&pmm_lock, flags);
+    return res;
+}
+
+void *pmm_alloc_zone(size pages, uintptr max_addr) {
+    size limit_page = max_addr / PAGE_SIZE;
+    if (limit_page > max_pages) limit_page = max_pages;
+
+    irq_state_t flags = spinlock_irq_acquire(&pmm_lock);
+    void *res = pmm_alloc_internal(pages, limit_page);
+    spinlock_irq_release(&pmm_lock, flags);
+    return res;
 }
 
 void pmm_free(void *ptr, size pages) {

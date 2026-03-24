@@ -8,6 +8,7 @@
 void pmm_init(void);
 
 void *pmm_alloc(size pages);
+void *pmm_alloc_zone(size pages, uintptr max_addr);
 void pmm_free(void *ptr, size pages);
 
 size pmm_get_total_pages(void);

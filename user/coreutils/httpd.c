@@ -16,7 +16,8 @@ int main(int argc, char **argv) {
     
     printf("httpd: listening on port 80 (%s)...\n", use_ipv6 ? "IPv6" : "IPv4");
     
-    handle_t listener = use_ipv6 ? tcp_listen_ipv6(80) : tcp_listen(80);
+    handle_t listener = tcp_listen(use_ipv6 ? NET_ADDR_FAMILY_IPV6 : NET_ADDR_FAMILY_IPV4,
+                                    NULL, 0, 80);
     if (listener < 0) {
         printf("httpd: error: failed to listen on port 80 (%s)\n",
                use_ipv6 ? "IPv6" : "IPv4");

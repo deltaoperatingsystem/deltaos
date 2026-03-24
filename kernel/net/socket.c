@@ -5,8 +5,7 @@
 #include <obj/kobject.h>
 #include <lib/io.h>
 #include <lib/string.h>
-#include <arch/timer.h>
-#include <arch/cpu.h>
+#include <net/net.h>
 
 /*
  *socket object operations
@@ -22,31 +21,15 @@ static ssize socket_read(object_t *obj, void *buf, size len, size offset) {
     tcp_conn_t *conn = (tcp_conn_t *)obj->data;
     if (!conn) return -1;
     
-    //if connection is closed and no data buffered, return 0 (EOF)
-    if (conn->state != TCP_STATE_ESTABLISHED &&
-        conn->state != TCP_STATE_CLOSE_WAIT &&
-        conn->rx_len == 0) {
+    //if connection is fully closed and no data buffered, return 0 (EOF)
+    if (conn->state == TCP_STATE_CLOSED && conn->rx_len == 0) {
         return 0;
     }
     
-    //block until data arrives or timeout (5 seconds)
-    uint32 freq = arch_timer_getfreq();
-    if (freq == 0) freq = 1000;
-    uint64 start = arch_timer_get_ticks();
-    uint64 timeout = (uint64)freq * 5;
-    
-    while (conn->rx_len == 0) {
-        if (conn->state != TCP_STATE_ESTABLISHED &&
-            conn->state != TCP_STATE_CLOSE_WAIT) {
-            return 0; //connection closed, EOF
-        }
-        if (arch_timer_get_ticks() - start >= timeout) {
-            return 0; //timeout, no data
-        }
-        arch_pause();
-    }
-    
-    return (ssize)tcp_read(conn, buf, len);
+    //delegate to tcp_read which handles polling, yielding, and timeout
+    int result = tcp_read(conn, buf, len);
+    if (result < 0) return -1; //error/timeout
+    return (ssize)result;
 }
 
 static ssize socket_write(object_t *obj, const void *buf, size len, size offset) {

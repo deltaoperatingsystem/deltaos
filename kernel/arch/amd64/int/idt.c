@@ -10,6 +10,7 @@
 #include <arch/amd64/context.h>
 #include <arch/amd64/int/apic.h>
 #include <arch/amd64/int/ioapic.h>
+#include <arch/percpu.h>
 #include <arch/smp.h>
 #include <proc/sched.h>
 #include <proc/process.h>
@@ -38,6 +39,14 @@ static struct idtr idtr;
 extern void *isr_stub_table[];
 extern void arch_timer_tick(void);
 
+static void (*irq_handlers[16])(void) = {0};
+
+void interrupt_register(uint8 irq, void (*handler)(void)) {
+    if (irq < 16) {
+        irq_handlers[irq] = handler;
+    }
+}
+
 static void irq0_handler(int from_usermode) {
     arch_timer_tick();
     sched_tick(from_usermode);  //preemptive scheduling - only preempt if from usermode
@@ -45,6 +54,14 @@ static void irq0_handler(int from_usermode) {
 
 void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_frame_t *frame) {
     if (vector < 32) {
+        //check for safe-copy recovery
+        percpu_t *cpu = percpu_get();
+        if (cpu->recovery_rip != 0) {
+            frame->rip = cpu->recovery_rip;
+            cpu->recovery_rip = 0;
+            return;
+        }
+
         // TODO: this is a basic impl
         // we should probably have our own POSIX signal equivalent
         process_t *p = process_current();
@@ -86,11 +103,10 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
             case 12:
                 mouse_irq();
                 break;
-            case 11:
-                rtl8139_irq();
-                break;
             default: {
-                if (vector >= 0x40 && vector <= 0x47) {
+                if (irq < 16 && irq_handlers[irq]) {
+                    irq_handlers[irq]();
+                } else if (vector >= 0x40 && vector <= 0x47) {
                     extern void nvme_isr_callback(uint64);
                     nvme_isr_callback(vector);
                 } else if (vector == XHCI_MSI_VECTOR) {

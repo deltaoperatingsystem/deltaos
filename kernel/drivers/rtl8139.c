@@ -12,7 +12,10 @@
 #include <net/net.h>
 #include <net/ethernet.h>
 
-typedef struct {
+typedef struct rtl8139_dev rtl8139_dev_t;
+
+struct rtl8139_dev {
+    rtl8139_dev_t *next;
     pci_device_t *pci;
     uint16 io_base;
 
@@ -30,37 +33,34 @@ typedef struct {
     uint8 *tx_buf[RTL_NUM_TX_DESC];       //virtual
     uintptr tx_buf_phys[RTL_NUM_TX_DESC]; //physical
     uint8 tx_cur;                          //current TX descriptor index
+    bool  tx_used[RTL_NUM_TX_DESC];        //track if descriptor has been used before
     spinlock_irq_t tx_lock;
     bool started;
 
     //netif for the stack
     netif_t netif;
-} rtl8139_dev_t;
+};
 
 #define RTL_RX_RING_SIZE 32768
 
-static rtl8139_dev_t *dev = NULL;
+static rtl8139_dev_t *dev_list = NULL;
+static uint32 dev_count = 0;
 
 static int rtl8139_netif_send(netif_t *nif, const void *data, size len);
+static void rtl8139_handle_rx(rtl8139_dev_t *d);
+static void rtl8139_service_device(rtl8139_dev_t *d);
+
+static void rtl8139_poll_hook(netif_t *nif) {
+    (void)nif;
+    rtl8139_poll();
+}
 
 static void *rtl8139_alloc_dma_pages(size pages, uintptr *phys_out) {
-    //RTL8139 is a 32-bit DMA device, eep retrying until we get a buffer
-    //that fits below 4 GiB instead of silently truncating the address
-    for (int attempt = 0; attempt < 1024; attempt++) {
-        void *phys = pmm_alloc(pages);
-        if (!phys) return NULL;
+    void *phys = pmm_alloc_zone(pages, 0xFFFFFFFF);
+    if (!phys) return NULL;
 
-        uintptr p = (uintptr)phys;
-        uint64 end = (uint64)p + (uint64)pages * PAGE_SIZE;
-        if (end <= 0x100000000ULL) {
-            if (phys_out) *phys_out = p;
-            return P2V(phys);
-        }
-
-        pmm_free(phys, pages);
-    }
-
-    return NULL;
+    if (phys_out) *phys_out = (uintptr)phys;
+    return P2V(phys);
 }
 
 static void rtl8139_reset(rtl8139_dev_t *d) {
@@ -169,12 +169,15 @@ static int rtl8139_transmit(rtl8139_dev_t *d, const void *data, size len) {
     //wait for this descriptor to be free (OWN bit set = DMA done)
     int timeout = 100000;
     while (!(inl(d->io_base + RTL_TSD0 + (desc * 4)) & RTL_TSD_OWN) && --timeout) {
-        //first descriptor starts unowned, so skip check on the very first send
-        if (timeout == 99999) break;
+        //descriptors start unowned, so skip check on the very first use
+        if (!d->tx_used[desc]) break;
     }
 
     //copy data to TX buffer
     memcpy(d->tx_buf[desc], data, len);
+
+    //mark as used
+    d->tx_used[desc] = true;
 
     //write the transmit status: clear OWN bit and set size
     //size goes in bits 0-12, we clear bit 13 (OWN) to start DMA
@@ -185,6 +188,39 @@ static int rtl8139_transmit(rtl8139_dev_t *d, const void *data, size len) {
 
     spinlock_irq_release(&d->tx_lock, flags);
     return 0;
+}
+
+static void rtl8139_service_device(rtl8139_dev_t *d) {
+    if (!d || !d->started) return;
+
+    uint16 status = inw(d->io_base + RTL_ISR);
+    if (status == 0) return;
+
+    //acknowledge all interrupts
+    outw(d->io_base + RTL_ISR, status);
+
+    if (status & RTL_INT_ROK) {
+        rtl8139_handle_rx(d);
+    }
+
+    if (status & RTL_INT_TOK) {
+        //TX complete - nothing to do for now
+    }
+
+    if (status & RTL_INT_RXOVW) {
+        printf("[rtl8139] RX buffer overflow!\n");
+        //reset the receiver, toggle RxEnb and reprogram the receive config
+        uint8 cmd = inb(d->io_base + RTL_CMD);
+        outb(d->io_base + RTL_CMD, cmd & ~RTL_CMD_RE);
+        outb(d->io_base + RTL_CMD, cmd);
+        outl(d->io_base + RTL_RCR, d->rx_config);
+        d->rx_cur = 0;
+        outw(d->io_base + RTL_CAPR, 0xFFF0);
+    }
+
+    if (status & (RTL_INT_RER | RTL_INT_TER)) {
+        printf("[rtl8139] Error (ISR=0x%04x)\n", status);
+    }
 }
 
 static void rtl8139_handle_rx(rtl8139_dev_t *d) {
@@ -226,48 +262,15 @@ static void rtl8139_handle_rx(rtl8139_dev_t *d) {
 }
 
 void rtl8139_poll(void) {
-    if (!dev || !dev->started) return;
-
-    uint16 isr = inw(dev->io_base + RTL_ISR);
-    if (!(isr & (RTL_INT_ROK | RTL_INT_RXOVW | RTL_INT_RER))) {
-        return;
+    for (rtl8139_dev_t *d = dev_list; d; d = d->next) {
+        rtl8139_service_device(d);
     }
-
-    rtl8139_handle_rx(dev);
 }
 
 //ISR called from interrupt dispatcher
 void rtl8139_irq(void) {
-    if (!dev || !dev->started) return;
-
-    uint16 status = inw(dev->io_base + RTL_ISR);
-    if (status == 0) return;
-
-    //acknowledge all interrupts
-    outw(dev->io_base + RTL_ISR, status);
-
-    if (status & RTL_INT_ROK) {
-        rtl8139_handle_rx(dev);
-    }
-
-    if (status & RTL_INT_TOK) {
-        //TX complete - nothing to do for now
-    }
-
-    if (status & RTL_INT_RXOVW) {
-        printf("[rtl8139] RX buffer overflow!\n");
-        //reset the receiver, toggle RxEnb and
-        //reprogram the receive config
-        uint8 cmd = inb(dev->io_base + RTL_CMD);
-        outb(dev->io_base + RTL_CMD, cmd & ~RTL_CMD_RE);
-        outb(dev->io_base + RTL_CMD, cmd);
-        outl(dev->io_base + RTL_RCR, dev->rx_config);
-        dev->rx_cur = 0;
-        outw(dev->io_base + RTL_CAPR, 0xFFF0);
-    }
-
-    if (status & (RTL_INT_RER | RTL_INT_TER)) {
-        printf("[rtl8139] Error (ISR=0x%04x)\n", status);
+    for (rtl8139_dev_t *d = dev_list; d; d = d->next) {
+        rtl8139_service_device(d);
     }
 }
 
@@ -278,7 +281,7 @@ static int rtl8139_netif_send(netif_t *nif, const void *data, size len) {
 }
 
 static void rtl8139_init_device(pci_device_t *pci) {
-    dev = kzalloc(sizeof(rtl8139_dev_t));
+    rtl8139_dev_t *dev = kzalloc(sizeof(rtl8139_dev_t));
     if (!dev) return;
 
     dev->pci = pci;
@@ -315,39 +318,44 @@ static void rtl8139_init_device(pci_device_t *pci) {
     rtl8139_enable(dev);
 
     if (pci->int_line != 0xFF) {
+        interrupt_register(pci->int_line, rtl8139_irq);
         interrupt_unmask(pci->int_line);
-    }
-    if (pci->int_line != 11 && pci->int_line != 0xFF) {
-        printf("[rtl8139] WARNING: driver ISR is wired for IRQ 11 but device reports IRQ %u\n",
-               pci->int_line);
     }
 
     //register with the network stack
     netif_t *nif = &dev->netif;
-    strcpy(nif->name, "eth0");
+    snprintf(nif->name, sizeof(nif->name), "eth%u", dev_count);
     memcpy(nif->mac, dev->mac, 6);
     nif->ip_addr = 0; //unconfigured but DHCP will set this
     nif->subnet_mask = 0;
     nif->gateway = 0;
     nif->up = true;
     nif->send = rtl8139_netif_send;
+    nif->poll = rtl8139_poll_hook;
     nif->driver_data = dev;
+
+    dev->next = dev_list;
+    dev_list = dev;
+    dev_count++;
 
     net_register_netif(nif);
     dev->started = true;
 
-    printf("[rtl8139] Driver initialized\n");
+    printf("[rtl8139] Driver initialized (%u total)\n", dev_count);
 }
 
 void rtl8139_init(void) {
     //search for RTL8139 on the PCI bus
-    pci_device_t *pci = pci_find_device(RTL8139_VENDOR_ID, RTL8139_DEVICE_ID);
-    if (!pci) {
-        printf("[rtl8139] No RTL8139 NIC found\n");
-        return;
+    uint32 found = 0;
+    for (pci_device_t *pci = pci_get_devices(); pci; pci = pci->next) {
+        if (pci->vendor_id == RTL8139_VENDOR_ID && pci->device_id == RTL8139_DEVICE_ID) {
+            rtl8139_init_device(pci);
+            found++;
+        }
     }
-
-    rtl8139_init_device(pci);
+    if (found == 0) {
+        printf("[rtl8139] No RTL8139 NIC found\n");
+    }
 }
 
 DECLARE_DRIVER(rtl8139_init, INIT_LEVEL_DEVICE);
