@@ -5,6 +5,7 @@
 #include <lib/io.h>
 #include <lib/string.h>
 #include <lib/spinlock.h>
+#include <lib/time.h>
 
 #define UDP_MAX_BINDS 16
 
@@ -20,6 +21,7 @@ typedef struct {
     uint16 port;
     udp_recv_cb_t callback;
     void *ctx;
+    uint32 in_flight;
     bool active;
 } udp_bind_entry_t;
 
@@ -47,11 +49,20 @@ static uint16 udp_checksum_ipv4(netif_t *nif, uint32 dst_ip, const udp_header_t 
 
 int udp_bind(uint16 port, udp_recv_cb_t callback, void *ctx) {
     irq_state_t flags = spinlock_irq_acquire(&udp_lock);
+
+    for (int i = 0; i < UDP_MAX_BINDS; i++) {
+        if (udp_binds[i].active && udp_binds[i].port == port) {
+            spinlock_irq_release(&udp_lock, flags);
+            return -1;
+        }
+    }
+
     for (int i = 0; i < UDP_MAX_BINDS; i++) {
         if (!udp_binds[i].active) {
             udp_binds[i].port = port;
             udp_binds[i].callback = callback;
             udp_binds[i].ctx = ctx;
+            udp_binds[i].in_flight = 0;
             udp_binds[i].active = true;
             spinlock_irq_release(&udp_lock, flags);
             return 0;
@@ -66,6 +77,13 @@ void udp_unbind(uint16 port) {
     for (int i = 0; i < UDP_MAX_BINDS; i++) {
         if (udp_binds[i].active && udp_binds[i].port == port) {
             udp_binds[i].active = false;
+            while (udp_binds[i].in_flight != 0) {
+                spinlock_irq_release(&udp_lock, flags);
+                sleep(1);
+                flags = spinlock_irq_acquire(&udp_lock);
+            }
+            udp_binds[i].callback = NULL;
+            udp_binds[i].ctx = NULL;
             break;
         }
     }
@@ -95,8 +113,12 @@ void udp_recv(netif_t *nif, uint32 src_ip, uint32 dst_ip, void *data, size len) 
         if (udp_binds[i].active && udp_binds[i].port == dst_port) {
             udp_recv_cb_t cb = udp_binds[i].callback;
             void *ctx = udp_binds[i].ctx;
+            udp_binds[i].in_flight++;
             spinlock_irq_release(&udp_lock, flags);
             cb(nif, src_ip, src_port, payload, payload_len, ctx);
+            flags = spinlock_irq_acquire(&udp_lock);
+            if (udp_binds[i].in_flight > 0) udp_binds[i].in_flight--;
+            spinlock_irq_release(&udp_lock, flags);
             return;
         }
     }

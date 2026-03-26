@@ -24,9 +24,6 @@
 #include <net/net.h>
 #include <fs/initrd.h>
 
-extern void arch_enter_usermode(arch_context_t *ctx);
-extern void percpu_set_kernel_stack(void *stack_top);
-
 char *init_path;
 
 //load and execute init from initrd
@@ -42,7 +39,7 @@ static int spawn_init(void) {
         return 1;
     }
     free(init_path);
-    
+
     //allocate buffer for init binary
     size buf_size = 32768;  //32KB should be enough
     char *buf = kzalloc(buf_size);
@@ -53,21 +50,21 @@ static int spawn_init(void) {
     
     ssize len = handle_read(h, buf, buf_size);
     handle_close(h);
-    
+
     if (len <= 0) {
         printf("[init] failed to read init binary\n");
         kfree(buf);
         return 3;
     }
     printf("[init] loaded init: %ld bytes\n", len);
-    
+
     //validate ELF
     if (!elf_validate(buf, len)) {
         printf("[init] invalid ELF\n");
         kfree(buf);
         return 4;
     }
-    
+
     //create user process
     process_t *proc = process_create_user("init");
     if (!proc) {
@@ -76,7 +73,7 @@ static int spawn_init(void) {
         return 5;
     }
     printf("[init] created process PID %lu\n", proc->pid);
-    
+
     //load ELF into user address space
     elf_load_info_t info;
     int err = elf_load_user(buf, len, proc, &info);
@@ -92,14 +89,14 @@ static int spawn_init(void) {
         printf("[init]   seg %u: virt=0x%lX phys=0x%lX pages=%lu\n",
                i, info.segments[i].virt_addr, info.segments[i].phys_addr, info.segments[i].pages);
     }
-    
+
     //check for dynamic executable (has interpreter)
     uint64 interp_base = 0;
     uint64 real_entry = info.entry;
-    
+
     if (info.interp_path[0]) {
         printf("[init] dynamic executable, interpreter: %s\n", info.interp_path);
-        
+
         //convert interpreter path to full path
         //e.x /system/libraries/ld.so -> $files/system/libraries/ld.so
         char interp_fullpath[256];
@@ -109,7 +106,7 @@ static int spawn_init(void) {
         } else {
             snprintf(interp_fullpath, sizeof(interp_fullpath), "$files/%s", info.interp_path);
         }
-        
+
         //load interpreter
         handle_t ih = handle_open(interp_fullpath, HANDLE_RIGHT_READ);
         if (ih == INVALID_HANDLE) {
@@ -118,7 +115,7 @@ static int spawn_init(void) {
             kfree(buf);
             return 7;
         }
-        
+
         size interp_buf_size = 32768; //32KB for interpreter
         char *interp_buf = kzalloc(interp_buf_size);
         if (!interp_buf) {
@@ -132,7 +129,7 @@ static int spawn_init(void) {
         ssize interp_len = handle_read(ih, interp_buf, interp_buf_size);
         handle_close(ih);
         printf("[init] interpreter file: %ld bytes read\n", interp_len);
-        
+
         if (interp_len <= 0 || !elf_validate(interp_buf, interp_len)) {
             printf("[init] invalid interpreter ELF\n");
             process_destroy(proc);
@@ -140,7 +137,7 @@ static int spawn_init(void) {
             kfree(buf);
             return 9;
         }
-        
+
         //load interpreter into address space
         elf_load_info_t interp_info;
         err = elf_load_user(interp_buf, interp_len, proc, &interp_info);
@@ -151,7 +148,7 @@ static int spawn_init(void) {
             kfree(buf);
             return 10;
         }
-        
+
         interp_base = interp_info.virt_base;
         real_entry = interp_info.entry;  //jump to interpreter not executable
         printf("[init] interpreter loaded at 0x%lX, entry 0x%lX\n", interp_base, real_entry);
@@ -159,31 +156,31 @@ static int spawn_init(void) {
         printf("[init] interp %u segments:\n", interp_info.segment_count);
         for (uint32 i = 0; i < interp_info.segment_count; i++) {
             printf("[init]   seg %u: virt=0x%lX phys=0x%lX pages=%lu\n",
-                   i, interp_info.segments[i].virt_addr, interp_info.segments[i].phys_addr, 
+                   i, interp_info.segments[i].virt_addr, interp_info.segments[i].phys_addr,
                    interp_info.segments[i].pages);
         }
     }
-    
+
     //allocate user stack
     uintptr user_stack_base = 0x7FFFFFFFE000ULL;
     size stack_size = 0x2000;
-    
+
     uintptr stack_phys = (uintptr)pmm_alloc(stack_size / 4096);
     if (!stack_phys) {
         printf("[init] failed to allocate stack\n");
         return 11;
     }
-    mmu_map_range(proc->pagemap, user_stack_base - stack_size, stack_phys, 
+    mmu_map_range(proc->pagemap, user_stack_base - stack_size, stack_phys,
                   stack_size / 4096, MMU_FLAG_WRITE | MMU_FLAG_USER);
-    
+
     //track stack in VMA list
     process_vma_add(proc, user_stack_base - stack_size, stack_size,
                     MMU_FLAG_WRITE | MMU_FLAG_USER, NULL, 0);
-    
+
     //set up argc/argv and aux vector
     char *init_argv[] = { "/system/binaries/init", NULL };
     int init_argc = sizeof(init_argv) / sizeof(init_argv[0]) - 1;
-    
+
     uintptr user_stack_top;
     if (info.interp_path[0]) {
         //dynamic executable: use aux vector stack setup
@@ -195,11 +192,11 @@ static int spawn_init(void) {
         );
     } else {
         //static executable: simple stack setup
-        user_stack_top = process_setup_user_stack(stack_phys, user_stack_base, 
+        user_stack_top = process_setup_user_stack(stack_phys, user_stack_base,
                                                    stack_size, init_argc, init_argv);
     }
     printf("[init] stack at 0x%lX, argc=1, argv[0]=%s\n", user_stack_top, init_argv[0]);
-    
+
     //create user thread
     thread_t *thread = thread_create_user(proc, (void*)real_entry, (void*)user_stack_top);
     if (!thread) {
@@ -208,10 +205,10 @@ static int spawn_init(void) {
         return 12;
     }
     printf("[init] created thread TID %lu\n", thread->tid);
-    
+
     //add init thread to scheduler
     sched_add(thread);
-    
+
     //free the init buffer now that it's loaded
     kfree(buf);
 
@@ -235,10 +232,12 @@ void parse_cmdline(const char *cmdline) {
         } else if (strncmp(arg, "console=", 8) == 0) {
             //console selection is consumed by the bootloader / early init path
         } else if (strncmp(arg, "init=", 5) == 0) {
-            if (init_path) free(init_path);
-            init_path = strdup(arg + 5);
-            if (!init_path) {
+            char *new_init_path = strdup(arg + 5);
+            if (!new_init_path) {
                 printf("[cmdline] error: strdup failed for init path\n");
+            } else {
+                if (init_path) free(init_path);
+                init_path = new_init_path;
             }
         } else {
             printf("[cmdline] unknown option %s\n", arg);
@@ -251,6 +250,7 @@ void kernel_main(const char *cmdline) {
     init_path = strdup("/system/binaries/init");
     parse_cmdline(cmdline);
     set_outmode(SERIAL);
+
     printf("kernel_main started\n");
 
     object_t *devs = ns_create_dir("$devices/");
@@ -259,36 +259,38 @@ void kernel_main(const char *cmdline) {
         object_deref(devs);
     }
 
-    //initialize drivers
-    init_drivers();
-    
-    //initialize networking (runs DHCP)
-    net_init();
-    
-    //test network (ping gateway)
-    net_test();
-    
-    //initialize filesystems
+    //initialize filesystems before drivers so firmware blobs in initrd are
+    //available to early device bring-up paths
     tmpfs_init();
     initrd_init();
-    
+
+    //initialize drivers
+    init_drivers();
+    printf("[kernel] drivers initialized\n");
+
+    //initialize networking (runs DHCP)
+    net_init();
+
+    //test network (ping gateway)
+    net_test();
+
     //initialize scheduler (creates idle thread)
     sched_init();
     syscall_init();
-    
+
     //spawn init process
     int res = spawn_init();
     if (res != 0) {
         kpanic(NULL, "FATAL: init failed to spawn! (error code %d)\n", res);
     }
-    
+
     //reclaim initrd archive memory - no longer needed as files are in tmpfs
     initrd_reclaim();
-    
+
     //start scheduler - never returns
     printf("[kernel] starting scheduler...\n");
     sched_start();
-    
+
     //should never reach here
     printf("[kernel] ERROR: scheduler returned!\n");
     kpanic(NULL, "FATAL: Scheduler returned!\n");

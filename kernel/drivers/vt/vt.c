@@ -52,7 +52,6 @@ static void vt_scroll(vt_t *vt) {
     //scroll the framebuffer (if this VT is active)
     if (vt->vt_num == active_vt && fb_available()) {
         fb_scroll(FONT_HEIGHT, vt->bg_color);
-        fb_flip();  //commit the scroll to screen immediately
     }
     
     //reset dirty tracking
@@ -125,6 +124,8 @@ static object_ops_t vt_object_ops = {
 };
 
 void vt_init(void) {
+    if (vt_get(0)) return;
+
     //create VT0 by default
     vt_t *vt0 = vt_create();
     if (vt0) {
@@ -211,6 +212,8 @@ void vt_switch(int num) {
     if (num < 0 || num >= VT_MAX || !vts[num]) return;
     
     active_vt = num;
+    vts[num]->dirty_start = 0;
+    vts[num]->dirty_end = vts[num]->rows - 1;
     vt_render_to_console(vts[num]);
 }
 
@@ -295,13 +298,13 @@ void vt_write(vt_t *vt, const char *s, size len) {
                 if (len - i < 7) continue;  // ensures we have enough characters
 
                 char mode = s[i++];
-                uint32 colour =
-                    (ctoh(s[i++]) << 20)
-                    | (ctoh(s[i++]) << 16)
-                    | (ctoh(s[i++]) << 12)
-                    | (ctoh(s[i++]) << 8)
-                    | (ctoh(s[i++]) << 4)
-                    | (ctoh(s[i++]));
+                uint32 colour = 0;
+                colour |= (uint32)ctoh(s[i++]) << 20;
+                colour |= (uint32)ctoh(s[i++]) << 16;
+                colour |= (uint32)ctoh(s[i++]) << 12;
+                colour |= (uint32)ctoh(s[i++]) << 8;
+                colour |= (uint32)ctoh(s[i++]) << 4;
+                colour |= (uint32)ctoh(s[i++]);
 
                 if (mode == 'f') vt->fg_color = colour;
                 else vt->bg_color = colour;

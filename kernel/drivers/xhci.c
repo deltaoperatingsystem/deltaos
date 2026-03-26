@@ -3,6 +3,9 @@
 #include <drivers/hid.h>
 #include <drivers/pci.h>
 #include <drivers/init.h>
+#include <fs/fs.h>
+#include <fs/tmpfs.h>
+#include <obj/handle.h>
 #include <mm/kheap.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
@@ -12,6 +15,8 @@
 #include <arch/timer.h>
 #include <arch/irq.h>
 #include <lib/io.h>
+#include <errno.h>
+#include <lib/time.h>
 #include <lib/string.h>
 #include <proc/thread.h>
 #include <proc/wait.h>
@@ -23,12 +28,51 @@ static uint32       g_ctrl_count = 0;
 //track which BAR0 physical addresses are already initialised (dedup guard)
 static uint64       g_ctrl_bar[XHCI_MAX_CTRLS];
 
+#define RENESAS_FW_PATH             "/system/firmware/renesas_usb_fw.mem"
+#define RENESAS_FW_MIN_SIZE         0x1000
+#define RENESAS_FW_MAX_SIZE         0x10000
+#define RENESAS_FW_VERSION          0x6C
+#define RENESAS_FW_STATUS           0xF4
+#define RENESAS_FW_STATUS_MSB       0xF5
+#define RENESAS_ROM_STATUS          0xF6
+#define RENESAS_ROM_STATUS_MSB      0xF7
+#define RENESAS_DATA0               0xF8
+#define RENESAS_DATA1               0xFC
+
+#define RENESAS_FW_STATUS_DOWNLOAD_ENABLE (1 << 0)
+#define RENESAS_FW_STATUS_LOCK            (1 << 1)
+#define RENESAS_FW_STATUS_RESULT_MASK     (0x7 << 4)
+#define RENESAS_FW_STATUS_SUCCESS         (1 << 4)
+#define RENESAS_FW_STATUS_ERROR           (1 << 5)
+#define RENESAS_FW_STATUS_SET_DATA0       (1 << 0)
+#define RENESAS_FW_STATUS_SET_DATA1       (1 << 1)
+
+#define RENESAS_ROM_STATUS_ACCESS         (1 << 0)
+#define RENESAS_ROM_STATUS_ERASE          (1 << 1)
+#define RENESAS_ROM_STATUS_RELOAD         (1 << 2)
+#define RENESAS_ROM_STATUS_RESULT_MASK    (0x7 << 4)
+#define RENESAS_ROM_STATUS_SUCCESS        (1 << 4)
+#define RENESAS_ROM_STATUS_ERROR          (1 << 5)
+#define RENESAS_ROM_STATUS_SET_DATA0      (1 << 0)
+#define RENESAS_ROM_STATUS_SET_DATA1      (1 << 1)
+#define RENESAS_ROM_STATUS_ROM_EXISTS     (1 << 15)
+
+#define RENESAS_ROM_ERASE_MAGIC           0x5A65726F
+#define RENESAS_ROM_WRITE_MAGIC           0x53524F4D
+#define RENESAS_RETRY                     50000
+#define RENESAS_CHIP_ERASE_RETRY          500000
+#define RENESAS_DELAY                     10
+
 //forward declarations
 static void xhci_drain_events(xhci_ctrl_t *c);
 static void xhci_ack_events(xhci_ctrl_t *c);
 static void xhci_process_events(xhci_ctrl_t *c);
+static void xhci_process_disconnects(xhci_ctrl_t *c);
+static uint32 xhci_poll_pending_hid(xhci_ctrl_t *c);
 static void xhci_recover_hid_endpoints(xhci_ctrl_t *c);
 static void xhci_queue_intr(xhci_ctrl_t *c, xhci_device_t *dev);
+static void xhci_init_quirks(xhci_ctrl_t *c, pci_device_t *pci);
+static int xhci_claim_bios_ownership(xhci_ctrl_t *c, uint32 hccparams1);
 
 //register accessors
 static inline uint8 cap_read8(xhci_ctrl_t *c, uint32 off) {
@@ -36,6 +80,9 @@ static inline uint8 cap_read8(xhci_ctrl_t *c, uint32 off) {
 }
 static inline uint32 cap_read32(xhci_ctrl_t *c, uint32 off) {
     return *(volatile uint32 *)((uint8 *)c->cap_base + off);
+}
+static inline void cap_write32(xhci_ctrl_t *c, uint32 off, uint32 val) {
+    *(volatile uint32 *)((uint8 *)c->cap_base + off) = val;
 }
 
 static inline uint32 op_read32(xhci_ctrl_t *c, uint32 off) {
@@ -110,9 +157,12 @@ static void ring_reinit(xhci_ring_t *ring) {
     link->param   = (uint64)ring->phys;
     link->status  = 0;
     link->control = ((uint32)TRB_TYPE_LINK << TRB_TYPE_SHIFT) | TRB_TC | TRB_C;
+    if (ring->chain_links) {
+        link->control |= TRB_CH;
+    }
 }
 
-static int ring_alloc(xhci_ring_t *ring, uint32 size) {
+static int ring_alloc(xhci_ring_t *ring, uint32 size, bool chain_links) {
     uint32 bytes = size * (uint32)sizeof(xhci_trb_t);
     uint32 pages = (bytes + PAGE_SIZE - 1) / PAGE_SIZE;
 
@@ -122,9 +172,19 @@ static int ring_alloc(xhci_ring_t *ring, uint32 size) {
     ring->trbs = (xhci_trb_t *)P2V(phys);
     ring->phys = (uintptr)phys;
     ring->size = size;
+    ring->pages = pages;
+    ring->chain_links = chain_links;
     ring_reinit(ring);
 
     return 0;
+}
+
+static void ring_free(xhci_ring_t *ring) {
+    if (!ring) return;
+    if (ring->trbs && ring->pages) {
+        pmm_free((void *)ring->phys, ring->pages);
+    }
+    memset(ring, 0, sizeof(*ring));
 }
 
 //enqueue one TRB onto a producer ring (command or transfer rin
@@ -261,35 +321,429 @@ static int xhci_enable_interrupts(xhci_ctrl_t *c) {
     return -1;
 }
 
-//wait for a command completion event
-static int xhci_wait_cmd(xhci_ctrl_t *c) {
+static bool xhci_renesas_fw_probe(pci_device_t *pci, uint32 *fw_version,
+                                  uint16 *fw_status, uint16 *rom_status) {
+    if (!pci || pci->vendor_id != 0x1033) return false;
 
-    //fast spin - most commands complete within a few microseconds
-    for (int i = 0; i < 200000; i++) {
-        if (c->cmd_done) goto done;
-        arch_pause();
+    if (fw_version) {
+        *fw_version = pci_config_read(pci->bus, pci->dev, pci->func, 0x6C, 4);
+    }
+    if (fw_status) {
+        *fw_status = (uint16)pci_config_read(pci->bus, pci->dev, pci->func, 0xF4, 2);
+    }
+    if (rom_status) {
+        *rom_status = (uint16)pci_config_read(pci->bus, pci->dev, pci->func, 0xF6, 2);
+    }
+    return true;
+}
+
+static bool xhci_renesas_check_rom(pci_device_t *pci) {
+    uint16 rom_status = 0;
+    if (!xhci_renesas_fw_probe(pci, NULL, NULL, &rom_status)) {
+        return false;
+    }
+    return (rom_status & RENESAS_ROM_STATUS_ROM_EXISTS) != 0;
+}
+
+static int xhci_renesas_check_rom_state(pci_device_t *pci) {
+    uint32 fw_version = 0;
+    uint16 fw_status = 0;
+    uint16 rom_status = 0;
+
+    if (!xhci_renesas_fw_probe(pci, &fw_version, &fw_status, &rom_status)) {
+        return -1;
     }
 
-    //slower poll: drain the event ring (DMA reads only, no MMIO) until
-    //done or timeout
-    for (int i = 0; i < 2000000; i++) {
-        irq_state_t fl = spinlock_irq_acquire(&c->evt_lock);
-        c->hid_pending_count = 0;
-        xhci_drain_events(c);
-        uint32 n = c->hid_pending_count;
-        for (uint32 j = 0; j < n; j++) {
-            hid_pending_t *hp = &c->hid_pending[j];
-            if (hp->slot >= 1 && hp->slot <= XHCI_MAX_SLOTS) {
-                xhci_device_t *dev = &c->devices[hp->slot];
-                if (dev->in_use && dev->is_hid)
-                    xhci_queue_intr(c, dev);
+    if ((rom_status & RENESAS_ROM_STATUS_ROM_EXISTS) &&
+        ((rom_status & RENESAS_ROM_STATUS_RESULT_MASK) == RENESAS_ROM_STATUS_SUCCESS)) {
+        return 0;
+    }
+
+    (void)fw_version;
+
+    if (fw_status & RENESAS_FW_STATUS_LOCK) {
+        if (fw_status & RENESAS_FW_STATUS_SUCCESS) return 0;
+        return -EIO;
+    }
+
+    if (fw_status & RENESAS_FW_STATUS_DOWNLOAD_ENABLE) {
+        return -EIO;
+    }
+
+    switch (fw_status & RENESAS_FW_STATUS_RESULT_MASK) {
+        case 0:
+            return 1;
+        case RENESAS_FW_STATUS_SUCCESS:
+            return 0;
+        case RENESAS_FW_STATUS_ERROR:
+            return -ENODEV;
+        default:
+            return -EINVAL;
+    }
+}
+
+static int xhci_renesas_check_running(pci_device_t *pci) {
+    int rom = xhci_renesas_check_rom_state(pci);
+    if (rom == 0) return 0;
+    if (rom < 0 && rom != 1) return rom;
+
+    uint32 fw_version = 0;
+    uint16 fw_status = 0;
+    uint16 rom_status = 0;
+    if (!xhci_renesas_fw_probe(pci, &fw_version, &fw_status, &rom_status)) {
+        return -1;
+    }
+
+    (void)fw_version;
+    (void)rom_status;
+
+    if (fw_status & RENESAS_FW_STATUS_LOCK) {
+        if (fw_status & RENESAS_FW_STATUS_SUCCESS) return 0;
+        return -EIO;
+    }
+
+    if (fw_status & RENESAS_FW_STATUS_DOWNLOAD_ENABLE) {
+        return -EIO;
+    }
+
+    switch (fw_status & RENESAS_FW_STATUS_RESULT_MASK) {
+        case 0:
+            return 1;
+        case RENESAS_FW_STATUS_SUCCESS:
+            return 0;
+        case RENESAS_FW_STATUS_ERROR:
+            return -ENODEV;
+        default:
+            return -EINVAL;
+    }
+}
+
+static int xhci_renesas_fw_verify_blob(const uint8 *fw, size len) {
+    if (!fw || len < RENESAS_FW_MIN_SIZE || len >= RENESAS_FW_MAX_SIZE) {
+        return -EINVAL;
+    }
+
+    if ((uint16)fw[0] != 0xAA || (uint16)fw[1] != 0x55) {
+        return -EINVAL;
+    }
+
+    uint16 version_ptr = (uint16)fw[4] | ((uint16)fw[5] << 8);
+    if ((size)version_ptr + 2 >= len) {
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+static int xhci_renesas_fw_read_blob(const char *path, uint8 **fw_out, size *fw_len) {
+    if (!path || !fw_out || !fw_len) return -EINVAL;
+
+    stat_t st;
+    if (handle_stat(path, &st) < 0 || st.type != FS_TYPE_FILE) {
+        return -ENOENT;
+    }
+
+    if (st.size < RENESAS_FW_MIN_SIZE || st.size >= RENESAS_FW_MAX_SIZE ||
+        (st.size & 3) != 0) {
+        return -EINVAL;
+    }
+
+    object_t *file = tmpfs_open(path);
+    if (!file) return -ENOENT;
+
+    uint8 *buf = kmalloc(st.size);
+    if (!buf) {
+        object_release(file);
+        return -ENOMEM;
+    }
+
+    ssize got = object_read(file, buf, st.size, 0);
+    object_release(file);
+
+    if (got != (ssize)st.size) {
+        kfree(buf);
+        return -EIO;
+    }
+
+    *fw_out = buf;
+    *fw_len = st.size;
+    return 0;
+}
+
+static int xhci_renesas_fw_download_image(pci_device_t *pci, const uint32 *fw,
+                                          size step, bool rom) {
+    uint32 status_reg = rom ? RENESAS_ROM_STATUS_MSB : RENESAS_FW_STATUS_MSB;
+    bool data1 = (step & 1) != 0;
+    uint32 bit = data1 ? RENESAS_FW_STATUS_SET_DATA1 : RENESAS_FW_STATUS_SET_DATA0;
+
+    for (size i = 0; i < 50000; i++) {
+        uint8 fw_status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
+                                                 (uint16)status_reg, 1);
+        if (!(fw_status & (uint8)bit)) break;
+        usleep(10);
+    }
+
+    uint32 data_reg = data1 ? RENESAS_DATA1 : RENESAS_DATA0;
+    uint32 data = fw[step];
+    pci_config_write(pci->bus, pci->dev, pci->func, (uint16)data_reg, 4, data);
+    usleep(100);
+    pci_config_write(pci->bus, pci->dev, pci->func, (uint16)status_reg, 1, bit);
+
+    return 0;
+}
+
+static int xhci_renesas_fw_download(pci_device_t *pci, const uint8 *fw, size len) {
+    if (!pci || !fw || len < RENESAS_FW_MIN_SIZE) return -EINVAL;
+
+    const uint32 *fw_words = (const uint32 *)fw;
+    size word_count = len / 4;
+
+    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_FW_STATUS, 1,
+                     RENESAS_FW_STATUS_DOWNLOAD_ENABLE);
+
+    for (size i = 0; i < word_count; i++) {
+        int err = xhci_renesas_fw_download_image(pci, fw_words, i, false);
+        if (err) return err;
+    }
+
+    for (size i = 0; i < 50000; i++) {
+        uint8 fw_status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
+                                                 RENESAS_FW_STATUS_MSB, 1);
+        if (!(fw_status & (RENESAS_FW_STATUS_SET_DATA0 | RENESAS_FW_STATUS_SET_DATA1)))
+            break;
+        usleep(10);
+    }
+
+    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_FW_STATUS, 1, 0);
+
+    for (size i = 0; i < 1000; i++) {
+        uint16 fw_status = (uint16)pci_config_read(pci->bus, pci->dev, pci->func,
+                                                   RENESAS_FW_STATUS, 1);
+        if ((fw_status & RENESAS_FW_STATUS_LOCK) &&
+            (fw_status & RENESAS_FW_STATUS_SUCCESS)) {
+            return 0;
+        }
+        if ((fw_status & RENESAS_FW_STATUS_RESULT_MASK) == RENESAS_FW_STATUS_SUCCESS) {
+            return 0;
+        }
+        usleep(100);
+    }
+
+    return -ETIMEDOUT;
+}
+
+static void xhci_renesas_rom_erase(pci_device_t *pci) {
+    if (!pci) return;
+
+    printf("[xhci] Renesas ROM erase\n");
+    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_DATA0, 4,
+                     RENESAS_ROM_ERASE_MAGIC);
+
+    uint8 status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
+                                          RENESAS_ROM_STATUS, 1);
+    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1,
+                     status | RENESAS_ROM_STATUS_ERASE);
+
+    sleep(20);
+    for (size i = 0; i < RENESAS_CHIP_ERASE_RETRY; i++) {
+        status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
+                                        RENESAS_ROM_STATUS, 1);
+        if (!(status & RENESAS_ROM_STATUS_ERASE)) break;
+        usleep(RENESAS_DELAY);
+    }
+}
+
+static bool xhci_renesas_setup_rom(pci_device_t *pci, const uint8 *fw, size len) {
+    if (!pci || !fw || len < RENESAS_FW_MIN_SIZE) return false;
+
+    const uint32 *fw_words = (const uint32 *)fw;
+    size word_count = len / 4;
+
+    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_DATA0, 4,
+                     RENESAS_ROM_WRITE_MAGIC);
+    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1,
+                     RENESAS_ROM_STATUS_ACCESS);
+
+    uint8 status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
+                                          RENESAS_ROM_STATUS, 1);
+    if (status & RENESAS_ROM_STATUS_RESULT_MASK) {
+        pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1, 0);
+        return false;
+    }
+
+    for (size i = 0; i < word_count; i++) {
+        if (xhci_renesas_fw_download_image(pci, fw_words, i, true) < 0) {
+            pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1, 0);
+            return false;
+        }
+    }
+
+    for (size i = 0; i < RENESAS_RETRY; i++) {
+        status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
+                                        RENESAS_ROM_STATUS_MSB, 1);
+        if (!(status & (RENESAS_ROM_STATUS_SET_DATA0 | RENESAS_ROM_STATUS_SET_DATA1)))
+            break;
+        usleep(RENESAS_DELAY);
+    }
+
+    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1, 0);
+    usleep(10);
+
+    for (size i = 0; i < RENESAS_RETRY; i++) {
+        status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
+                                        RENESAS_ROM_STATUS, 1);
+        status &= RENESAS_ROM_STATUS_RESULT_MASK;
+        if (status == RENESAS_ROM_STATUS_SUCCESS) {
+            pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1,
+                             RENESAS_ROM_STATUS_RELOAD);
+            for (size j = 0; j < RENESAS_RETRY; j++) {
+                status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
+                                                RENESAS_ROM_STATUS, 1);
+                if (!(status & RENESAS_ROM_STATUS_RELOAD)) {
+                    return true;
+                }
+                usleep(RENESAS_DELAY);
+            }
+            return false;
+        }
+        usleep(RENESAS_DELAY);
+    }
+
+    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1, 0);
+    return false;
+}
+
+static int xhci_renesas_fw_load(pci_device_t *pci) {
+    if (!pci || pci->vendor_id != 0x1033 || pci->device_id != 0x0194) {
+        return 0;
+    }
+
+    int running = xhci_renesas_check_running(pci);
+    if (running == 0) {
+        uint32 fw_version = 0;
+        uint16 fw_status = 0;
+        uint16 rom_status = 0;
+        if (xhci_renesas_fw_probe(pci, &fw_version, &fw_status, &rom_status)) {
+            if ((rom_status & RENESAS_ROM_STATUS_ROM_EXISTS) &&
+                ((rom_status & RENESAS_ROM_STATUS_RESULT_MASK) ==
+                 RENESAS_ROM_STATUS_SUCCESS)) {
+                printf("[xhci] Renesas ROM ready (ver=0x%08X rom=0x%04X)\n",
+                       fw_version, rom_status);
+            } else {
+                printf("[xhci] Renesas firmware ready (ver=0x%08X fw=0x%04X rom=0x%04X)\n",
+                       fw_version, fw_status, rom_status);
             }
         }
-        spinlock_irq_release(&c->evt_lock, fl);
-        for (uint32 j = 0; j < n; j++)
-            hid_report_received(c->hid_pending[j].proto, c->hid_pending[j].data, c->hid_pending[j].len);
+        return 0;
+    }
+
+    if (running < 0 && running != 1) {
+        return 0;
+    }
+
+    uint8 *fw = NULL;
+    size fw_len = 0;
+    int err = xhci_renesas_fw_read_blob(RENESAS_FW_PATH, &fw, &fw_len);
+    if (err) {
+        printf("[xhci] Renesas firmware blob unavailable at %s (%d), continuing\n",
+               RENESAS_FW_PATH, err);
+        return 0;
+    }
+
+    err = xhci_renesas_fw_verify_blob(fw, fw_len);
+    if (err) {
+        printf("[xhci] Renesas firmware blob invalid (%d), continuing\n", err);
+        kfree(fw);
+        return 0;
+    }
+
+    if (xhci_renesas_check_rom(pci)) {
+        xhci_renesas_rom_erase(pci);
+        if (xhci_renesas_setup_rom(pci, fw, fw_len)) {
+            uint32 fw_version = 0;
+            uint16 fw_status = 0;
+            uint16 rom_status = 0;
+            if (xhci_renesas_fw_probe(pci, &fw_version, &fw_status, &rom_status)) {
+                printf("[xhci] Renesas ROM programmed (ver=0x%08X rom=0x%04X)\n",
+                       fw_version, rom_status);
+            }
+            kfree(fw);
+            return 0;
+        }
+
+        printf("[xhci] Renesas ROM programming failed, falling back to FW load\n");
+    }
+
+    uint32 fw_version = 0;
+    uint16 fw_status = 0;
+    uint16 rom_status = 0;
+    if (xhci_renesas_fw_probe(pci, &fw_version, &fw_status, &rom_status)) {
+        printf("[xhci] loading Renesas firmware (ver=0x%08X fw=0x%04X rom=0x%04X)\n",
+               fw_version, fw_status, rom_status);
+    }
+
+    err = xhci_renesas_fw_download(pci, fw, fw_len);
+    kfree(fw);
+    if (err) {
+        printf("[xhci] Renesas firmware load failed (%d), continuing\n", err);
+        return 0;
+    }
+
+    return 0;
+}
+
+static uint32 xhci_find_ext_cap(xhci_ctrl_t *c, uint32 hccparams1, uint8 cap_id) {
+    uint32 off = HCCPARAMS1_XECP(hccparams1) << 2;
+
+    for (uint32 i = 0; off && i < 64; i++) {
+        uint32 hdr = cap_read32(c, off);
+        if ((hdr & 0xFF) == cap_id) return off;
+        off = ((hdr >> 8) & 0xFFFF) << 2;
+    }
+
+    return 0;
+}
+
+static int xhci_claim_bios_ownership(xhci_ctrl_t *c, uint32 hccparams1) {
+    uint32 off = xhci_find_ext_cap(c, hccparams1, XHCI_EXT_CAPS_LEGACY);
+    if (!off) return 0;
+
+    uint32 leg0 = cap_read32(c, off + XHCI_LEGACY_SUPPORT_OFFSET);
+    uint32 leg1 = cap_read32(c, off + XHCI_LEGACY_CONTROL_OFFSET);
+
+    if (!(leg0 & XHCI_HC_BIOS_OWNED) && !(c->quirks & XHCI_QUIRK_FORCE_BIOS_HANDOFF)) {
+        //no firmware ownership to reclaim
+        return 0;
+    }
+
+    printf("[xhci] legacy handoff: claiming OS ownership\n");
+    cap_write32(c, off + XHCI_LEGACY_SUPPORT_OFFSET, leg0 | XHCI_HC_OS_OWNED);
+
+    for (uint32 elapsed = 0; elapsed < 500; elapsed++) {
+        leg0 = cap_read32(c, off + XHCI_LEGACY_SUPPORT_OFFSET);
+        if (!(leg0 & XHCI_HC_BIOS_OWNED)) break;
+        sleep(1);
+    }
+
+    leg0 = cap_read32(c, off + XHCI_LEGACY_SUPPORT_OFFSET);
+    if (leg0 & XHCI_HC_BIOS_OWNED) {
+        printf("[xhci] legacy handoff: BIOS ownership stuck, forcing clear\n");
+        cap_write32(c, off + XHCI_LEGACY_SUPPORT_OFFSET, leg0 & ~XHCI_HC_BIOS_OWNED);
+    }
+
+    //clear any firwmare-generated SMI enables in the companion control dword
+    cap_write32(c, off + XHCI_LEGACY_CONTROL_OFFSET, leg1 & ~XHCI_LEGACY_SMI_EVENTS);
+    return 0;
+}
+
+//wait for a command completion event
+static int xhci_wait_cmd(xhci_ctrl_t *c) {
+    //poll
+    for (uint32 elapsed = 0; elapsed < 1000; elapsed++) {
         if (c->cmd_done) goto done;
-        arch_pause();
+        xhci_poll_pending_hid(c);
+        if (c->cmd_done) goto done;
+        sleep(1);
     }
 
     //timed out - still do the MMIO housekeeping and report failure
@@ -310,30 +764,11 @@ done:
 
 //wait for a control transfer (EP0) to complete
 static int xhci_wait_ctrl_xfer(xhci_ctrl_t *c, xhci_device_t *dev) {
-
-    for (int i = 0; i < 200000; i++) {
+    for (uint32 elapsed = 0; elapsed < 1000; elapsed++) {
         if (dev->ctrl_done) goto done;
-        arch_pause();
-    }
-
-    for (int i = 0; i < 2000000; i++) {
-        irq_state_t fl = spinlock_irq_acquire(&c->evt_lock);
-        c->hid_pending_count = 0;
-        xhci_drain_events(c);
-        uint32 n = c->hid_pending_count;
-        for (uint32 j = 0; j < n; j++) {
-            hid_pending_t *hp = &c->hid_pending[j];
-            if (hp->slot >= 1 && hp->slot <= XHCI_MAX_SLOTS) {
-                xhci_device_t *dev = &c->devices[hp->slot];
-                if (dev->in_use && dev->is_hid)
-                    xhci_queue_intr(c, dev);
-            }
-        }
-        spinlock_irq_release(&c->evt_lock, fl);
-        for (uint32 j = 0; j < n; j++)
-            hid_report_received(c->hid_pending[j].proto, c->hid_pending[j].data, c->hid_pending[j].len);
+        xhci_poll_pending_hid(c);
         if (dev->ctrl_done) goto done;
-        arch_pause();
+        sleep(1);
     }
 
     {
@@ -366,6 +801,33 @@ static int cmd_enable_slot(xhci_ctrl_t *c) {
     spinlock_irq_release(&c->cmd_lock, fl);
     int cc = xhci_wait_cmd(c);
     return (cc == TRB_CC_SUCCESS) ? (int)c->cmd_slot : -1;
+}
+
+static void xhci_nec_get_fw(xhci_ctrl_t *c) {
+    if (!xhci_has_quirk(c, XHCI_QUIRK_NEC_HOST)) return;
+
+    irq_state_t fl = spinlock_irq_acquire(&c->cmd_lock);
+    c->cmd_done = 0;
+    c->cmd_slot = 0;
+
+    uint32 ctrl = (TRB_NEC_GET_FW << TRB_TYPE_SHIFT);
+    c->last_cmd_phys = ring_enqueue(&c->cmd_ring, 0, 0, ctrl);
+    db_ring(c, 0, 0);
+
+    spinlock_irq_release(&c->cmd_lock, fl);
+
+    (void)xhci_wait_cmd(c);
+}
+
+static void cmd_disable_slot_submit(xhci_ctrl_t *c, uint8 slot) {
+    if (slot < 1 || slot > XHCI_MAX_SLOTS) return;
+
+    irq_state_t fl = spinlock_irq_acquire(&c->cmd_lock);
+    uint32 ctrl = (TRB_TYPE_DISABLE_SLOT << TRB_TYPE_SHIFT)
+                | ((uint32)slot << TRB_SLOT_SHIFT);
+    (void)ring_enqueue(&c->cmd_ring, 0, 0, ctrl);
+    db_ring(c, 0, 0);
+    spinlock_irq_release(&c->cmd_lock, fl);
 }
 
 static int cmd_address_device(xhci_ctrl_t *c, uint8 slot,
@@ -501,6 +963,20 @@ static int xhci_get_descriptor(xhci_ctrl_t *c, xhci_device_t *dev,
     return xhci_ctrl_xfer(c, dev, &setup, buf_phys, len, true);
 }
 
+static int xhci_get_hid_report_descriptor(xhci_ctrl_t *c, xhci_device_t *dev,
+                                          uint8 iface, void *buf_virt,
+                                          uintptr buf_phys, uint16 len) {
+    usb_setup_pkt_t setup = {
+        .bmRequestType = USB_DIR_D2H | USB_TYPE_STD | USB_RECIP_IFACE,
+        .bRequest      = USB_REQ_GET_DESCRIPTOR,
+        .wValue        = (uint16)((USB_DESC_HID_REPORT << 8) | 0),
+        .wIndex        = iface,
+        .wLength       = len,
+    };
+    (void)buf_virt;
+    return xhci_ctrl_xfer(c, dev, &setup, buf_phys, len, true);
+}
+
 static int xhci_set_config(xhci_ctrl_t *c, xhci_device_t *dev, uint8 cfg_val) {
     usb_setup_pkt_t setup = {
         .bmRequestType = USB_DIR_H2D | USB_TYPE_STD | USB_RECIP_DEVICE,
@@ -581,8 +1057,8 @@ static void build_addr_device_ctx(xhci_ctrl_t *c, xhci_device_t *dev,
 
     //block 1 = slot context
     uint32 *slot = ctx_block(in_ctx, cs, 1);
-    //DW0: speed [23:20], Context Entries [31:28] = 1
-    ctx_wr(slot, 0, ((uint32)dev->speed << 20) | (1U << 28));
+    //DW0: speed [23:20], Context Entries [31:27] = 1
+    ctx_wr(slot, 0, ((uint32)dev->speed << 20) | (1U << 27));
     //DW1: Root Hub Port Number [23:16] (1-based)
     ctx_wr(slot, 1, (uint32)(dev->port + 1) << 16);
     ctx_wr(slot, 2, 0);
@@ -593,7 +1069,7 @@ static void build_addr_device_ctx(xhci_ctrl_t *c, xhci_device_t *dev,
     //DW0: Interval = 0
     ctx_wr(ep0, 0, 0);
     //DW1: CErr=3, EP Type=4 (control bidir), max  packet size
-    ctx_wr(ep0, 1, (3U << 0) | ((uint32)EP_TYPE_CTRL << 3) | ((uint32)dev->mps0 << 16));
+    ctx_wr(ep0, 1, (3U << 1) | ((uint32)EP_TYPE_CTRL << 3) | ((uint32)dev->mps0 << 16));
     //DW2+DW3: TR dequeue pointer | DCS=1
     uintptr ep0_ring_phys = dev->ep_ring[DCI_EP0 - 1].phys;
     ctx_wr(ep0, 2, (uint32)((ep0_ring_phys & ~0xFULL) | 1));
@@ -611,7 +1087,7 @@ static void build_eval_mps_ctx(xhci_ctrl_t *c, xhci_device_t *dev, void *in_ctx)
 
     uint32 *ep0 = ctx_block(in_ctx, cs, 2);
     ctx_wr(ep0, 0, 0);
-    ctx_wr(ep0, 1, (3U << 0) | ((uint32)EP_TYPE_CTRL << 3) | ((uint32)dev->mps0 << 16));
+    ctx_wr(ep0, 1, (3U << 1) | ((uint32)EP_TYPE_CTRL << 3) | ((uint32)dev->mps0 << 16));
     uintptr rp = dev->ep_ring[DCI_EP0 - 1].phys;
     ctx_wr(ep0, 2, (uint32)((rp & ~0xFULL) | 1));
     ctx_wr(ep0, 3, (uint32)(rp >> 32));
@@ -631,7 +1107,7 @@ static void build_config_hid_ctx(xhci_ctrl_t *c, xhci_device_t *dev,
 
     //update slot context - context entries must cover highest DCI
     uint32 *slot = ctx_block(in_ctx, cs, 1);
-    ctx_wr(slot, 0, ((uint32)dev->speed << 20) | ((uint32)dci << 28));
+    ctx_wr(slot, 0, ((uint32)dev->speed << 20) | ((uint32)dci << 27));
     ctx_wr(slot, 1, (uint32)(dev->port + 1) << 16);
     ctx_wr(slot, 2, 0);
     ctx_wr(slot, 3, 0);
@@ -657,17 +1133,23 @@ static void build_config_hid_ctx(xhci_ctrl_t *c, xhci_device_t *dev,
     } else if (hid_proto == USB_HID_PROTO_KEYBOARD && ep_interval < 3) {
         ep_interval = 3;
     }
+    
+    //NEC host erratum: rejects LS/FS interrupt endpoints with interval < 6
+    if (xhci_has_quirk(c, XHCI_QUIRK_NEC_HOST) && ep_interval < 6) {
+        ep_interval = 6;
+    }
+    
     if (ep_interval > 15) ep_interval = 15;
 
     ctx_wr(ep, 0, (uint32)ep_interval << 16);
     //CErr=3, EP type=interrupt IN, max burst=0, max packet size
-    ctx_wr(ep, 1, (3U << 0) | ((uint32)EP_TYPE_INTR_IN << 3) | ((uint32)mps << 16));
+    ctx_wr(ep, 1, (3U << 1) | ((uint32)EP_TYPE_INTR_IN << 3) | ((uint32)mps << 16));
     //TR dequeue pointer
     uintptr rp = dev->ep_ring[dci - 1].phys;
     ctx_wr(ep, 2, (uint32)((rp & ~0xFULL) | 1)); //DCS=1
     ctx_wr(ep, 3, (uint32)(rp >> 32));
-    //average TRB length = mps for interrupt
-    ctx_wr(ep, 4, mps);
+    //DW4: Max ESIT Payload [31:16] | average TRB length [15:0]
+    ctx_wr(ep, 4, ((uint32)mps << 16) | mps);
 }
 
 //event ring processing (called from IRQ handler and polling loops)
@@ -756,6 +1238,9 @@ static void xhci_drain_events(xhci_ctrl_t *c) {
             //port ID is in DW1 bits [31:24] = param bits [63:56]
             uint8 port1 = (uint8)((trb->param >> 56) & 0xFF);
             if (port1 >= 1 && port1 <= c->max_ports) {
+                if (!(op_read32(c, XHCI_PORTSC(port1 - 1)) & PORTSC_CCS)) {
+                    c->disconnect_ports[port1] = true;
+                }
                 //acknowledge by clearing all W1C bits on that port
                 uint32 portsc = op_read32(c, XHCI_PORTSC(port1 - 1));
                 op_write32(c, XHCI_PORTSC(port1 - 1),
@@ -773,14 +1258,16 @@ static void xhci_drain_events(xhci_ctrl_t *c) {
 }
 
 static void xhci_ack_events(xhci_ctrl_t *c) {
-    //move the HC's dequeue pointer to where we've read up to
-    evt_update_erdp(c);
-    //clear interrupt-pending in the interrupter
+    //clear interrupt-pending in the interrupter first
     uint32 iman = rt_read32(c, XHCI_RT_IMAN(0));
     rt_write32(c, XHCI_RT_IMAN(0), iman | IMAN_IP);
+    
     //clear pending status bits (all W1C): event interrupt, port-change detect,
     //and host-system-error, leaving HSE/PCD latched can cause IRQ storms
     op_write32(c, XHCI_OP_USBSTS, USBSTS_EINT | USBSTS_PCD | USBSTS_HSE);
+
+    //move the HC's dequeue pointer to where we've read up to and clear EHB
+    evt_update_erdp(c);
 }
 
 static void xhci_process_events(xhci_ctrl_t *c) {
@@ -789,9 +1276,17 @@ static void xhci_process_events(xhci_ctrl_t *c) {
     //concurrent drain on another CPU can observe hid_intr_queued in a
     //stale state, which would permanently kill the interrupt pipe on SMP
     irq_state_t fl = spinlock_irq_acquire(&c->evt_lock);
+    
+    //clear interrupt status before draining to avoid race conditions on 0.96 ocntrollers
+    uint32 iman = rt_read32(c, XHCI_RT_IMAN(0));
+    rt_write32(c, XHCI_RT_IMAN(0), iman | IMAN_IP);
+    op_write32(c, XHCI_OP_USBSTS, USBSTS_EINT | USBSTS_PCD | USBSTS_HSE);
+
     c->hid_pending_count = 0;
     xhci_drain_events(c);
-    xhci_ack_events(c);
+    
+    //update ERDP and clear EHB after draining
+    evt_update_erdp(c);
     uint32 n_pending = c->hid_pending_count;
 
     //re-arm HID interrupt endpoints while still holding evt_lock
@@ -805,11 +1300,104 @@ static void xhci_process_events(xhci_ctrl_t *c) {
     }
     spinlock_irq_release(&c->evt_lock, fl);
 
+    xhci_process_disconnects(c);
+
     //deliver HID reports outside the lock (quite heavy work
     for (uint32 i = 0; i < n_pending; i++) {
         hid_pending_t *hp = &c->hid_pending[i];
-        hid_report_received(hp->proto, hp->data, hp->len);
+        if (hp->slot >= 1 && hp->slot <= XHCI_MAX_SLOTS) {
+            xhci_device_t *dev = &c->devices[hp->slot];
+            if (dev->in_use && dev->is_hid)
+                hid_report_received(hp->proto, hp->data, hp->len);
+        }
     }
+}
+
+static void xhci_cleanup_device(xhci_ctrl_t *c, uint8 slot) {
+    if (slot < 1 || slot > XHCI_MAX_SLOTS) return;
+
+    xhci_device_t *dev = &c->devices[slot];
+    uint8 slot_id = dev->slot_id;
+
+    if (dev->in_use && slot_id == slot) {
+        cmd_disable_slot_submit(c, slot_id);
+    }
+
+    if (dev->is_hid) {
+        if (dev->hid_proto == USB_HID_PROTO_KEYBOARD) {
+            hid_usb_keyboard_detached();
+        } else if (dev->hid_proto == USB_HID_PROTO_MOUSE) {
+            hid_usb_mouse_detached();
+        }
+    }
+
+    if (dev->hid_buf_phys) {
+        pmm_free(dev->hid_buf_phys, 1);
+        dev->hid_buf_phys = NULL;
+        dev->hid_buf = NULL;
+    }
+
+    for (uint32 i = 0; i < XHCI_MAX_EP; i++) {
+        if (dev->ep_ring_ok[i]) {
+            ring_free(&dev->ep_ring[i]);
+            dev->ep_ring_ok[i] = false;
+        }
+    }
+
+    if (dev->out_ctx_phys) {
+        pmm_free(dev->out_ctx_phys, 1);
+        dev->out_ctx_phys = NULL;
+        dev->out_ctx = NULL;
+    }
+
+    if (c->dcbaa && slot <= c->max_slots) {
+        c->dcbaa[slot] = 0;
+    }
+
+    memset(dev, 0, sizeof(*dev));
+}
+
+static void xhci_process_disconnects(xhci_ctrl_t *c) {
+    for (uint32 port1 = 1; port1 <= c->max_ports && port1 < 256; port1++) {
+        if (!c->disconnect_ports[port1]) continue;
+        c->disconnect_ports[port1] = false;
+
+        for (uint32 slot = 1; slot <= XHCI_MAX_SLOTS; slot++) {
+            xhci_device_t *dev = &c->devices[slot];
+            if (dev->slot_id == slot && dev->port == (port1 - 1) &&
+                (dev->in_use || dev->out_ctx_phys || dev->hid_buf_phys)) {
+                xhci_cleanup_device(c, (uint8)slot);
+                break;
+            }
+        }
+    }
+}
+
+static uint32 xhci_poll_pending_hid(xhci_ctrl_t *c) {
+    irq_state_t fl = spinlock_irq_acquire(&c->evt_lock);
+    c->hid_pending_count = 0;
+    xhci_drain_events(c);
+    uint32 n = c->hid_pending_count;
+    for (uint32 j = 0; j < n; j++) {
+        hid_pending_t *hp = &c->hid_pending[j];
+        if (hp->slot >= 1 && hp->slot <= XHCI_MAX_SLOTS) {
+            xhci_device_t *dev = &c->devices[hp->slot];
+            if (dev->in_use && dev->is_hid)
+                xhci_queue_intr(c, dev);
+        }
+    }
+    spinlock_irq_release(&c->evt_lock, fl);
+
+    xhci_process_disconnects(c);
+
+    for (uint32 j = 0; j < n; j++)
+        if (c->hid_pending[j].slot >= 1 && c->hid_pending[j].slot <= XHCI_MAX_SLOTS) {
+            xhci_device_t *dev = &c->devices[c->hid_pending[j].slot];
+            if (dev->in_use && dev->is_hid)
+                hid_report_received(c->hid_pending[j].proto, c->hid_pending[j].data, c->hid_pending[j].len);
+        }
+
+    return n;
 }
 
 static void xhci_recover_hid_endpoints(xhci_ctrl_t *c) {
@@ -831,42 +1419,122 @@ static void xhci_recover_hid_endpoints(xhci_ctrl_t *c) {
     }
 }
 
-static int xhci_port_reset(xhci_ctrl_t *c, uint8 port_idx) {
+static int xhci_port_reset(xhci_ctrl_t *c, uint8 port_idx, uint8 speed) {
     uint32 portsc = op_read32(c, XHCI_PORTSC(port_idx));
+    bool is_superspeed = (speed == USB_SPEED_SS || speed == USB_SPEED_SSP);
+    bool is_v096 = (c->hci_ver < 0x0100);
 
     if (!(portsc & PORTSC_PP)) {
-        //power up the port first
-        op_write32(c, XHCI_PORTSC(port_idx),
-                   (portsc & ~PORTSC_W1C_MASK) | PORTSC_PP);
-        for (int i = 0; i < 100000; i++) arch_pause();
+        op_write32(c, XHCI_PORTSC(port_idx), (portsc & ~PORTSC_W1C_MASK) | PORTSC_PP);
+        sleep(20);
         portsc = op_read32(c, XHCI_PORTSC(port_idx));
     }
 
-    //assert reset - preserve PP, clear W1C, set PR
-    op_write32(c, XHCI_PORTSC(port_idx),
-               (portsc & ~PORTSC_W1C_MASK) | PORTSC_PR);
+    //on some 0.96 controllers setting PR might not clear automatically or 
+    //might require specific timing
+    op_write32(c, XHCI_PORTSC(port_idx), (portsc & ~PORTSC_W1C_MASK) | PORTSC_PR);
 
-    //wait for PRC (port reset change) with timeout ~500 ms
-    for (int i = 0; i < 5000000; i++) {
+    //wait for reset to complete
+    bool success = false;
+    for (uint32 elapsed = 0; elapsed < 500; elapsed++) {
         portsc = op_read32(c, XHCI_PORTSC(port_idx));
-        if (portsc & PORTSC_PRC) break;
-        arch_pause();
+        
+        //in 1.0+, we wait for PRC but in 0.96 we check if PR has cleared or PED is set
+        if (is_v096) {
+            if (!(portsc & PORTSC_PR) || (portsc & PORTSC_PED)) {
+                success = true;
+                break;
+            }
+        } else {
+            if (portsc & PORTSC_PRC) {
+                success = true;
+                break;
+            }
+        }
+        sleep(1);
     }
 
-    if (!(op_read32(c, XHCI_PORTSC(port_idx)) & PORTSC_PRC)) {
-        printf("[xhci] port %u reset timeout\n", port_idx);
-        return -1;
+    if (!success) {
+        printf("[xhci] port %u reset timeout (portsc=0x%08X)\n", port_idx, portsc);
     }
 
-    //clear PRC
+    //clear change bits
+    portsc = op_read32(c, XHCI_PORTSC(port_idx));
+    op_write32(c, XHCI_PORTSC(port_idx), (portsc & ~PORTSC_W1C_MASK) | (portsc & PORTSC_W1C_MASK));
+
+    //settle time
+    sleep(20);
+
+    portsc = op_read32(c, XHCI_PORTSC(port_idx));
+    uint32 pls = (portsc & PORTSC_PLS_MASK) >> PORTSC_PLS_SHIFT;
+
+    if (portsc & PORTSC_PED) return 0;
+    if (is_superspeed && pls == PORTSC_PLS_U0) return 0;
+
+    //if SS port is stuck in Polling (pls=7), it needs a Warm Reset on Renesas
+    if (is_superspeed && pls == PORTSC_PLS_POLLING) {
+        printf("[xhci] port %u: SS stuck in Polling, attempting Warm Reset\n", port_idx);
+        op_write32(c, XHCI_PORTSC(port_idx), (portsc & ~PORTSC_W1C_MASK) | PORTSC_WPR);
+        
+        for (uint32 elapsed = 0; elapsed < 500; elapsed++) {
+            portsc = op_read32(c, XHCI_PORTSC(port_idx));
+            if (portsc & PORTSC_WRC) break;
+            sleep(1);
+        }
+        
+        //clear WRC
+        portsc = op_read32(c, XHCI_PORTSC(port_idx));
+        op_write32(c, XHCI_PORTSC(port_idx), (portsc & ~PORTSC_W1C_MASK) | PORTSC_WRC);
+        
+        portsc = op_read32(c, XHCI_PORTSC(port_idx));
+        if (portsc & PORTSC_PED) return 0;
+        pls = (portsc & PORTSC_PLS_MASK) >> PORTSC_PLS_SHIFT;
+        if (pls == PORTSC_PLS_U0) return 0;
+    }
+
+    return -1;
+}
+
+static bool xhci_port_polling_recovery(xhci_ctrl_t *c, uint8 port_idx) {
+    if (!xhci_has_quirk(c, XHCI_QUIRK_PORT_POLLING_RECOVER)) return false;
+
+    uint32 portsc = op_read32(c, XHCI_PORTSC(port_idx));
+    uint8 speed = (portsc & PORTSC_SPEED_MASK) >> PORTSC_SPEED_SHIFT;
+    uint32 pls = (portsc & PORTSC_PLS_MASK) >> PORTSC_PLS_SHIFT;
+    if (!(portsc & PORTSC_CCS)) return false;
+    if (pls != PORTSC_PLS_POLLING && pls != PORTSC_PLS_COMP_MOD) return false;
+
+    //first try one more normal reset, then some ports need to be fucking abused
+    //this spec is bullshit it says we gotta do this ONCE AND cleanly 
+    //EXACLY in xHCI spec § 4.3.1 - resetting a root hub port
+    //but manufactuers making controlelrs don't follow it
+    if (xhci_port_reset(c, port_idx, speed) == 0) {
+        portsc = op_read32(c, XHCI_PORTSC(port_idx));
+        pls = (portsc & PORTSC_PLS_MASK) >> PORTSC_PLS_SHIFT;
+        if (portsc & PORTSC_PED) return true;
+        if (speed == USB_SPEED_SS || speed == USB_SPEED_SSP) {
+            if (pls == PORTSC_PLS_U0) return true;
+        }
+    }
+
+    if (!xhci_has_quirk(c, XHCI_QUIRK_PORT_POLLING_WARM_RESET)) return false;
+
+    printf("[xhci] port %u: polling recovery warm reset\n", port_idx);
     portsc = op_read32(c, XHCI_PORTSC(port_idx));
     op_write32(c, XHCI_PORTSC(port_idx),
-               (portsc & ~PORTSC_W1C_MASK) | PORTSC_PRC);
+               (portsc & ~PORTSC_W1C_MASK) | PORTSC_WPR);
 
-    //short settling delay
-    for (int i = 0; i < 500000; i++) arch_pause();
+    for (uint32 elapsed = 0; elapsed < 100; elapsed++) {
+        portsc = op_read32(c, XHCI_PORTSC(port_idx));
+        pls = (portsc & PORTSC_PLS_MASK) >> PORTSC_PLS_SHIFT;
+        if (portsc & PORTSC_PED) return true;
+        if (speed == USB_SPEED_SS || speed == USB_SPEED_SSP) {
+            if (pls == PORTSC_PLS_U0) return true;
+        }
+        sleep(1);
+    }
 
-    return 0;
+    return false;
 }
 
 
@@ -902,7 +1570,8 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
     arch_wmb();
 
     //allocate EP0 transfer ring
-    if (ring_alloc(&dev->ep_ring[DCI_EP0 - 1], XHCI_TR_RING_SIZE) < 0) goto fail_ctx;
+    if (ring_alloc(&dev->ep_ring[DCI_EP0 - 1], XHCI_TR_RING_SIZE,
+                   xhci_has_quirk(c, XHCI_QUIRK_LINK_TRB_CHAIN)) < 0) goto fail_ctx;
     dev->ep_ring_ok[DCI_EP0 - 1] = true;
 
     //address device (BSR=0 - sends SET_ADDRESS)
@@ -994,9 +1663,13 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
     bool       found_hid  = false;
     uint8      hid_proto  = 0;
     uint8      hid_iface  = 0;
+    uint8      hid_iface_sub = 0;
+    uint8      hid_iface_proto = 0;
     uint8      hid_ep_addr = 0;
     uint16     hid_ep_mps = 0;
     uint8      hid_ep_ivl = 10;
+    uint16     hid_report_desc_len = 0;
+    usb_hid_desc_t *hid_desc = NULL;
 
     uint8 *p   = (uint8 *)desc_virt;
     uint8 *end = p + total_len;
@@ -1015,19 +1688,22 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
             cur_iface_class = id->bInterfaceClass;
             cur_iface_sub   = id->bInterfaceSubClass;
             cur_iface_proto = id->bInterfaceProtocol;
+        } else if (dtype == USB_DESC_HID) {
+            hid_desc = (usb_hid_desc_t *)p;
+            hid_report_desc_len = hid_desc->wDescriptorLength;
         } else if (dtype == USB_DESC_ENDPOINT && !found_hid) {
             usb_ep_desc_t *ed = (usb_ep_desc_t *)p;
             bool is_in   = USB_EP_IS_IN(ed->bEndpointAddress);
             uint8 xtype  = ed->bmAttributes & 0x03;
 
             if (cur_iface_class == USB_CLASS_HID &&
-                cur_iface_sub   == USB_HID_SUBCLASS_BOOT &&
                 is_in && xtype == USB_EP_XFER_INTR) {
 
-                //boot-protocol HID device with an interrupt IN endpoint
                 found_hid    = true;
                 hid_proto    = cur_iface_proto; //1=kbd 2=mouse
                 hid_iface    = cur_iface;
+                hid_iface_sub = cur_iface_sub;
+                hid_iface_proto = cur_iface_proto;
                 hid_ep_addr  = ed->bEndpointAddress;
                 hid_ep_mps   = ed->wMaxPacketSize;
                 hid_ep_ivl   = ed->bInterval;
@@ -1046,6 +1722,39 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
         goto fail_ep0;
     }
 
+    //if this is a HID interface, try to parse the report descriptor so we
+    //can accept report-protocol devices instead of boot-only ones
+    if (found_hid && hid_desc && hid_report_desc_len > 0) {
+        void *report_phys = pmm_alloc(1);
+        if (report_phys) {
+            void *report_virt = P2V(report_phys);
+            uint16 fetch_len = hid_report_desc_len;
+            if (fetch_len > PAGE_SIZE) fetch_len = PAGE_SIZE;
+            memset(report_virt, 0, PAGE_SIZE);
+
+            cc = xhci_get_hid_report_descriptor(c, dev, hid_iface, report_virt, (uintptr)report_phys, fetch_len);
+            if (cc == TRB_CC_SUCCESS || cc == TRB_CC_SHORT_PKT) {
+                uint8 parsed_proto = 0;
+                uint8 report_id = 0;
+                uint16 report_len = 0;
+                if (hid_parse_report_descriptor(report_virt, fetch_len, &parsed_proto, &report_id, &report_len)) {
+                    hid_proto = parsed_proto;
+                }
+            }
+
+            pmm_free(report_phys, 1);
+        }
+    }
+
+    if (hid_proto != HID_PROTO_KEYBOARD && hid_proto != HID_PROTO_MOUSE) {
+        if (found_hid && hid_iface_sub == USB_HID_SUBCLASS_BOOT &&
+            (hid_iface_proto == USB_HID_PROTO_KEYBOARD || hid_iface_proto == USB_HID_PROTO_MOUSE)) {
+            hid_proto = hid_iface_proto;
+        } else {
+            found_hid = false;
+        }
+    }
+
     //if HID configure endpoint and start polling
     if (found_hid &&
         (hid_proto == USB_HID_PROTO_KEYBOARD || hid_proto == USB_HID_PROTO_MOUSE)) {
@@ -1057,7 +1766,8 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
         }
 
         //allocate transfer ring for the HID interrupt endpoint
-        if (ring_alloc(&dev->ep_ring[dci - 1], XHCI_TR_RING_SIZE) < 0)
+        if (ring_alloc(&dev->ep_ring[dci - 1], XHCI_TR_RING_SIZE,
+                       xhci_has_quirk(c, XHCI_QUIRK_LINK_TRB_CHAIN)) < 0)
             goto skip_hid;
         dev->ep_ring_ok[dci - 1] = true;
 
@@ -1071,11 +1781,12 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
             goto skip_hid;
         }
 
-        //tell device to use boot protocol (protocol 0)
-        xhci_hid_set_protocol(c, dev, hid_iface, 0);
-
-        //set idle rate to 0 (device only reports on change)
-        xhci_hid_set_idle(c, dev, hid_iface, 0);
+        //boot-only interfaces can be told to use boot protocol, report-only
+        //interfaces may stall those requests so only issue them when legal
+        if (hid_iface_sub == USB_HID_SUBCLASS_BOOT) {
+            xhci_hid_set_protocol(c, dev, hid_iface, 0);
+            xhci_hid_set_idle(c, dev, hid_iface, 0);
+        }
 
         //allocate DMA buffer for HID reports (one page)
         void *hid_phys = pmm_alloc(1);
@@ -1107,29 +1818,46 @@ skip_hid:
     return;
 
 fail_ep0:
-    //TODO: free EP0 ring pages
+    xhci_cleanup_device(c, (uint8)slot);
     return;
 fail_ctx:
-    pmm_free(out_phys, 1);
-    dev->out_ctx_phys = NULL;
+    xhci_cleanup_device(c, (uint8)slot);
     return;
 fail_slot:
-    dev->in_use = false;
+    xhci_cleanup_device(c, (uint8)slot);
 }
 
 static void xhci_scan_ports(xhci_ctrl_t *c) {
     for (uint8 i = 0; i < c->max_ports; i++) {
         uint32 portsc = op_read32(c, XHCI_PORTSC(i));
+        uint8  speed  = (portsc & PORTSC_SPEED_MASK) >> PORTSC_SPEED_SHIFT;
 
         if (!(portsc & PORTSC_CCS)) continue;   //nothing connected
         if (!(portsc & PORTSC_PP))  continue;   //port not powered
 
         //reset the port to bring it to the Enabled state
-        if (xhci_port_reset(c, i) < 0) continue;
+        if (xhci_port_reset(c, i, speed) < 0) continue;
 
         portsc = op_read32(c, XHCI_PORTSC(i));
-        if (!(portsc & PORTSC_PED)) {
-            printf("[xhci] port %u: not enabled after reset (portsc=0x%08X)\n", i, portsc);
+        bool is_superspeed = (speed == USB_SPEED_SS || speed == USB_SPEED_SSP);
+        uint32 pls = (portsc & PORTSC_PLS_MASK) >> PORTSC_PLS_SHIFT;
+        if (!(portsc & PORTSC_PED) && !(is_superspeed && pls == PORTSC_PLS_U0)) {
+            if (xhci_port_polling_recovery(c, i)) {
+                portsc = op_read32(c, XHCI_PORTSC(i));
+                pls = (portsc & PORTSC_PLS_MASK) >> PORTSC_PLS_SHIFT;
+                if (portsc & PORTSC_PED || (is_superspeed && pls == PORTSC_PLS_U0)) {
+                    xhci_enumerate_device(c, i);
+                    continue;
+                }
+            }
+
+            printf("[xhci] port %u: not enabled after reset (portsc=0x%08X ccs=%u ped=%u pp=%u pls=%u prc=%u)\n",
+                   i, portsc,
+                   !!(portsc & PORTSC_CCS),
+                   !!(portsc & PORTSC_PED),
+                   !!(portsc & PORTSC_PP),
+                   pls,
+                   !!(portsc & PORTSC_PRC));
             continue;
         }
 
@@ -1175,6 +1903,13 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     if (!c) return;
 
     c->pci = pci;
+    xhci_init_quirks(c, pci);
+    if (pci->vendor_id == 0x1033 && pci->device_id == 0x0194) {
+        pci_disable_link_power_management(pci);
+    }
+    if (xhci_has_quirk(c, XHCI_QUIRK_RENESAS_FW_LOAD)) {
+        (void)xhci_renesas_fw_load(pci);
+    }
     pci_enable_mmio(pci);
     pci_enable_bus_master(pci);
 
@@ -1193,7 +1928,10 @@ static void xhci_init_ctrl(pci_device_t *pci) {
            (unsigned long long)bar_size);
 
     //read capability registers
-    uint8  caplength  = cap_read8(c,  XHCI_CAP_CAPLENGTH);
+    uint32 cap0      = cap_read32(c, 0);
+    uint8  caplength  = (uint8)(cap0 & 0xFF);
+    c->hci_ver        = (uint16)(cap0 >> 16);
+
     uint32 hcsparams1 = cap_read32(c, XHCI_CAP_HCSPARAMS1);
     uint32 hccparams1 = cap_read32(c, XHCI_CAP_HCCPARAMS1);
     uint32 dboff      = cap_read32(c, XHCI_CAP_DBOFF);
@@ -1208,32 +1946,34 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     c->max_slots = (uint8)HCSPARAMS1_MAX_SLOTS(hcsparams1);
     if (c->max_slots > XHCI_MAX_SLOTS) c->max_slots = XHCI_MAX_SLOTS;
 
-    printf("[xhci] ctx_size=%u max_ports=%u max_slots=%u\n",
-           c->ctx_size, c->max_ports, c->max_slots);
+    printf("[xhci] version 0x%04X ctx_size=%u max_ports=%u max_slots=%u\n",
+           c->hci_ver, c->ctx_size, c->max_ports, c->max_slots);
+
+    xhci_claim_bios_ownership(c, hccparams1);
 
     //wait for controller not ready to clear (up to 1 s)
-    for (int i = 0; i < 10000000; i++) {
+    for (uint32 elapsed = 0; elapsed < 1000; elapsed++) {
         if (!(op_read32(c, XHCI_OP_USBSTS) & USBSTS_CNR)) break;
-        arch_pause();
+        sleep(1);
     }
 
     //stop controller if running
     uint32 cmd = op_read32(c, XHCI_OP_USBCMD);
     if (cmd & USBCMD_RUN) {
         op_write32(c, XHCI_OP_USBCMD, cmd & ~USBCMD_RUN);
-        for (int i = 0; i < 2000000; i++) {
+        for (uint32 elapsed = 0; elapsed < 1000; elapsed++) {
             if (op_read32(c, XHCI_OP_USBSTS) & USBSTS_HCH) break;
-            arch_pause();
+            sleep(1);
         }
     }
 
     //reset the controller
     op_write32(c, XHCI_OP_USBCMD, USBCMD_HCRST);
-    for (int i = 0; i < 10000000; i++) {
+    for (uint32 elapsed = 0; elapsed < 1000; elapsed++) {
         if (!(op_read32(c, XHCI_OP_USBCMD) & USBCMD_HCRST) &&
             !(op_read32(c, XHCI_OP_USBSTS) & USBSTS_CNR))
             break;
-        arch_pause();
+        sleep(1);
     }
     printf("[xhci] reset complete\n");
 
@@ -1248,7 +1988,8 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     //command ring
     spinlock_irq_init(&c->cmd_lock);
     spinlock_irq_init(&c->evt_lock);
-    if (ring_alloc(&c->cmd_ring, XHCI_CMD_RING_SIZE) < 0) {
+    if (ring_alloc(&c->cmd_ring, XHCI_CMD_RING_SIZE,
+                   xhci_has_quirk(c, XHCI_QUIRK_LINK_TRB_CHAIN)) < 0) {
         pmm_free(dcbaa_phys, 1); kfree(c); return;
     }
     //CRCR: physical base of command ring | RCS (ring cycle state = initial PCS = 1)
@@ -1296,9 +2037,9 @@ static void xhci_init_ctrl(pci_device_t *pci) {
 
     //start controller
     op_write32(c, XHCI_OP_USBCMD, USBCMD_RUN | USBCMD_INTE | USBCMD_HSEE);
-    for (int i = 0; i < 2000000; i++) {
+    for (uint32 elapsed = 0; elapsed < 1000; elapsed++) {
         if (!(op_read32(c, XHCI_OP_USBSTS) & USBSTS_HCH)) break;
-        arch_pause();
+        sleep(1);
     }
 
     if (op_read32(c, XHCI_OP_USBSTS) & USBSTS_HCH) {
@@ -1310,12 +2051,28 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     g_ctrl_bar[g_ctrl_count] = bar_phys;   //record BAR0 for dedup check
     g_ctrls[g_ctrl_count++]  = c;
 
-    //longer settling delay: gives QEMU time to complete port detection
-    //before we scan  each arch_pause on KVM is ~5–10 ns; 10 M ≈ 50–100 ms
-    for (int i = 0; i < 10000000; i++) arch_pause();
+    if (!xhci_has_quirk(c, XHCI_QUIRK_RENESAS_FW_LOAD)) {
+        xhci_nec_get_fw(c);
+    }
+
+    //settling delay, gives the cntroler time to complete port detection
+    sleep(100);
 
     //scan ports and enumerate attached devices
     xhci_scan_ports(c);
+}
+
+static void xhci_init_quirks(xhci_ctrl_t *c, pci_device_t *pci) {
+    if (!c || !pci) return;
+
+    //renesas/NEC 1033:0194 can leave ports stuck in polling after reset
+    if (pci->vendor_id == 0x1033 && pci->device_id == 0x0194) {
+        c->quirks |= XHCI_QUIRK_PORT_POLLING_RECOVER;
+        c->quirks |= XHCI_QUIRK_PORT_POLLING_WARM_RESET;
+        c->quirks |= XHCI_QUIRK_FORCE_BIOS_HANDOFF;
+        c->quirks |= XHCI_QUIRK_NEC_HOST;
+        c->quirks |= XHCI_QUIRK_RENESAS_FW_LOAD;
+    }
 }
 
 //driver entry point

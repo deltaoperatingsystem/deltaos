@@ -38,7 +38,8 @@ static object_t *console_object = NULL;
 
 void con_init(void) {
     if (!fb_available()) return;
-    
+    if (console_object) return;
+
     cols = fb_width() / FONT_WIDTH;
     rows = fb_height() / FONT_HEIGHT;
     cursor_col = 0;
@@ -82,14 +83,7 @@ static void draw_char(uint32 col, uint32 row, char c) {
     if (ch >= 128) ch = '?';
     
     const uint8 *glyph = &font[ch * FONT_HEIGHT];
-    
-    for (uint32 py = 0; py < FONT_HEIGHT; py++) {
-        uint8 row_bits = glyph[py];
-        for (uint32 px = 0; px < FONT_WIDTH; px++) {
-            uint32 color = (row_bits & (0x80 >> px)) ? fg_color : bg_color;
-            fb_putpixel(x + px, y + py, color);
-        }
-    }
+    fb_drawglyph(x, y, glyph, fg_color, bg_color, FONT_WIDTH, FONT_HEIGHT);
 }
 
 static void scroll(void) {
@@ -104,7 +98,6 @@ static void newline(void) {
         scroll();
         cursor_row = rows - 1;
     }
-    fb_flip();
 }
 
 void con_putc(char c) {
@@ -161,12 +154,5 @@ void con_draw_char_at(uint32 col, uint32 row, char c, uint32 fg, uint32 bg) {
     if (ch >= 128) ch = '?';
     
     const uint8 *glyph = &font[ch * FONT_HEIGHT];
-    
-    for (uint32 py = 0; py < FONT_HEIGHT; py++) {
-        uint8 row_bits = glyph[py];
-        for (uint32 px = 0; px < FONT_WIDTH; px++) {
-            uint32 color = (row_bits & (0x80 >> px)) ? fg : bg;
-            fb_putpixel(x + px, y + py, color);
-        }
-    }
+    fb_drawglyph(x, y, glyph, fg, bg, FONT_WIDTH, FONT_HEIGHT);
 }

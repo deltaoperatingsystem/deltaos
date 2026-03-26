@@ -31,6 +31,14 @@ typedef struct pci_device {
     struct pci_device *next;  //linked list
 } pci_device_t;
 
+//PCIe capability registers and link power management helpers
+#define PCI_CAP_ID_EXP          0x10
+#define PCI_EXP_LNKCTL          0x10
+#define PCI_EXP_LNKCTL_ASPMC    0x0003
+#define PCI_EXT_CAP_ID_L1SS     0x1E
+#define PCI_L1SS_CTL1           0x08
+#define PCI_L1SS_CTL1_L1SS_MASK 0x0000000F
+
 //initialize PCI subsystem so enumerate and register devices
 void pci_init(void);
 
@@ -61,5 +69,8 @@ void pci_enable_mmio(pci_device_t *dev);
 
 //enable I/O space access for a device
 void pci_enable_io(pci_device_t *dev);
+
+//disable ASPM/L1SS on a device and its upstream bridge if available
+void pci_disable_link_power_management(pci_device_t *dev);
 
 #endif

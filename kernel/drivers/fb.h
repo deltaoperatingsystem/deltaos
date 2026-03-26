@@ -11,6 +11,8 @@ void fb_init_backbuffer(void);
 
 //copy backbuffer to VRAM
 void fb_flip(void);
+void fb_flip_rect(uint32 x, uint32 y, uint32 w, uint32 h);
+void fb_copy_rect(uint32 dst_x, uint32 dst_y, uint32 src_x, uint32 src_y, uint32 w, uint32 h);
 
 //check if framebuffer is available
 bool fb_available(void);
@@ -24,6 +26,7 @@ void fb_clear(uint32 color);
 void fb_putpixel(uint32 x, uint32 y, uint32 color);
 void fb_fillrect(uint32 x, uint32 y, uint32 w, uint32 h, uint32 color);
 void fb_drawline(uint32 x1, uint32 y1, uint32 x2, uint32 y2, uint32 colour);
+void fb_drawglyph(uint32 x, uint32 y, const uint8 *glyph, uint32 fg, uint32 bg, uint32 width, uint32 height);
 
 // image rendering!
 void fb_drawimage(const unsigned char *src, uint32 width, uint32 height, uint32 x, uint32 y);

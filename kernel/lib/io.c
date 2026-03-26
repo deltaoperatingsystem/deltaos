@@ -1,16 +1,11 @@
+#include <lib/io.h>
 #include <drivers/console.h>
 #include <drivers/serial.h>
-#include <drivers/vt/vt.h>
 #include <obj/klog.h>
 #include <stdarg.h>
 #include <arch/types.h>
 #include <arch/cpu.h>
 #include <lib/spinlock.h>
-
-enum output_mode {
-    SERIAL,
-    CONSOLE,
-};
 
 bool serial_enabled = false;
 static enum output_mode mode = SERIAL;
@@ -28,11 +23,8 @@ void puts(const char *s) {
             serial_write(s);
             break;
         case CONSOLE: {
-            vt_t *vt = vt_get_active();
-            if (vt) {
-                vt_print(vt, s);
-                vt_flush(vt);
-            }
+            con_print(s);
+            con_flush();
             break;
         }
         default: break;
@@ -49,10 +41,8 @@ void putc(const char c) {
             serial_write_char(c);
             break;
         case CONSOLE: {
-            vt_t *vt = vt_get_active();
-            if (vt) {
-                vt_putc(vt, c);
-            }
+            con_putc(c);
+            con_flush();
             break;
         }
         default: break;
@@ -68,10 +58,7 @@ static void putc_locked(const char c) {
             serial_write_char(c);
             return;
         case CONSOLE: {
-            vt_t *vt = vt_get_active();
-            if (vt) {
-                vt_putc(vt, c);
-            }
+            con_putc(c);
             return;
         }
         default: return;
@@ -325,8 +312,7 @@ void printf(const char *format, ...) {
     
     //flush console if in console mode
     if (mode == CONSOLE) {
-        vt_t *vt = vt_get_active();
-        if (vt) vt_flush(vt);
+        con_flush();
     }
     
     spinlock_irq_release(&console_lock, flags);

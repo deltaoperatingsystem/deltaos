@@ -9,6 +9,7 @@
 #include <arch/cpu.h>
 #include <arch/timer.h>
 #include <proc/sched.h>
+#include <lib/time.h>
 
 #define NDP_CACHE_SIZE            32
 #define NDP_OPT_SOURCE_LLADDR     1
@@ -261,6 +262,9 @@ void ndp_recv(netif_t *nif, const uint8 src[NET_IPV6_ADDR_LEN],
         if (len < sizeof(ndp_ra_t)) return;
         const ndp_ra_t *ra = (const ndp_ra_t *)data;
         uint16 lifetime = ntohs(ra->router_lifetime);
+        const ndp_lladdr_opt_t *opt = ndp_find_lladdr_option(
+            (const uint8 *)data + sizeof(ndp_ra_t), len - sizeof(ndp_ra_t),
+            NDP_OPT_SOURCE_LLADDR);
 
         if (lifetime == 0) {
             ndp_clear_default_router(nif);
@@ -272,6 +276,9 @@ void ndp_recv(netif_t *nif, const uint8 src[NET_IPV6_ADDR_LEN],
         }
 
         ndp_set_default_router(nif, src);
+        if (opt) {
+            ndp_cache_update(src, opt->addr);
+        }
         printf("[ndp] Router advertisement from ");
         net_print_ipv6(src);
         printf(", gateway learned\n");
@@ -297,7 +304,8 @@ void ndp_recv(netif_t *nif, const uint8 src[NET_IPV6_ADDR_LEN],
 int ndp_discover_router(netif_t *nif) {
     if (!nif) return -1;
 
-    if (!ipv6_addr_is_unspecified(nif->ipv6_gateway)) {
+    uint8 router[NET_IPV6_ADDR_LEN];
+    if (ndp_get_default_router(nif, router)) {
         return 0;
     }
 
@@ -308,15 +316,17 @@ int ndp_discover_router(netif_t *nif) {
         ndp_send_router_solicit(nif);
 
         uint64 start = arch_timer_get_ticks();
-        uint32 timeout_ticks = freq / 2;
+        uint32 backoff_sec = 4U << attempt;
+        if (backoff_sec > 30U) backoff_sec = 30U;
+        uint64 timeout_ticks = (uint64)freq * backoff_sec;
         if (timeout_ticks == 0) timeout_ticks = 1;
 
         while (arch_timer_get_ticks() - start < timeout_ticks) {
             net_poll();
-            if (!ipv6_addr_is_unspecified(nif->ipv6_gateway)) {
+            if (ndp_get_default_router(nif, router)) {
                 return 0;
             }
-            sched_yield();
+            sleep(1);
         }
     }
 
@@ -328,19 +338,22 @@ int ndp_discover_router(netif_t *nif) {
 void ndp_timer_tick(void) {
     irq_state_t flags = spinlock_irq_acquire(&ndp_lock);
     uint64 now = arch_timer_get_ticks();
-    uint32 freq = arch_timer_getfreq();
-    if (freq == 0) freq = 1000;
+    uint64 freq64 = arch_timer_getfreq();
+    if (freq64 == 0) freq64 = 1000;
+    uint64 reachable_interval = 30ULL * freq64;
+    uint64 stale_interval = 120ULL * freq64;
 
     for (int i = 0; i < NDP_CACHE_SIZE; i++) {
         if (!ndp_cache[i].valid) continue;
         
         //age REACHABLE entries to STALE after 30 seconds
-        if (ndp_cache[i].state == NDP_STATE_REACHABLE && (now - ndp_cache[i].last_seen) > (30 * freq)) {
+        uint64 elapsed = now - ndp_cache[i].last_seen;
+        if (ndp_cache[i].state == NDP_STATE_REACHABLE && elapsed > reachable_interval) {
             ndp_cache[i].state = NDP_STATE_STALE;
         }
 
         //remove STALE entries after 2 hours (RFC-ish, but let's do 120s for now to be aggressive)
-        if (ndp_cache[i].state == NDP_STATE_STALE && (now - ndp_cache[i].last_seen) > (120 * freq)) {
+        if (ndp_cache[i].state == NDP_STATE_STALE && elapsed > stale_interval) {
             ndp_cache[i].valid = false;
         }
     }

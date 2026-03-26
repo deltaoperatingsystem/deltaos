@@ -13,21 +13,25 @@ static int parse_ipv4_literal(const char *str, uint8 out[4]) {
     int parts[4] = {0};
     int idx = 0;
     const char *p = str;
+    bool saw_digit = false;
 
     while (*p && idx < 4) {
         if (*p >= '0' && *p <= '9') {
             int digit = (*p - '0');
             if (parts[idx] > (255 - digit) / 10) return -1;
             parts[idx] = parts[idx] * 10 + digit;
+            saw_digit = true;
         } else if (*p == '.') {
+            if (!saw_digit) return -1;
             idx++;
+            saw_digit = false;
         } else {
             return -1;
         }
         p++;
     }
 
-    if (idx != 3) return -1;
+    if (idx != 3 || !saw_digit) return -1;
     for (int i = 0; i < 4; i++) {
         if (parts[i] > 255) return -1;
         out[i] = (uint8)parts[i];
@@ -140,10 +144,13 @@ int main(int argc, char **argv) {
         } else {
             uint32 ip4;
             uint8 ipv6_tmp[IPV6_ADDR_LEN];
-            if (dns_resolve(hostname, &ip4) == 0) {
-                sock = connect_addr(NET_ADDR_FAMILY_IPV4, &ip4, sizeof(ip4));
-            } else if (dns_resolve_aaaa(hostname, ipv6_tmp) == 0) {
+            if (dns_resolve_aaaa(hostname, ipv6_tmp) == 0) {
                 sock = connect_addr(NET_ADDR_FAMILY_IPV6, ipv6_tmp, sizeof(ipv6_tmp));
+                if (sock < 0 && dns_resolve(hostname, &ip4) == 0) {
+                    sock = connect_addr(NET_ADDR_FAMILY_IPV4, &ip4, sizeof(ip4));
+                }
+            } else if (dns_resolve(hostname, &ip4) == 0) {
+                sock = connect_addr(NET_ADDR_FAMILY_IPV4, &ip4, sizeof(ip4));
             } else {
                 printf("Error: failed to resolve %s\n", hostname);
                 return 1;
@@ -182,12 +189,24 @@ int main(int argc, char **argv) {
     //read and print response
     char buf[1024];
     int n;
+    int status = 0;
+    bool saw_data = false;
     while ((n = handle_read(sock, buf, sizeof(buf) - 1)) > 0) {
         buf[n] = '\0';
         printf("%s", buf);
+        saw_data = true;
+    }
+
+    if (n < 0) {
+        if (saw_data) {
+            status = 0;
+        } else {
+            printf("Error: timed out waiting for HTTP response\n");
+            status = 1;
+        }
     }
     
     printf("\n");
     handle_close(sock);
-    return 0;
+    return status;
 }

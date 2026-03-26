@@ -8,6 +8,33 @@
 #include <proc/process.h>
 #include <arch/percpu.h>
 
+static int write_user_byte(uint8 *ptr, uint8 value) {
+    percpu_t *cpu = percpu_get();
+    cpu->recovery_rip = (uintptr)&&fault;
+    *ptr = value;
+    cpu->recovery_rip = 0;
+    return 0;
+fault:
+    cpu->recovery_rip = 0;
+    return -1;
+}
+
+static int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) {
+    if (!user_ptr || !kernel_buf) return -1;
+
+    uintptr start = (uintptr)user_ptr;
+    if (start < USER_SPACE_START || start >= USER_SPACE_END) return -1;
+    if (len > (size)(USER_SPACE_END - start)) return -1;
+
+    const uint8 *src = (const uint8 *)kernel_buf;
+    uint8 *dst = (uint8 *)user_ptr;
+    for (size i = 0; i < len; i++) {
+        if (write_user_byte(&dst[i], src[i]) != 0) return -1;
+    }
+
+    return 0;
+}
+
 intptr sys_debug_write(const char *buf, size count) {
     debug_write(buf, count);
     return (intptr)count;
@@ -71,11 +98,14 @@ intptr sys_dns_resolve(const char *hostname, uint32 *ip_out) {
     //validate user pointers
     if ((uintptr)hostname < USER_SPACE_START || (uintptr)hostname >= USER_SPACE_END) return -1;
     if ((uintptr)ip_out < USER_SPACE_START || (uintptr)ip_out >= USER_SPACE_END) return -1;
+
+    char k_hostname[256];
+    if (copy_user_cstr(hostname, k_hostname, sizeof(k_hostname)) != 0) return -1;
     
     uint32 ip;
-    if (dns_resolve(hostname, &ip) != 0) return -1;
+    if (dns_resolve(k_hostname, &ip) != 0) return -1;
     
-    *ip_out = ip;
+    if (copy_to_user_bytes(ip_out, &ip, sizeof(ip)) != 0) return -1;
     return 0;
 }
 
@@ -90,7 +120,6 @@ intptr sys_dns_resolve_aaaa(const char *hostname, uint8 *ipv6_out) {
     uint8 ipv6[NET_IPV6_ADDR_LEN];
     if (dns_resolve_aaaa(k_hostname, ipv6) != 0) return -1;
 
-    uint8 *dst = ipv6_out;
-    for (int i = 0; i < NET_IPV6_ADDR_LEN; i++) dst[i] = ipv6[i];
+    if (copy_to_user_bytes(ipv6_out, ipv6, NET_IPV6_ADDR_LEN) != 0) return -1;
     return 0;
 }

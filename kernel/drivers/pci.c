@@ -163,6 +163,73 @@ static void pci_probe_bars(pci_device_t *pdev) {
     }
 }
 
+static uint32 pci_find_pcie_cap(pci_device_t *dev, uint8 cap_id) {
+    if (!dev || !(dev->status & (1 << 4))) return 0;
+
+    uint8 ptr = pci_config_read(dev->bus, dev->dev, dev->func, 0x34, 1);
+    while (ptr) {
+        uint8 id = pci_config_read(dev->bus, dev->dev, dev->func, ptr, 1);
+        if (id == cap_id) return ptr;
+        ptr = pci_config_read(dev->bus, dev->dev, dev->func, ptr + 1, 1);
+    }
+    return 0;
+}
+
+static uint32 pci_find_ext_cap(pci_device_t *dev, uint16 cap_id) {
+    if (!dev) return 0;
+
+    for (uint32 off = 0x100; off && off <= 0xFFC; ) {
+        uint32 hdr = pci_config_read(dev->bus, dev->dev, dev->func, (uint16)off, 4);
+        if (!hdr) break;
+        if ((hdr & 0xFFFF) == cap_id) return off;
+        off = (hdr >> 20) & 0xFFF;
+    }
+
+    return 0;
+}
+
+static pci_device_t *pci_find_upstream_bridge(pci_device_t *dev) {
+    if (!dev) return NULL;
+
+    for (pci_device_t *d = device_list; d; d = d->next) {
+        if (d->class_code != PCI_CLASS_BRIDGE || d->subclass != PCI_SUBCLASS_PCI2PCI) {
+            continue;
+        }
+
+        uint32 cfg6 = pci_config_read(d->bus, d->dev, d->func, 0x18, 4);
+        uint8 secondary_bus = (cfg6 >> 8) & 0xFF;
+        if (secondary_bus == dev->bus) return d;
+    }
+
+    return NULL;
+}
+
+static void pci_disable_link_power_management_one(pci_device_t *dev) {
+    if (!dev) return;
+
+    uint32 pcie_cap = pci_find_pcie_cap(dev, PCI_CAP_ID_EXP);
+    if (pcie_cap) {
+        uint16 lnkctl = (uint16)pci_config_read(dev->bus, dev->dev, dev->func,
+                                                (uint16)(pcie_cap + PCI_EXP_LNKCTL), 2);
+        if (lnkctl & PCI_EXP_LNKCTL_ASPMC) {
+            pci_config_write(dev->bus, dev->dev, dev->func,
+                             (uint16)(pcie_cap + PCI_EXP_LNKCTL), 2,
+                             lnkctl & ~PCI_EXP_LNKCTL_ASPMC);
+        }
+    }
+
+    uint32 l1ss = pci_find_ext_cap(dev, PCI_EXT_CAP_ID_L1SS);
+    if (l1ss) {
+        uint32 ctl1 = pci_config_read(dev->bus, dev->dev, dev->func,
+                                      (uint16)(l1ss + PCI_L1SS_CTL1), 4);
+        if (ctl1 & PCI_L1SS_CTL1_L1SS_MASK) {
+            pci_config_write(dev->bus, dev->dev, dev->func,
+                             (uint16)(l1ss + PCI_L1SS_CTL1), 4,
+                             ctl1 & ~PCI_L1SS_CTL1_L1SS_MASK);
+        }
+    }
+}
+
 static object_ops_t pci_device_ops = {
     .read = NULL,
     .write = NULL,
@@ -502,4 +569,15 @@ void pci_enable_io(pci_device_t *dev) {
     cmd |= PCI_CMD_IO_SPACE;
     pci_config_write(dev->bus, dev->dev, dev->func, 0x04, 2, cmd);
     dev->command = cmd;
+}
+
+void pci_disable_link_power_management(pci_device_t *dev) {
+    if (!dev) return;
+
+    pci_disable_link_power_management_one(dev);
+
+    pci_device_t *bridge = pci_find_upstream_bridge(dev);
+    if (bridge) {
+        pci_disable_link_power_management_one(bridge);
+    }
 }

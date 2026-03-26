@@ -16,6 +16,7 @@
 WEAK void fb_init(void) {}
 WEAK void fb_init_backbuffer(void) {}
 WEAK void fb_flip(void) {}
+WEAK void fb_flip_rect(uint32 x, uint32 y, uint32 w, uint32 h) { (void)x; (void)y; (void)w; (void)h; }
 WEAK bool fb_available(void) { return false; }
 WEAK uint32 fb_width(void) { return 0; }
 WEAK uint32 fb_height(void) { return 0; }
