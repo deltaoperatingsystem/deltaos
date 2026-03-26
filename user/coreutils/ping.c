@@ -8,21 +8,25 @@ static int parse_ipv4(const char *str, uint8 *a, uint8 *b, uint8 *c, uint8 *d) {
     int parts[4] = {0};
     int idx = 0;
     const char *p = str;
+    bool saw_digit = false;
     
     while (*p && idx < 4) {
         if (*p >= '0' && *p <= '9') {
             int digit = (*p - '0');
             if (parts[idx] > (255 - digit) / 10) return -1;
             parts[idx] = parts[idx] * 10 + digit;
+            saw_digit = true;
         } else if (*p == '.') {
+            if (!saw_digit) return -1;
             idx++;
+            saw_digit = false;
         } else {
             return -1;
         }
         p++;
     }
     
-    if (idx != 3) return -1;
+    if (idx != 3 || !saw_digit) return -1;
     for (int i = 0; i < 4; i++) {
         if (parts[i] > 255) return -1;
     }
@@ -176,24 +180,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    //hostname: try A record first, then AAAA
+    //hostname: prefer AAAA first, then fall back to A
     uint32 ip_val;
-    printf("Resolving %s (A)... ", target);
-    if (dns_resolve(target, &ip_val) == 0) {
-        uint8 *pb = (uint8 *)&ip_val;
-        a = pb[0]; b = pb[1]; c = pb[2]; d = pb[3];
-        printf("%u.%u.%u.%u\n", a, b, c, d);
-        printf("PING %u.%u.%u.%u: %u packets\n", a, b, c, d, count);
-        int res = ping(NET_ADDR_FAMILY_IPV4, &ip_val, sizeof(ip_val), count);
-        if (res > 0) {
-            printf("Sent %d ICMP echo request(s)\n", res);
-            return 0;
-        }
-        printf("Ping failed (error %d)\n", res);
-        return 1;
-    }
-
-    printf("not found\n");
     printf("Resolving %s (AAAA)... ", target);
     if (dns_resolve_aaaa(target, ipv6) == 0) {
         print_ipv6(ipv6);
@@ -207,6 +195,22 @@ int main(int argc, char **argv) {
             return 0;
         }
         printf("Ping6 failed (error %d)\n", res);
+        return 1;
+    }
+
+    printf("not found\n");
+    printf("Resolving %s (A)... ", target);
+    if (dns_resolve(target, &ip_val) == 0) {
+        uint8 *pb = (uint8 *)&ip_val;
+        a = pb[0]; b = pb[1]; c = pb[2]; d = pb[3];
+        printf("%u.%u.%u.%u\n", a, b, c, d);
+        printf("PING %u.%u.%u.%u: %u packets\n", a, b, c, d, count);
+        int res = ping(NET_ADDR_FAMILY_IPV4, &ip_val, sizeof(ip_val), count);
+        if (res > 0) {
+            printf("Sent %d ICMP echo request(s)\n", res);
+            return 0;
+        }
+        printf("Ping failed (error %d)\n", res);
         return 1;
     }
 

@@ -6,6 +6,7 @@
 #include <lib/io.h>
 #include <lib/string.h>
 #include <lib/spinlock.h>
+#include <mm/kheap.h>
 #include <arch/cpu.h>
 #include <arch/timer.h>
 #include <proc/sched.h>
@@ -169,13 +170,16 @@ static uint16 tcp_checksum(const net_addr_t *src_addr, const net_addr_t *dst_add
     pseudo.protocol = IPPROTO_TCP;
     pseudo.tcp_len = htons((uint16)tcp_len);
 
-    uint16 buf[800]; //enough for 12 + 1500 bytes, 16-bit aligned
-    if (sizeof(tcp_pseudoheader_t) + tcp_len > sizeof(buf)) return 0;
+    size total = sizeof(tcp_pseudoheader_t) + tcp_len;
+    uint8 *buf = kmalloc(total);
+    if (!buf) return 0;
 
     memcpy(buf, &pseudo, sizeof(pseudo));
-    memcpy((uint8 *)buf + sizeof(pseudo), tcp_data, tcp_len);
+    memcpy(buf + sizeof(pseudo), tcp_data, tcp_len);
 
-    return ipv4_checksum(buf, sizeof(pseudo) + tcp_len);
+    uint16 sum = ipv4_checksum(buf, total);
+    kfree(buf);
+    return sum;
 }
 
 static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
@@ -352,7 +356,6 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
         case TCP_STATE_SYN_RECEIVED:
             if ((flags & TCP_ACK) && ack == conn->snd_nxt) {
                 conn->snd_una = ack;
-                conn->snd_nxt = ack;
                 conn->state = TCP_STATE_ESTABLISHED;
                 spinlock_irq_release(&tcp_lock, lock_flags);
                 return;
@@ -364,7 +367,6 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                 if (ack == conn->snd_nxt) {
                     conn->rcv_nxt = seq + 1;
                     conn->snd_una = ack;
-                    conn->snd_nxt = ack;
                     conn->state = TCP_STATE_ESTABLISHED;
                     spinlock_irq_release(&tcp_lock, lock_flags);
                     //send ACK
@@ -530,6 +532,7 @@ tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
         
         while (arch_timer_get_ticks() - start < timeout) {
             if (conn->state == TCP_STATE_ESTABLISHED) return conn;
+            net_poll();
             sched_yield();
         }
         
@@ -592,6 +595,7 @@ int tcp_read(tcp_conn_t *conn, void *buf, size len) {
         }
         
         spinlock_irq_release(&tcp_lock, flags);
+        net_poll();
         sched_yield();
         flags = spinlock_irq_acquire(&tcp_lock);
     }
@@ -646,6 +650,7 @@ tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
     
     while (arch_timer_get_ticks() - start < timeout) {
         //scan for connections on this port that completed handshake
+        irq_state_t scan_flags = spinlock_irq_acquire(&tcp_lock);
         for (int i = 0; i < TCP_MAX_CONNECTIONS; i++) {
             tcp_conn_t *c = &connections[i];
             if (c->active && !c->listening && !c->accepted &&
@@ -654,10 +659,12 @@ tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
                  tcp_addr_equal(&c->local_addr, &listener->local_addr)) &&
                 c->state == TCP_STATE_ESTABLISHED) {
                 c->accepted = true;
+                spinlock_irq_release(&tcp_lock, scan_flags);
                 return c;   
             }
         }
-        arch_pause();
+        spinlock_irq_release(&tcp_lock, scan_flags);
+        sched_yield();
     }
     
     return NULL; //timeout

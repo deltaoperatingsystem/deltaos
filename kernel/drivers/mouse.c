@@ -42,6 +42,8 @@ static int mouse_cycle = 0;
 //wait for PS/2 controller input buffer to be ready
 //must be called with ps2_lock held
 static void ps2_wait_write(void) {
+    // Keep this as a tight poll loop during early boot.
+    // The timer-based sleep path was fine in QEMU but could deadlock on real hardware.
     int timeout = 100000;
     while ((inb(PS2_STATUS) & 2) && --timeout);
 }
@@ -49,6 +51,7 @@ static void ps2_wait_write(void) {
 //wait for PS/2 controller output buffer to have data
 //must be called with ps2_lock held
 static void ps2_wait_read(void) {
+    //same reason as ps2_wait_write
     int timeout = 100000;
     while (!(inb(PS2_STATUS) & 1) && --timeout);
 }

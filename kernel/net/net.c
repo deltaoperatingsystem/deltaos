@@ -89,13 +89,20 @@ void net_rx(netif_t *nif, void *data, size len) {
 
 void net_poll(void) {
     //keep RX moving even if the interrupt line is flaky or delayed
+    netif_t *snapshot[MAX_NETIFS];
+    size count = 0;
+
     irq_state_t flags = spinlock_irq_acquire(&netif_lock);
-    for (netif_t *nif = netif_list; nif; nif = nif->next) {
+    for (netif_t *nif = netif_list; nif && count < MAX_NETIFS; nif = nif->next) {
         if (nif->poll) {
-            nif->poll(nif);
+            snapshot[count++] = nif;
         }
     }
     spinlock_irq_release(&netif_lock, flags);
+
+    for (size i = 0; i < count; i++) {
+        snapshot[i]->poll(snapshot[i]);
+    }
 }
 
 void net_init(void) {

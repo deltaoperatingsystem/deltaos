@@ -54,12 +54,15 @@ static channel_endpoint_t *kbd_channel_ep = NULL;
 
 //must be called with ps2_lock held
 static void ps2_wait_write(void) {
+    //keep this as a tight poll loop during early boot
+    //when i tried a timer-based the sleep path was fine in QEMU but could dealdock on some real hardware
     int timeout = 100000;
     while ((inb(KBD_STATUS) & 2) && --timeout);
 }
 
 //must be called with ps2_lock held
 static void ps2_wait_read(void) {
+    //same reason as ps2_wait_write
     int timeout = 100000;
     while (!(inb(KBD_STATUS) & 1) && --timeout);
 }

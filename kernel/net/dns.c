@@ -4,13 +4,16 @@
 #include <net/endian.h>
 #include <lib/io.h>
 #include <lib/string.h>
+#include <lib/time.h>
 #include <arch/cpu.h>
 #include <arch/timer.h>
 #include <proc/sched.h>
 
 typedef struct {
+    netif_t *nif;
     uint16 id;
     uint16 query_type;
+    uint16 src_port;
     uint32 resolved_ip;
     uint8  resolved_ipv6[16];
     char   cname[256];
@@ -95,6 +98,9 @@ static void dns_recv_handler(netif_t *nif, uint32 src_ip, uint16 src_port,
     if (!ctx) return;
 
     //only accept replies from the DNS server we queried
+    if (!ctx->nif || nif != ctx->nif) {
+        return;
+    }
     if (src_ip != nif->dns_server || src_port != DNS_SERVER_PORT) {
         return;
     }
@@ -131,12 +137,21 @@ static void dns_recv_handler(netif_t *nif, uint32 src_ip, uint16 src_port,
 
     for (int i = 0; i < qdcount; i++) {
         ptr = dns_skip_name(ptr, end);
+        if (!ptr || (size)(end - ptr) < 4) {
+            ctx->error = true;
+            ctx->done = true;
+            return;
+        }
         ptr += 4;
     }
 
     for (int i = 0; i < ancount; i++) {
         ptr = dns_skip_name(ptr, end);
-        if (ptr + 10 > end) break;
+        if (!ptr || (size)(end - ptr) < 10) {
+            ctx->error = true;
+            ctx->done = true;
+            return;
+        }
 
         uint16 type = ntohs(*(uint16 *)ptr);
         uint16 class = ntohs(*(uint16 *)(ptr + 2));
@@ -174,9 +189,32 @@ static void dns_recv_handler(netif_t *nif, uint32 src_ip, uint16 src_port,
     ctx->done = true;
 }
 
+static uint16 dns_bind_query_port(dns_ctx_t *ctx) {
+    static uint16 next_port = 49152;
+    uint16 start = next_port;
+
+    for (uint32 i = 0; i < (65535 - 49152 + 1); i++) {
+        uint16 port = next_port;
+        next_port++;
+        if (next_port < 49152 || next_port == 0) next_port = 49152;
+
+        if (udp_bind(port, dns_recv_handler, ctx) == 0) {
+            ctx->src_port = port;
+            return port;
+        }
+
+        if (next_port == start) break;
+    }
+
+    return 0;
+}
+
 static int dns_send_query(netif_t *nif, dns_ctx_t *ctx, const uint8 *buf, size pkt_len) {
-    uint16 src_port = 50000 + (ctx->id % 10000);
-    if (udp_bind(src_port, dns_recv_handler, ctx) < 0) {
+    ctx->nif = nif;
+    ctx->src_port = 0;
+
+    uint16 src_port = dns_bind_query_port(ctx);
+    if (src_port == 0) {
         return -1;
     }
 
@@ -196,13 +234,13 @@ static int dns_send_query(netif_t *nif, dns_ctx_t *ctx, const uint8 *buf, size p
         while (arch_timer_get_ticks() - start < timeout_ticks) {
             net_poll();
             if (ctx->done) goto done;
-            sched_yield();
-            arch_pause();
+            sleep(1);
         }
     }
 
 done:
-    udp_unbind(src_port);
+    udp_unbind(ctx->src_port);
+    ctx->src_port = 0;
     return (ctx->done && !ctx->error && ctx->answer_ok) ? 0 : -1;
 }
 
@@ -212,7 +250,7 @@ int dns_resolve(const char *hostname, uint32 *ip_out) {
 
     dns_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
-    ctx.id = (uint16)arch_timer_get_ticks();
+    ctx.id = (uint16)(arch_timer_get_ticks() ^ (uintptr)nif ^ (uintptr)&ctx);
     ctx.query_type = DNS_TYPE_A;
 
     uint8 buf[512];
@@ -255,7 +293,8 @@ int dns_resolve_aaaa(const char *hostname, uint8 *ipv6_out) {
         //each redirect attempt gets its own request-local context
         dns_ctx_t ctx;
         memset(&ctx, 0, sizeof(ctx));
-        ctx.id = (uint16)(arch_timer_get_ticks() ^ 0xAAAA ^ (redirect << 8));
+        ctx.id = (uint16)(arch_timer_get_ticks() ^ 0xAAAA ^ (redirect << 8) ^
+                          (uintptr)nif ^ (uintptr)&ctx);
         ctx.query_type = DNS_TYPE_AAAA;
 
         uint8 buf[512];

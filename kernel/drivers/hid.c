@@ -77,6 +77,340 @@ static volatile bool s_usb_mouse_active = false;
 static bool s_ps2_kbd_masked = false;
 static bool s_ps2_mouse_masked = false;
 
+//parsed report descriptor profile for the active keyboard/mouse report stream
+typedef struct {
+    bool   valid;
+    bool   has_report_id;
+    uint8  report_id;
+    uint16 report_len;
+    bool   kbd_layout_valid;
+    uint16 kbd_mods_off;
+    uint8  kbd_mods_bits;
+    uint16 kbd_keys_off;
+    uint8  kbd_keys_count;
+    bool   mouse_layout_valid;
+    uint16 mouse_buttons_off;
+    uint8  mouse_buttons_bits;
+    uint16 mouse_x_off;
+    uint8  mouse_x_bits;
+    uint16 mouse_y_off;
+    uint8  mouse_y_bits;
+    uint16 mouse_wheel_off;
+    uint8  mouse_wheel_bits;
+} hid_report_profile_t;
+
+static hid_report_profile_t s_report_profile[3];
+
+#define HID_ITEM_TYPE_MAIN   0
+#define HID_ITEM_TYPE_GLOBAL 1
+#define HID_ITEM_TYPE_LOCAL  2
+
+#define HID_MAIN_INPUT           8
+#define HID_MAIN_COLLECTION     10
+#define HID_MAIN_END_COLLECTION  12
+
+#define HID_GLOBAL_USAGE_PAGE     0
+#define HID_GLOBAL_REPORT_SIZE    7
+#define HID_GLOBAL_REPORT_ID      8
+#define HID_GLOBAL_REPORT_COUNT    9
+
+#define HID_LOCAL_USAGE           0
+
+#define HID_COLLECTION_APPLICATION 1
+
+#define HID_USAGE_PAGE_GENERIC_DESKTOP 0x01
+#define HID_USAGE_PAGE_KEYBOARD       0x07
+#define HID_USAGE_PAGE_BUTTON         0x09
+
+#define HID_USAGE_MOUSE               0x02
+#define HID_USAGE_KEYBOARD            0x06
+
+#define HID_USAGE_X                   0x30
+#define HID_USAGE_Y                   0x31
+#define HID_USAGE_WHEEL               0x38
+
+static uint32 hid_read_bits(const uint8 *report, uint32 bit_off, uint8 bits) {
+    uint32 value = 0;
+    for (uint8 i = 0; i < bits; i++) {
+        uint32 bit = bit_off + i;
+        if (report[bit >> 3] & (1U << (bit & 7))) {
+            value |= (1U << i);
+        }
+    }
+    return value;
+}
+
+static int32 hid_read_signed_bits(const uint8 *report, uint32 bit_off, uint8 bits) {
+    if (bits == 0) return 0;
+    uint32 value = hid_read_bits(report, bit_off, bits);
+    if (bits < 32 && (value & (1U << (bits - 1)))) {
+        value |= ~((1U << bits) - 1U);
+    }
+    return (int32)value;
+}
+
+static uint32 hid_item_value(const uint8 *p, uint8 size) {
+    switch (size) {
+    case 0: return 0;
+    case 1: return p[1];
+    case 2: return (uint32)p[1] | ((uint32)p[2] << 8);
+    case 3: return (uint32)p[1] | ((uint32)p[2] << 8) | ((uint32)p[3] << 16) | ((uint32)p[4] << 24);
+    default: return 0;
+    }
+}
+
+static bool hid_parse_and_store_profile(const void *desc, uint32 len, uint8 *proto_out) {
+    if (!desc || len == 0) return false;
+    if (proto_out) *proto_out = 0;
+
+    const uint8 *p = (const uint8 *)desc;
+    const uint8 *end = p + len;
+
+    uint8  usage_page = 0;
+    uint32 usage = 0;
+    bool   have_usage = false;
+    uint8  report_size = 0;
+    uint8  report_count = 0;
+    uint8  report_id = 0;
+    bool   has_report_id = false;
+    bool   report_id_seen = false;
+    uint32 report_bits = 0;
+    uint8  proto = 0;
+    uint32 collection_depth = 0;
+    uint32 app_depth = 0;
+    uint8  seen_report_id = 0;
+    uint32 report_offset_bits = 0;
+    uint32 local_usages[16];
+    uint8  local_usage_count = 0;
+    uint32 usage_min = 0;
+    uint32 usage_max = 0;
+    bool   have_usage_min = false;
+    bool   have_usage_max = false;
+    bool   have_local_usage = false;
+    uint32 local_usage = 0;
+
+    hid_report_profile_t profile = {0};
+
+    while (p < end) {
+        uint8 prefix = *p++;
+        if (prefix == 0xFE) {
+            if (p + 1 >= end) break;
+            uint8 data_len = p[0];
+            p += 2;
+            if (p + data_len > end) break;
+            p += data_len;
+            continue;
+        }
+
+        uint8 size_code = prefix & 0x03;
+        uint8 size = (size_code == 3) ? 4 : size_code;
+        uint8 type = (prefix >> 2) & 0x03;
+        uint8 tag  = (prefix >> 4) & 0x0F;
+
+        if (p + size > end) break;
+        uint32 value = hid_item_value(p - 1, size);
+        p += size;
+
+        switch (type) {
+        case HID_ITEM_TYPE_GLOBAL:
+            switch (tag) {
+            case HID_GLOBAL_USAGE_PAGE:
+                usage_page = (uint8)value;
+                break;
+            case HID_GLOBAL_REPORT_SIZE:
+                report_size = (uint8)value;
+                break;
+            case HID_GLOBAL_REPORT_ID:
+                report_id = (uint8)value;
+                has_report_id = true;
+                if (!report_id_seen) {
+                    seen_report_id = report_id;
+                    report_id_seen = true;
+                } else if (report_id != seen_report_id) {
+                    //multiple distinct report IDs are outside what this stack handles
+                    return false;
+                }
+                break;
+            case HID_GLOBAL_REPORT_COUNT:
+                report_count = (uint8)value;
+                break;
+            default:
+                break;
+            }
+            break;
+
+        case HID_ITEM_TYPE_LOCAL:
+            switch (tag) {
+            case HID_LOCAL_USAGE:
+                usage = value;
+                have_usage = true;
+                if (local_usage_count < (uint8)(sizeof(local_usages) / sizeof(local_usages[0]))) {
+                    local_usages[local_usage_count++] = value;
+                }
+                have_local_usage = true;
+                local_usage = value;
+                have_usage_min = false;
+                have_usage_max = false;
+                break;
+            case 1: //USAGE_MINIMUM
+                usage_min = value;
+                have_usage_min = true;
+                break;
+            case 2: //USAGE_MAXIMUM
+                usage_max = value;
+                have_usage_max = true;
+                break;
+            default:
+                break;
+            }
+            break;
+
+        case HID_ITEM_TYPE_MAIN:
+            switch (tag) {
+            case HID_MAIN_COLLECTION:
+                if (collection_depth == 0 && value == HID_COLLECTION_APPLICATION &&
+                    have_usage && usage_page == HID_USAGE_PAGE_GENERIC_DESKTOP) {
+                    if (usage == HID_USAGE_MOUSE) {
+                        proto = HID_PROTO_MOUSE;
+                        app_depth = collection_depth + 1;
+                    } else if (usage == HID_USAGE_KEYBOARD) {
+                        proto = HID_PROTO_KEYBOARD;
+                        app_depth = collection_depth + 1;
+                    }
+                }
+                collection_depth++;
+                have_usage = false;
+                local_usage_count = 0;
+                break;
+
+            case HID_MAIN_END_COLLECTION:
+                if (collection_depth > 0) collection_depth--;
+                break;
+
+            case HID_MAIN_INPUT:
+                if (proto != 0 && collection_depth >= app_depth) {
+                    report_bits += (uint32)report_size * (uint32)report_count;
+                    if (proto == HID_PROTO_KEYBOARD) {
+                        if (usage_page == HID_USAGE_PAGE_KEYBOARD && report_size == 1 && report_count >= 8) {
+                            profile.kbd_layout_valid = true;
+                            profile.kbd_mods_off = (uint16)report_offset_bits;
+                            profile.kbd_mods_bits = 8;
+                        } else if (usage_page == HID_USAGE_PAGE_KEYBOARD && report_size == 8 && report_count > 0) {
+                            profile.kbd_layout_valid = true;
+                            profile.kbd_keys_off = (uint16)report_offset_bits;
+                            profile.kbd_keys_count = report_count;
+                            if (profile.kbd_keys_count > 16) profile.kbd_keys_count = 16;
+                        }
+                    } else if (proto == HID_PROTO_MOUSE) {
+                        if (usage_page == HID_USAGE_PAGE_BUTTON && report_count > 0) {
+                            profile.mouse_layout_valid = true;
+                            profile.mouse_buttons_off = (uint16)report_offset_bits;
+                            profile.mouse_buttons_bits = report_count;
+                            if (profile.mouse_buttons_bits > 8) profile.mouse_buttons_bits = 8;
+                        } else if (usage_page == HID_USAGE_PAGE_GENERIC_DESKTOP) {
+                            for (uint8 i = 0; i < report_count; i++) {
+                                uint32 field_usage = 0;
+                                if (i < local_usage_count) {
+                                    field_usage = local_usages[i];
+                                } else if (have_usage_min && have_usage_max && (usage_min + i) <= usage_max) {
+                                    field_usage = usage_min + i;
+                                } else if (have_local_usage) {
+                                    field_usage = local_usage;
+                                }
+
+                                uint16 field_off = (uint16)(report_offset_bits + (uint32)i * report_size);
+                                switch (field_usage) {
+                                case HID_USAGE_X:
+                                    profile.mouse_layout_valid = true;
+                                    profile.mouse_x_off = field_off;
+                                    profile.mouse_x_bits = report_size;
+                                    break;
+                                case HID_USAGE_Y:
+                                    profile.mouse_layout_valid = true;
+                                    profile.mouse_y_off = field_off;
+                                    profile.mouse_y_bits = report_size;
+                                    break;
+                                case HID_USAGE_WHEEL:
+                                    profile.mouse_layout_valid = true;
+                                    profile.mouse_wheel_off = field_off;
+                                    profile.mouse_wheel_bits = report_size;
+                                    break;
+                                default:
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                report_offset_bits += (uint32)report_size * (uint32)report_count;
+                local_usage_count = 0;
+                have_local_usage = false;
+                have_usage_min = false;
+                have_usage_max = false;
+                break;
+
+            default:
+                break;
+            }
+            break;
+        }
+    }
+
+    if (proto == 0) return false;
+
+    uint32 report_bytes = (report_bits + 7U) / 8U;
+    if (has_report_id) report_bytes += 1;
+    if (report_bytes == 0) return false;
+
+    if (report_bytes > 0xFFFF) report_bytes = 0xFFFF;
+
+    profile.valid = true;
+    profile.has_report_id = has_report_id;
+    profile.report_id = report_id;
+    profile.report_len = (uint16)report_bytes;
+    s_report_profile[proto] = profile;
+    if (proto_out) *proto_out = proto;
+    return true;
+}
+
+bool hid_parse_report_descriptor(const void *desc, uint32 len,
+                                 uint8 *proto_out,
+                                 uint8 *report_id_out,
+                                 uint16 *report_len_out) {
+    if (proto_out) *proto_out = 0;
+    if (report_id_out) *report_id_out = 0;
+    if (report_len_out) *report_len_out = 0;
+
+    uint8 proto = 0;
+    if (!hid_parse_and_store_profile(desc, len, &proto)) return false;
+
+    if (proto_out) *proto_out = proto;
+    if (report_id_out) *report_id_out = s_report_profile[proto].has_report_id
+        ? s_report_profile[proto].report_id : 0;
+    if (report_len_out) *report_len_out = s_report_profile[proto].report_len;
+    return true;
+}
+
+static bool hid_strip_report_id(uint8 proto, const uint8 **report, uint32 *len) {
+    if (!report || !*report || !len) return false;
+    if (proto < HID_PROTO_KEYBOARD || proto > HID_PROTO_MOUSE) return false;
+
+    hid_report_profile_t *profile = &s_report_profile[proto];
+    if (!profile->valid) return true;
+
+    if (profile->has_report_id) {
+        if (*len == 0) return false;
+        if ((*report)[0] != profile->report_id) return false;
+        *report += 1;
+        *len -= 1;
+    }
+
+    if (profile->report_len > 0 && *len < (uint32)profile->report_len - (profile->has_report_id ? 1U : 0U)) {
+        return false;
+    }
+    return true;
+}
+
 static bool channel_queue_full(channel_endpoint_t *ep) {
     if (!ep) return true;
     channel_t *ch = ep->channel;
@@ -155,7 +489,8 @@ static void push_to_channel(channel_endpoint_t *ep, void *data, uint32 len) {
 
 //keyboard report processing
 //track the previous report so we can synthesise key-up events
-static uint8 s_prev_kbd_report[8];
+static uint8 s_prev_kbd_report[64];
+static uint8 s_prev_kbd_report_len = 0;
 
 static uint8 hid_mods_to_kbd_mods(uint8 hid_mod) {
     uint8 mods = 0;
@@ -189,31 +524,66 @@ static void hid_push_key(uint8 keycode, uint8 mods, uint8 pressed) {
 }
 
 static void hid_handle_keyboard(const uint8 *report, uint32 len) {
-    if (len < 3) return;
+    if (!hid_strip_report_id(HID_PROTO_KEYBOARD, &report, &len)) return;
+    if (len == 0) return;
 
-    uint8 new_mod = report[0];
-    uint8 old_mod = s_prev_kbd_report[0];
-    uint8 mods    = hid_mods_to_kbd_mods(new_mod);
+    hid_report_profile_t *profile = &s_report_profile[HID_PROTO_KEYBOARD];
+
+    uint8 new_mod = 0;
+    uint8 old_mod = 0;
+    uint8 mods = 0;
+    uint8 new_keys[16] = {0};
+    uint8 old_keys[16] = {0};
+    uint8 key_count = 0;
+
+    if (profile->valid && profile->kbd_layout_valid &&
+        profile->kbd_mods_bits > 0 && profile->kbd_keys_count > 0) {
+        uint8 mod_bits = (profile->kbd_mods_bits > 8) ? 8 : profile->kbd_mods_bits;
+        new_mod = (uint8)hid_read_bits(report, profile->kbd_mods_off, mod_bits);
+        if (s_prev_kbd_report_len > 0) {
+            old_mod = (uint8)hid_read_bits(s_prev_kbd_report, profile->kbd_mods_off, mod_bits);
+        }
+        mods = hid_mods_to_kbd_mods(new_mod);
+
+        key_count = profile->kbd_keys_count;
+        if (key_count > 16) key_count = 16;
+        for (uint8 i = 0; i < key_count; i++) {
+            new_keys[i] = (uint8)hid_read_bits(report, profile->kbd_keys_off + (uint32)i * 8, 8);
+            if (s_prev_kbd_report_len > 0) {
+                old_keys[i] = (uint8)hid_read_bits(s_prev_kbd_report, profile->kbd_keys_off + (uint32)i * 8, 8);
+            }
+        }
+    } else {
+        if (len < 8) return;
+        new_mod = report[0];
+        old_mod = s_prev_kbd_report[0];
+        mods    = hid_mods_to_kbd_mods(new_mod);
+        key_count = 6;
+        for (uint8 i = 0; i < key_count; i++) {
+            new_keys[i] = report[2 + i];
+            old_keys[i] = s_prev_kbd_report[2 + i];
+        }
+    }
 
     //synthesise key-up events for keys in the old report but not the new one
-    for (int i = 2; i < 8; i++) {
-        uint8 old_key = s_prev_kbd_report[i];
+    for (int i = 0; i < (int)key_count; i++) {
+        uint8 old_key = old_keys[i];
         if (old_key == 0) continue;
         bool still_held = false;
-        for (int j = 2; j < 8; j++) {
-            if ((j < (int)len) && report[j] == old_key) { still_held = true; break; }
+        for (int j = 0; j < (int)key_count; j++) {
+            if (new_keys[j] == old_key) { still_held = true; break; }
         }
         if (!still_held)
             hid_push_key(old_key, hid_mods_to_kbd_mods(old_mod), 0);
     }
 
     //synthesise key-down events for keys in the new report but not the old one
-    for (int i = 2; i < (int)len && i < 8; i++) {
-        uint8 new_key = report[i];
+    for (int i = 0; i < (int)key_count; i++) {
+        uint8 new_key = new_keys[i];
         if (new_key == 0) continue;
         bool was_held = false;
-        for (int j = 2; j < 8; j++) {
-            if (s_prev_kbd_report[j] == new_key) { was_held = true; break; }
+        for (int j = 0; j < (int)key_count; j++) {
+            if (old_keys[j] == new_key) { was_held = true; break; }
         }
         if (!was_held)
             hid_push_key(new_key, mods, 1);
@@ -221,13 +591,14 @@ static void hid_handle_keyboard(const uint8 *report, uint32 len) {
 
     //save report for next comparison
     memset(s_prev_kbd_report, 0, sizeof(s_prev_kbd_report));
-    uint32 copy = (len < 8) ? len : 8;
+    uint32 copy = (len < sizeof(s_prev_kbd_report)) ? len : sizeof(s_prev_kbd_report);
     memcpy(s_prev_kbd_report, report, copy);
+    s_prev_kbd_report_len = (uint8)copy;
 }
 
 //mouse report processing
 static void hid_handle_mouse(const uint8 *report, uint32 len) {
-    if (len < 3) return;
+    if (!hid_strip_report_id(HID_PROTO_MOUSE, &report, &len)) return;
 
     channel_endpoint_t *ep = get_mouse_ep();
     if (!ep) return;
@@ -236,13 +607,31 @@ static void hid_handle_mouse(const uint8 *report, uint32 len) {
     mouse_event_t *ev = kmalloc(sizeof(mouse_event_t));
     if (!ev) return;
 
-    uint8  btn_raw = report[0];
-    int8   raw_dx  = (int8)report[1];
-    int8   raw_dy  = (int8)report[2];
+    hid_report_profile_t *profile = &s_report_profile[HID_PROTO_MOUSE];
+
+    uint8  btn_raw = 0;
+    int16  raw_dx  = 0;
+    int16  raw_dy  = 0;
+
+    if (profile->valid && profile->mouse_layout_valid &&
+        profile->mouse_buttons_bits > 0 &&
+        profile->mouse_x_bits > 0 && profile->mouse_y_bits > 0) {
+        btn_raw = (uint8)hid_read_bits(report, profile->mouse_buttons_off, profile->mouse_buttons_bits);
+        raw_dx  = (int16)hid_read_signed_bits(report, profile->mouse_x_off, profile->mouse_x_bits);
+        raw_dy  = (int16)hid_read_signed_bits(report, profile->mouse_y_off, profile->mouse_y_bits);
+    } else {
+        if (len < 3) {
+            kfree(ev);
+            return;
+        }
+        btn_raw = report[0];
+        raw_dx  = (int16)(int8)report[1];
+        raw_dy  = (int16)(int8)report[2];
+    }
 
     ev->buttons = btn_raw & 0x07;       //bits 0-2: L/R/M
-    ev->dx      = (int16)raw_dx;
-    ev->dy      = (int16)raw_dy;        //HID Y: positive = down; screen coords: positive = down
+    ev->dx      = raw_dx;
+    ev->dy      = raw_dy;        //HID Y: positive = down; screen coords: positive = down
     ev->_pad[0] = ev->_pad[1] = ev->_pad[2] = 0;
 
     push_to_channel(ep, ev, sizeof(mouse_event_t));
@@ -286,4 +675,24 @@ bool hid_usb_keyboard_active(void) {
 
 bool hid_usb_mouse_active(void) {
     return s_usb_mouse_active;
+}
+
+void hid_usb_keyboard_detached(void) {
+    s_usb_kbd_active = false;
+    memset(s_prev_kbd_report, 0, sizeof(s_prev_kbd_report));
+    s_prev_kbd_report_len = 0;
+
+    if (s_ps2_kbd_masked) {
+        interrupt_unmask(1);
+        s_ps2_kbd_masked = false;
+    }
+}
+
+void hid_usb_mouse_detached(void) {
+    s_usb_mouse_active = false;
+
+    if (s_ps2_mouse_masked) {
+        interrupt_unmask(12);
+        s_ps2_mouse_masked = false;
+    }
 }

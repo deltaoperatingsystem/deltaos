@@ -45,14 +45,18 @@ struct rtl8139_dev {
 
 static rtl8139_dev_t *dev_list = NULL;
 static uint32 dev_count = 0;
+static bool irq_registered[16] = {0};
 
 static int rtl8139_netif_send(netif_t *nif, const void *data, size len);
 static void rtl8139_handle_rx(rtl8139_dev_t *d);
 static void rtl8139_service_device(rtl8139_dev_t *d);
 
 static void rtl8139_poll_hook(netif_t *nif) {
-    (void)nif;
-    rtl8139_poll();
+    if (!nif) return;
+    rtl8139_dev_t *d = (rtl8139_dev_t *)nif->driver_data;
+    if (d) {
+        rtl8139_service_device(d);
+    }
 }
 
 static void *rtl8139_alloc_dma_pages(size pages, uintptr *phys_out) {
@@ -314,14 +318,6 @@ static void rtl8139_init_device(pci_device_t *pci) {
         return;
     }
 
-    //enable TX/RX and interrupts
-    rtl8139_enable(dev);
-
-    if (pci->int_line != 0xFF) {
-        interrupt_register(pci->int_line, rtl8139_irq);
-        interrupt_unmask(pci->int_line);
-    }
-
     //register with the network stack
     netif_t *nif = &dev->netif;
     snprintf(nif->name, sizeof(nif->name), "eth%u", dev_count);
@@ -337,6 +333,20 @@ static void rtl8139_init_device(pci_device_t *pci) {
     dev->next = dev_list;
     dev_list = dev;
     dev_count++;
+
+    //enable TX/RX and interrupts
+    rtl8139_enable(dev);
+
+    if (pci->int_line != 0xFF) {
+        if (pci->int_line < 16 && irq_registered[pci->int_line]) {
+            printf("[rtl8139] sharing already-registered IRQ %u\n", pci->int_line);
+        } else if (interrupt_register(pci->int_line, rtl8139_irq) == 0) {
+            if (pci->int_line < 16) irq_registered[pci->int_line] = true;
+            interrupt_unmask(pci->int_line);
+        } else {
+            printf("[rtl8139] WARNING: failed to register shared IRQ %u\n", pci->int_line);
+        }
+    }
 
     net_register_netif(nif);
     dev->started = true;

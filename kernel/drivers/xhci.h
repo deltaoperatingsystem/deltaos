@@ -26,6 +26,18 @@
 #define HCCPARAMS1_CSZ          (1 << 2)    //context size: 0=32B, 1=64B
 #define HCCPARAMS1_XECP(x)      (((x) >> 16) & 0xFFFF)  //xHCI extended cap ptr
 
+//extended capability IDs
+#define XHCI_EXT_CAPS_LEGACY    1
+#define XHCI_EXT_CAPS_PROTOCOL   2
+
+//USB legacy support capability bits
+#define XHCI_HC_BIOS_OWNED      (1 << 16)
+#define XHCI_HC_OS_OWNED        (1 << 24)
+#define XHCI_LEGACY_SUPPORT_OFFSET 0x00
+#define XHCI_LEGACY_CONTROL_OFFSET 0x04
+#define XHCI_LEGACY_DISABLE_SMI ((0x7 << 1) + (0xff << 5) + (0x7 << 17))
+#define XHCI_LEGACY_SMI_EVENTS  (0x7 << 29)
+
 //operational register offsets (from op_base = BAR0 + CAPLENGTH)
 #define XHCI_OP_USBCMD          0x00
 #define XHCI_OP_USBSTS          0x04
@@ -73,6 +85,9 @@
 #define PORTSC_PR               (1 << 4)    //port reset (write 1 to reset)
 #define PORTSC_PLS_MASK         (0xF << 5)
 #define PORTSC_PLS_SHIFT        5
+#define PORTSC_PLS_U0           0       //link active / enabled
+#define PORTSC_PLS_POLLING      7       //SuperSpeed polling state
+#define PORTSC_PLS_COMP_MOD     10      //SuperSpeed compliance mode
 #define PORTSC_PP               (1 << 9)    //port power
 #define PORTSC_SPEED_MASK       (0xF << 10)
 #define PORTSC_SPEED_SHIFT      10
@@ -130,6 +145,8 @@
 #define TRB_TYPE_SET_TRDEQ      16
 #define TRB_TYPE_RESET_DEV      17
 #define TRB_TYPE_NOOP_CMD       23
+//vendor-specific command TRBs
+#define TRB_NEC_GET_FW          49
 //event TRBs
 #define TRB_TYPE_XFER_EVT       32
 #define TRB_TYPE_CMD_COMPLETE   33
@@ -206,6 +223,16 @@
 //max HID events to defer per interrupt (mouse + keyboard = 2 devices at most)
 #define HID_PENDING_MAX         8
 
+//controller quirks
+#define XHCI_QUIRK_PORT_POLLING_RECOVER   (1U << 0)
+#define XHCI_QUIRK_PORT_POLLING_WARM_RESET (1U << 1)
+#define XHCI_QUIRK_FORCE_BIOS_HANDOFF     (1U << 2)
+#define XHCI_QUIRK_NEC_HOST               (1U << 3)
+#define XHCI_QUIRK_LINK_TRB_CHAIN         (1U << 4)
+#define XHCI_QUIRK_RENESAS_FW_LOAD        (1U << 5)
+#define XHCI_QUIRK_PANTHERPOINT           (1U << 6)
+#define XHCI_QUIRK_INTEL_HOST             (1U << 7)
+
 //deferred HID report - filled inside evt_lock, processed outside it
 typedef struct {
     uint8       proto;          //HID_PROTO_KEYBOARD or _MOUSE
@@ -245,6 +272,8 @@ typedef struct {
     uint32      enq;        //enqueue index (producer writes here)
     uint32      deq;        //dequeue index (consumer / event ring only)
     uint32      size;       //total TRBs including Link TRB
+    uint32      pages;      //allocated backing pages
+    bool        chain_links; //set CH on link TRBs for older controllers
     uint8       pcs;        //producer cycle state bit
 } xhci_ring_t;
 
@@ -295,6 +324,7 @@ typedef struct {
     uint32        *db_base;     //doorbell array
 
     //parsed capabilities
+    uint16         hci_ver;     //xHCI version (e.g. 0x0096, 0x0100)
     uint8          ctx_size;    //bytes per context entry: 32 or 64
     uint8          max_ports;   //from HCSPARAMS1
     uint8          max_slots;   //from HCSPARAMS1 (capped to XHCI_MAX_SLOTS)
@@ -326,6 +356,8 @@ typedef struct {
     //deferred HID reports (filled under evt_lock, processed after release)
     hid_pending_t      hid_pending[HID_PENDING_MAX];
     uint32             hid_pending_count;
+    bool               disconnect_ports[256]; //pending port-disconnect cleanup
+    uint32             quirks;
 
     //MSI-X
     uint16             msix_cap;     //byte offset of MSI-X cap in PCI config
@@ -334,6 +366,10 @@ typedef struct {
     //device slots (1-based; slot 0 unused)
     xhci_device_t devices[XHCI_MAX_SLOTS + 1];
 } xhci_ctrl_t;
+
+static inline bool xhci_has_quirk(const xhci_ctrl_t *c, uint32 quirk) {
+    return c && (c->quirks & quirk);
+}
 
 //public interface
 void xhci_init(void);

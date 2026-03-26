@@ -12,6 +12,7 @@
 #include <arch/amd64/int/ioapic.h>
 #include <arch/percpu.h>
 #include <arch/smp.h>
+#include <mm/kheap.h>
 #include <proc/sched.h>
 #include <proc/process.h>
 
@@ -39,12 +40,47 @@ static struct idtr idtr;
 extern void *isr_stub_table[];
 extern void arch_timer_tick(void);
 
-static void (*irq_handlers[16])(void) = {0};
+typedef struct irq_handler_node {
+    void (*handler)(void);
+    struct irq_handler_node *next;
+} irq_handler_node_t;
 
-void interrupt_register(uint8 irq, void (*handler)(void)) {
-    if (irq < 16) {
-        irq_handlers[irq] = handler;
+static irq_handler_node_t *irq_handlers[16] = {0};
+static spinlock_irq_t irq_handler_lock = SPINLOCK_IRQ_INIT;
+
+static void irq_dispatch_handlers(uint8 irq) {
+    if (irq >= 16) return;
+
+    for (irq_handler_node_t *node = irq_handlers[irq]; node; node = node->next) {
+        if (node->handler) {
+            node->handler();
+        }
     }
+}
+
+int interrupt_register(uint8 irq, void (*handler)(void)) {
+    if (irq >= 16 || !handler) return -1;
+
+    irq_handler_node_t *node = kzalloc(sizeof(*node));
+    if (!node) return -1;
+    node->handler = handler;
+
+    irq_state_t flags = spinlock_irq_acquire(&irq_handler_lock);
+    irq_handler_node_t *tail = NULL;
+    for (irq_handler_node_t *cur = irq_handlers[irq]; cur; cur = cur->next) {
+        if (cur->handler == handler) {
+            spinlock_irq_release(&irq_handler_lock, flags);
+            kfree(node);
+            return -1;
+        }
+        tail = cur;
+    }
+
+    if (tail) tail->next = node;
+    else irq_handlers[irq] = node;
+
+    spinlock_irq_release(&irq_handler_lock, flags);
+    return 0;
 }
 
 static void irq0_handler(int from_usermode) {
@@ -55,11 +91,13 @@ static void irq0_handler(int from_usermode) {
 void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_frame_t *frame) {
     if (vector < 32) {
         //check for safe-copy recovery
-        percpu_t *cpu = percpu_get();
-        if (cpu->recovery_rip != 0) {
-            frame->rip = cpu->recovery_rip;
-            cpu->recovery_rip = 0;
-            return;
+        if (vector == PAGE_FAULT_VECTOR) {
+            percpu_t *cpu = percpu_get();
+            if (cpu->recovery_rip != 0) {
+                frame->rip = cpu->recovery_rip;
+                cpu->recovery_rip = 0;
+                return;
+            }
         }
 
         // TODO: this is a basic impl
@@ -93,29 +131,40 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
             return;
         }
 
+        bool handled = false;
         switch (irq) {
             case 0:
                 irq0_handler(from_usermode);
+                handled = true;
                 break;
             case 1:
                 keyboard_irq();
+                handled = true;
                 break;
             case 12:
                 mouse_irq();
+                handled = true;
                 break;
-            default: {
-                if (irq < 16 && irq_handlers[irq]) {
-                    irq_handlers[irq]();
-                } else if (vector >= 0x40 && vector <= 0x47) {
-                    extern void nvme_isr_callback(uint64);
-                    nvme_isr_callback(vector);
-                } else if (vector == XHCI_MSI_VECTOR) {
-                    xhci_irq();
-                } else {
-                    printf("Unhandled IRQ: 0x%X (vector 0x%X)\n", irq + 32, vector);
-                }
+            default:
                 break;
-            }
+        }
+
+        if (irq < 16 && irq_handlers[irq]) {
+            irq_dispatch_handlers(irq);
+            handled = true;
+        }
+
+        if (vector >= 0x40 && vector <= 0x47) {
+            extern void nvme_isr_callback(uint64);
+            nvme_isr_callback(vector);
+            return;
+        } else if (vector == XHCI_MSI_VECTOR) {
+            xhci_irq();
+            return;
+        }
+
+        if (!handled && irq < 16) {
+            printf("Unhandled IRQ: 0x%X (vector 0x%X)\n", irq + 32, vector);
         }
 
         return;

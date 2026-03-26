@@ -177,9 +177,10 @@ int ipv6_send_ex(netif_t *nif, const uint8 dst_addr[NET_IPV6_ADDR_LEN],
         memcpy(next_hop, dst_addr, NET_IPV6_ADDR_LEN);
         if (!ipv6_prefix_match(dst_addr, nif->ipv6_addr, nif->ipv6_prefix_len)) {
             uint8 router[NET_IPV6_ADDR_LEN];
-            if (ndp_get_default_router(nif, router)) {
-                memcpy(next_hop, router, NET_IPV6_ADDR_LEN);
+            if (!ndp_get_default_router(nif, router)) {
+                return -1;
             }
+            memcpy(next_hop, router, NET_IPV6_ADDR_LEN);
         }
         if (ndp_resolve(nif, next_hop, dst_mac) != 0) {
             return -1;
