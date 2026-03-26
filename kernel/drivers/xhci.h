@@ -98,7 +98,7 @@
 #define PORTSC_PRC              (1 << 21)   //port reset change      (W1C)
 #define PORTSC_PLC              (1 << 22)   //port link state change (W1C)
 #define PORTSC_CEC              (1 << 23)   //port config error      (W1C)
-#define PORTSC_WPR              (1 << 31)   //warm port reset
+#define PORTSC_WPR              (1U << 31)   //warm port reset
 
 //all write-1-to-clear bits in PORTSC (must not be accidentally asserted on RMW)
 #define PORTSC_W1C_MASK         (PORTSC_CSC | PORTSC_PEC | PORTSC_WRC | \
@@ -311,6 +311,8 @@ typedef struct {
     //DMA buffer for interrupt transfer data
     void       *hid_buf_phys;
     void       *hid_buf;
+
+    bool        disable_in_progress;
 } xhci_device_t;
 
 //per-controller state

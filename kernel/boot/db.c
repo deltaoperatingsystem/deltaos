@@ -11,7 +11,21 @@ static struct db_tag_kernel_phys *cached_kernel_phys = NULL;
 static struct db_tag_initrd *cached_initrd = NULL;
 static struct db_tag_acpi_rsdp *cached_acpi = NULL;
 
+static void db_reset_cache(void) {
+    boot_info = NULL;
+    cached_fb = NULL;
+    cached_mmap = NULL;
+    cached_bootloader = NULL;
+    cached_cmdline = NULL;
+    cached_efi = NULL;
+    cached_kernel_phys = NULL;
+    cached_initrd = NULL;
+    cached_acpi = NULL;
+}
+
 void db_parse(struct db_boot_info *info) {
+    db_reset_cache();
+
     if (!info) {
         puts("[db] ERROR: null boot info\n");
         return;
@@ -21,10 +35,38 @@ void db_parse(struct db_boot_info *info) {
         puts("[db] ERROR: invalid boot info magic\n");
         return;
     }
+
+    if (info->version != DB_PROTOCOL_VERSION) {
+        puts("[db] ERROR: unsupported boot info version\n");
+        return;
+    }
+
+    if (info->total_size < sizeof(struct db_boot_info) + sizeof(struct db_tag_end)) {
+        puts("[db] ERROR: boot info too small\n");
+        return;
+    }
     
     boot_info = info;
-    
-    DB_FOREACH_TAG(info, tag) {
+
+    uint8 *base = (uint8 *)info;
+    uint8 *end = base + info->total_size;
+    uint8 *p = base + sizeof(struct db_boot_info);
+
+    while (p + sizeof(struct db_tag) <= end) {
+        struct db_tag *tag = (struct db_tag *)p;
+        size aligned = DB_ALIGN8(tag->size);
+
+        if (tag->size < sizeof(struct db_tag) || aligned < tag->size) {
+            puts("[db] ERROR: invalid tag size\n");
+            db_reset_cache();
+            return;
+        }
+        if (p + aligned > end) {
+            puts("[db] ERROR: tag chain exceeds boot info size\n");
+            db_reset_cache();
+            return;
+        }
+
         switch (tag->type) {
             case DB_TAG_BOOTLOADER:
                 cached_bootloader = (struct db_tag_bootloader *)tag;
@@ -53,7 +95,15 @@ void db_parse(struct db_boot_info *info) {
             default:
                 break;
         }
+
+        if (tag->type == DB_TAG_END) {
+            return;
+        }
+        p += aligned;
     }
+
+    puts("[db] ERROR: boot info missing terminator\n");
+    db_reset_cache();
 }
 
 struct db_tag_framebuffer *db_get_framebuffer(void) {

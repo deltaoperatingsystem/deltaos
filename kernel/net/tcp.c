@@ -6,7 +6,9 @@
 #include <lib/io.h>
 #include <lib/string.h>
 #include <lib/spinlock.h>
+#include <errno.h>
 #include <mm/kheap.h>
+#include <proc/thread.h>
 #include <arch/cpu.h>
 #include <arch/timer.h>
 #include <proc/sched.h>
@@ -156,11 +158,12 @@ static tcp_conn_t *tcp_find_conn(const net_addr_t *local_addr, uint16 local_port
     return NULL;
 }
 
-static uint16 tcp_checksum(const net_addr_t *src_addr, const net_addr_t *dst_addr,
-                           const void *tcp_data, size tcp_len) {
+static int tcp_checksum(const net_addr_t *src_addr, const net_addr_t *dst_addr,
+                        const void *tcp_data, size tcp_len, uint16 *out_sum) {
     if (src_addr->family == NET_ADDR_FAMILY_IPV6) {
-        return ipv6_upper_checksum(src_addr->addr.ipv6, dst_addr->addr.ipv6,
-                                   IPPROTO_TCP, tcp_data, tcp_len);
+        *out_sum = ipv6_upper_checksum(src_addr->addr.ipv6, dst_addr->addr.ipv6,
+                                      IPPROTO_TCP, tcp_data, tcp_len);
+        return 0;
     }
 
     tcp_pseudoheader_t pseudo;
@@ -172,14 +175,14 @@ static uint16 tcp_checksum(const net_addr_t *src_addr, const net_addr_t *dst_add
 
     size total = sizeof(tcp_pseudoheader_t) + tcp_len;
     uint8 *buf = kmalloc(total);
-    if (!buf) return 0;
+    if (!buf) return -ENOMEM;
 
     memcpy(buf, &pseudo, sizeof(pseudo));
     memcpy(buf + sizeof(pseudo), tcp_data, tcp_len);
 
-    uint16 sum = ipv4_checksum(buf, total);
+    *out_sum = ipv4_checksum(buf, total);
     kfree(buf);
-    return sum;
+    return 0;
 }
 
 static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
@@ -231,9 +234,12 @@ static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
     if (payload_len > 0 && payload) {
         memcpy(packet + header_len, payload, payload_len);
     }
-    
-    uint16 checksum = tcp_checksum(&conn->local_addr, &conn->remote_addr, packet, total);
-    memcpy(packet + 16, &checksum, sizeof(checksum));
+
+    uint16 checksum = 0;
+    if (tcp_checksum(&conn->local_addr, &conn->remote_addr, packet, total, &checksum) == 0) {
+        if (checksum == 0) checksum = 0xFFFF;
+        memcpy(packet + 16, &checksum, sizeof(checksum));
+    }
 
     //advance sequence number
     if (flags & TCP_SYN) conn->snd_nxt++;
@@ -268,8 +274,11 @@ static void tcp_send_rst(netif_t *nif, const net_addr_t *src_addr,
     tcp_write_u16(packet + 14, 0);
     tcp_write_u16(packet + 16, 0);
     tcp_write_u16(packet + 18, 0);
-    uint16 checksum = tcp_checksum(src_addr, dst_addr, packet, sizeof(tcp_header_t));
-    memcpy(packet + 16, &checksum, sizeof(checksum));
+    uint16 checksum = 0;
+    if (tcp_checksum(src_addr, dst_addr, packet, sizeof(tcp_header_t), &checksum) == 0) {
+        if (checksum == 0) checksum = 0xFFFF;
+        memcpy(packet + 16, &checksum, sizeof(checksum));
+    }
 
     if (dst_addr->family == NET_ADDR_FAMILY_IPV4) {
         ipv4_send(nif, dst_addr->addr.ipv4, IPPROTO_TCP, packet, sizeof(tcp_header_t));
@@ -281,6 +290,14 @@ static void tcp_send_rst(netif_t *nif, const net_addr_t *src_addr,
 static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                             const net_addr_t *dst_addr, void *data, size len) {
     if (len < sizeof(tcp_header_t)) return;
+
+    //verify checksum
+    uint16 sum;
+    if (tcp_checksum(src_addr, dst_addr, data, len, &sum) != 0) return;
+    if (sum != 0) {
+        printf("[tcp] Dropped packet: bad checksum 0x%04x\n", sum);
+        return;
+    }
     
     const uint8 *tcp = (const uint8 *)data;
     uint16 src_port = tcp_read_u16(tcp + 0);

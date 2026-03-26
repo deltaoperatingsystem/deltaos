@@ -35,9 +35,28 @@ int elf_validate(const void *data, uint64_t size) {
     if (ehdr->e_machine != EM_X86_64) {
         return 0;
     }
+
+    //we only know how to walk standard 64-bit program headers
+    if (ehdr->e_phentsize != sizeof(Elf64_Phdr)) {
+        return 0;
+    }
     
     //check program header table bounds
-    if (ehdr->e_phoff + (ehdr->e_phnum * ehdr->e_phentsize) > size) {
+    if (ehdr->e_phoff > size) {
+        return 0;
+    }
+    if (ehdr->e_phnum != 0) {
+        uint64_t ph_table_size = (uint64_t)ehdr->e_phnum * (uint64_t)ehdr->e_phentsize;
+        if (ph_table_size / ehdr->e_phentsize != ehdr->e_phnum) {
+            return 0;
+        }
+        if (ph_table_size > size - ehdr->e_phoff) {
+            return 0;
+        }
+    }
+
+    //basic entry point sanity
+    if (ehdr->e_type == ET_EXEC && ehdr->e_entry == 0) {
         return 0;
     }
     
@@ -66,6 +85,16 @@ EFI_STATUS elf_load(
         
         if (phdr->p_type != PT_LOAD) continue;
         if (phdr->p_memsz == 0) continue;
+
+        if (phdr->p_memsz < phdr->p_filesz) {
+            return EFI_LOAD_ERROR;
+        }
+        if (phdr->p_offset > elf_size || phdr->p_filesz > elf_size - phdr->p_offset) {
+            return EFI_LOAD_ERROR;
+        }
+        if (phdr->p_vaddr > UINT64_MAX - phdr->p_memsz) {
+            return EFI_LOAD_ERROR;
+        }
         
         if (phdr->p_vaddr < min_vaddr) min_vaddr = phdr->p_vaddr;
         if (phdr->p_vaddr + phdr->p_memsz > max_vaddr) max_vaddr = phdr->p_vaddr + phdr->p_memsz;
@@ -113,10 +142,20 @@ EFI_STATUS elf_load(
         
         if (phdr->p_type != PT_LOAD) continue;
         if (phdr->p_memsz == 0) continue;
+
+        if (phdr->p_memsz < phdr->p_filesz) {
+            return EFI_LOAD_ERROR;
+        }
+        if (phdr->p_offset > elf_size || phdr->p_filesz > elf_size - phdr->p_offset) {
+            return EFI_LOAD_ERROR;
+        }
         
         //calculate storage location
         //phys_addr = alloc_addr + (virt_addr - aligned_min_vaddr)
         uint64_t offset = phdr->p_vaddr - aligned_min_vaddr;
+        if (offset > load_size || phdr->p_filesz > load_size - offset) {
+            return EFI_LOAD_ERROR;
+        }
         uint8_t *dest = (uint8_t *)(alloc_addr + offset);
         
         //copy file data
@@ -138,4 +177,3 @@ EFI_STATUS elf_load(
     
     return EFI_SUCCESS;
 }
-

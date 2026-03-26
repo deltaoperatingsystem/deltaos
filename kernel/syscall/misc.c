@@ -7,6 +7,7 @@
 #include <net/dns.h>
 #include <proc/process.h>
 #include <arch/percpu.h>
+#include <errno.h>
 
 static int write_user_byte(uint8 *ptr, uint8 value) {
     percpu_t *cpu = percpu_get();
@@ -16,23 +17,50 @@ static int write_user_byte(uint8 *ptr, uint8 value) {
     return 0;
 fault:
     cpu->recovery_rip = 0;
-    return -1;
+    return -EFAULT;
 }
 
 static int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) {
-    if (!user_ptr || !kernel_buf) return -1;
+    if (!user_ptr || !kernel_buf || len == 0) return 0;
 
-    uintptr start = (uintptr)user_ptr;
-    if (start < USER_SPACE_START || start >= USER_SPACE_END) return -1;
-    if (len > (size)(USER_SPACE_END - start)) return -1;
+    uintptr dst_addr = (uintptr)user_ptr;
+    if (dst_addr < USER_SPACE_START || dst_addr >= USER_SPACE_END) return -EFAULT;
+    if (len > (size)(USER_SPACE_END - dst_addr)) return -EFAULT;
 
     const uint8 *src = (const uint8 *)kernel_buf;
     uint8 *dst = (uint8 *)user_ptr;
-    for (size i = 0; i < len; i++) {
-        if (write_user_byte(&dst[i], src[i]) != 0) return -1;
+    size i = 0;
+
+    //align to word boundary if needed
+    while (i < len && ((uintptr)&dst[i] & (sizeof(uintptr) - 1))) {
+        if (write_user_byte(&dst[i], src[i]) != 0) return -EFAULT;
+        i++;
+    }
+
+    //bulk copy with a single recovery region
+    if (i + sizeof(uintptr) <= len) {
+        percpu_t *cpu = percpu_get();
+        cpu->recovery_rip = (uintptr)&&bulk_fault;
+        
+        while (i + sizeof(uintptr) <= len) {
+            *(uintptr *)&dst[i] = *(const uintptr *)&src[i];
+            i += sizeof(uintptr);
+        }
+        
+        cpu->recovery_rip = 0;
+    }
+
+    //remaining tail
+    while (i < len) {
+        if (write_user_byte(&dst[i], src[i]) != 0) return -EFAULT;
+        i++;
     }
 
     return 0;
+
+bulk_fault:
+    percpu_get()->recovery_rip = 0;
+    return -EFAULT;
 }
 
 intptr sys_debug_write(const char *buf, size count) {

@@ -26,6 +26,11 @@ EFI_SYSTEM_TABLE *gST;
 EFI_BOOT_SERVICES *gBS;
 EFI_HANDLE gImageHandle;
 
+static int boot_info_reserve(uint8_t *ptr, size_t needed) {
+    size_t used = (size_t)(ptr - boot_info_buffer);
+    return needed <= sizeof(boot_info_buffer) && used <= sizeof(boot_info_buffer) - needed;
+}
+
 static struct db_request_header *find_db_header(void *kernel_data, uint64_t kernel_size) {
     uint64_t scan_size = kernel_size < KERNEL_SCAN_SIZE ? kernel_size : KERNEL_SCAN_SIZE;
     uint8_t *data = kernel_data;
@@ -33,6 +38,20 @@ static struct db_request_header *find_db_header(void *kernel_data, uint64_t kern
     for (uint64_t i = 0; i + sizeof(struct db_request_header) <= scan_size; i += 8) {
         struct db_request_header *hdr = (struct db_request_header *)(data + i);
         if (hdr->magic == DB_REQUEST_MAGIC) {
+            if (hdr->version != DB_PROTOCOL_VERSION ||
+                hdr->header_size < sizeof(struct db_request_header) ||
+                hdr->header_size > scan_size ||
+                hdr->header_size > kernel_size ||
+                (hdr->header_size & 3) != 0) {
+                gfx_clear(COLOR_BG);
+                con_set_color(COLOR_RED, 0);
+                con_print_at(40, 40, "Error: Invalid DB Request Header!");
+                con_set_color(COLOR_WHITE, 0);
+                con_print_at(40, 80, "Kernel request header is malformed or truncated.");
+                gBS->Stall(5000000);
+                return (struct db_request_header *)-1;
+            }
+
             //verify checksum
             uint32_t saved = hdr->checksum;
             hdr->checksum = 0;
@@ -99,7 +118,12 @@ static struct db_boot_info *build_boot_info(
 ) {
     struct db_boot_info *info = (struct db_boot_info *)boot_info_buffer;
     uint8_t *ptr = boot_info_buffer + sizeof(struct db_boot_info);
-    
+    size_t buffer_size = sizeof(boot_info_buffer);
+
+    if (!boot_info_reserve((uint8_t *)info, sizeof(struct db_boot_info))) {
+        return NULL;
+    }
+
     info->magic = DB_BOOT_INFO_MAGIC;
     info->version = DB_PROTOCOL_VERSION;
     info->reserved = 0;
@@ -108,15 +132,23 @@ static struct db_boot_info *build_boot_info(
     {
         struct db_tag_bootloader *tag = (struct db_tag_bootloader *)ptr;
         size_t name_len = strlen(DELBOOT_NAME) + 1;
+        size_t tag_size = sizeof(struct db_tag_bootloader) + name_len;
+        if (tag_size < sizeof(struct db_tag_bootloader) ||
+            !boot_info_reserve(ptr, DB_ALIGN8(tag_size))) {
+            return NULL;
+        }
         tag->type = DB_TAG_BOOTLOADER;
         tag->flags = 0;
-        tag->size = sizeof(struct db_tag_bootloader) + name_len;
+        tag->size = tag_size;
         memcpy(tag->name, DELBOOT_NAME, name_len);
         ptr += DB_ALIGN8(tag->size);
     }
     
     //DB_TAG_FRAMEBUFFER
     if ((req_flags & DB_REQ_FRAMEBUFFER) && gop) {
+        if (!boot_info_reserve(ptr, DB_ALIGN8(sizeof(struct db_tag_framebuffer)))) {
+            return NULL;
+        }
         struct db_tag_framebuffer *tag = (struct db_tag_framebuffer *)ptr;
         tag->type = DB_TAG_FRAMEBUFFER;
         tag->flags = 0;
@@ -137,6 +169,14 @@ static struct db_boot_info *build_boot_info(
     //DB_TAG_MEMORY_MAP
     if ((req_flags & DB_REQ_MEMORY_MAP) && mmap) {
         UINTN entry_count = mmap_size / desc_size;
+        if (entry_count > (SIZE_MAX - sizeof(struct db_tag_memory_map)) / sizeof(struct db_mmap_entry)) {
+            return NULL;
+        }
+        size_t tag_size = sizeof(struct db_tag_memory_map) +
+                          (size_t)entry_count * sizeof(struct db_mmap_entry);
+        if (!boot_info_reserve(ptr, DB_ALIGN8(tag_size))) {
+            return NULL;
+        }
         struct db_tag_memory_map *tag = (struct db_tag_memory_map *)ptr;
         tag->type = DB_TAG_MEMORY_MAP;
         tag->flags = 0;
@@ -148,15 +188,28 @@ static struct db_boot_info *build_boot_info(
             EFI_MEMORY_DESCRIPTOR *efi_desc = (EFI_MEMORY_DESCRIPTOR *)src;
             uint64_t base = efi_desc->PhysicalStart;
             uint64_t length = efi_desc->NumberOfPages * 4096;
+            uint64_t end_addr = base + length;
             uint32_t type = efi_to_db_memtype(efi_desc->Type);
 
+            if (length > 0 && end_addr < base) {
+                return NULL;
+            }
+
             //check for overlaps with known critical regions
-            if (load_info && (base < load_info->phys_end && (base + length) > load_info->phys_base)) {
+            if (load_info && (base < load_info->phys_end && end_addr > load_info->phys_base)) {
                 type = DB_MEM_KERNEL;
-            } else if (initrd_addr && (base < (initrd_addr + initrd_size) && (base + length) > initrd_addr)) {
-                type = DB_MEM_INITRD;
-            } else if (base < ((uint64_t)boot_info_buffer + sizeof(boot_info_buffer)) && 
-                       (base + length) > (uint64_t)boot_info_buffer) {
+            } else if (initrd_addr) {
+                uint64_t initrd_end = initrd_addr + initrd_size;
+                if (initrd_end < initrd_addr) {
+                    return NULL;
+                }
+                if (base < initrd_end && end_addr > initrd_addr) {
+                    type = DB_MEM_INITRD;
+                }
+            }
+
+            if (base < ((uint64_t)boot_info_buffer + buffer_size) &&
+                end_addr > (uint64_t)boot_info_buffer) {
                 type = DB_MEM_BOOTLOADER;
             }
 
@@ -167,8 +220,7 @@ static struct db_boot_info *build_boot_info(
             src += desc_size;
         }
         
-        tag->size = sizeof(struct db_tag_memory_map) + 
-                    entry_count * sizeof(struct db_mmap_entry);
+        tag->size = (uint32_t)tag_size;
         ptr += DB_ALIGN8(tag->size);
     }
     
@@ -176,15 +228,23 @@ static struct db_boot_info *build_boot_info(
     if ((req_flags & DB_REQ_CMDLINE) && cmdline && cmdline[0]) {
         struct db_tag_cmdline *tag = (struct db_tag_cmdline *)ptr;
         size_t cmdline_len = strlen(cmdline) + 1;
+        size_t tag_size = sizeof(struct db_tag_cmdline) + cmdline_len;
+        if (tag_size < sizeof(struct db_tag_cmdline) ||
+            !boot_info_reserve(ptr, DB_ALIGN8(tag_size))) {
+            return NULL;
+        }
         tag->type = DB_TAG_CMDLINE;
         tag->flags = 0;
-        tag->size = sizeof(struct db_tag_cmdline) + cmdline_len;
+        tag->size = tag_size;
         memcpy(tag->cmdline, cmdline, cmdline_len);
         ptr += DB_ALIGN8(tag->size);
     }
     
     //DB_TAG_EFI_SYSTEM_TABLE
     {
+        if (!boot_info_reserve(ptr, DB_ALIGN8(sizeof(struct db_tag_efi_system_table)))) {
+            return NULL;
+        }
         struct db_tag_efi_system_table *tag = (struct db_tag_efi_system_table *)ptr;
         tag->type = DB_TAG_EFI_SYSTEM_TABLE;
         tag->flags = 0;
@@ -206,6 +266,9 @@ static struct db_boot_info *build_boot_info(
         }
 
         if (acpi_table) {
+            if (!boot_info_reserve(ptr, DB_ALIGN8(sizeof(struct db_tag_acpi_rsdp)))) {
+                return NULL;
+            }
             struct db_tag_acpi_rsdp *tag = (struct db_tag_acpi_rsdp *)ptr;
             tag->type = DB_TAG_ACPI_RSDP;
             tag->flags = is_xsdp ? 1 : 0;
@@ -217,6 +280,12 @@ static struct db_boot_info *build_boot_info(
 
     //DB_TAG_KERNEL_PHYS
     if (load_info && load_info->phys_base) {
+        if (load_info->phys_end < load_info->phys_base) {
+            return NULL;
+        }
+        if (!boot_info_reserve(ptr, DB_ALIGN8(sizeof(struct db_tag_kernel_phys)))) {
+            return NULL;
+        }
         struct db_tag_kernel_phys *tag = (struct db_tag_kernel_phys *)ptr;
         tag->type = DB_TAG_KERNEL_PHYS;
         tag->flags = 0;
@@ -230,6 +299,12 @@ static struct db_boot_info *build_boot_info(
     if (gST->RuntimeServices && gST->RuntimeServices->GetTime) {
         EFI_TIME time;
         if (!EFI_ERROR(gST->RuntimeServices->GetTime(&time, NULL))) {
+            if (time.Month < 1 || time.Month > 12 || time.Day < 1 || time.Day > 31) {
+                return NULL;
+            }
+            if (!boot_info_reserve(ptr, DB_ALIGN8(sizeof(struct db_tag_boot_time)))) {
+                return NULL;
+            }
             struct db_tag_boot_time *tag = (struct db_tag_boot_time *)ptr;
             tag->type = DB_TAG_BOOT_TIME;
             tag->flags = 0;
@@ -262,15 +337,26 @@ static struct db_boot_info *build_boot_info(
     if (kernel_path) {
         struct db_tag_kernel_file *tag = (struct db_tag_kernel_file *)ptr;
         size_t path_len = strlen(kernel_path) + 1;
+        size_t tag_size = sizeof(struct db_tag_kernel_file) + path_len;
+        if (tag_size < sizeof(struct db_tag_kernel_file) ||
+            !boot_info_reserve(ptr, DB_ALIGN8(tag_size))) {
+            return NULL;
+        }
         tag->type = DB_TAG_KERNEL_FILE;
         tag->flags = 0;
-        tag->size = sizeof(struct db_tag_kernel_file) + path_len;
+        tag->size = tag_size;
         memcpy(tag->path, kernel_path, path_len);
         ptr += DB_ALIGN8(tag->size);
     }
-
+    
     //DB_TAG_INITRD
     if (initrd_addr && initrd_size) {
+        if (initrd_addr > UINT64_MAX - initrd_size) {
+            return NULL;
+        }
+        if (!boot_info_reserve(ptr, DB_ALIGN8(sizeof(struct db_tag_initrd)))) {
+            return NULL;
+        }
         struct db_tag_initrd *tag = (struct db_tag_initrd *)ptr;
         tag->type = DB_TAG_INITRD;
         tag->flags = 0;
@@ -282,6 +368,9 @@ static struct db_boot_info *build_boot_info(
     
     //DB_TAG_END
     {
+        if (!boot_info_reserve(ptr, DB_ALIGN8(sizeof(struct db_tag_end)))) {
+            return NULL;
+        }
         struct db_tag_end *tag = (struct db_tag_end *)ptr;
         tag->type = DB_TAG_END;
         tag->flags = 0;
@@ -469,6 +558,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     }
     
     uint32_t req_flags = db_req ? db_req->flags : (DB_REQ_FRAMEBUFFER | DB_REQ_MEMORY_MAP);
+    req_flags |= DB_REQ_MEMORY_MAP;
     
     //add cmdline flag if we have one
     if (cmdline && cmdline[0]) {
@@ -499,7 +589,13 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
         con_print_at(40, 120, "Kernel symbols loaded.");
     } else {
         //if raw binary then use DB header entry_point or default to offset 0
-        uint32_t entry_offset = db_req ? db_req->entry_point : 0;
+        uint32_t entry_offset = (db_req && db_req->entry_point != DB_ENTRY_USE_FORMAT) ? db_req->entry_point : 0;
+        if (entry_offset >= kernel_size) {
+            con_set_color(COLOR_RED, 0);
+            con_print_at(40, 80, "Invalid raw kernel entry point!");
+            gBS->Stall(3000000);
+            return EFI_LOAD_ERROR;
+        }
         entry_point = (uint64_t)((uint8_t *)kernel_data + entry_offset);
     }
     
@@ -567,6 +663,12 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     
     //build boot info
     struct db_boot_info *boot_info = build_boot_info(req_flags, cmdline, gop, mmap, mmap_size, desc_size, &load_info, kernel_path, (uint64_t)initrd_data, initrd_size);
+    if (!boot_info) {
+        con_set_color(COLOR_RED, 0);
+        con_print_at(40, 80, "Failed to assemble boot info!");
+        gBS->Stall(3000000);
+        return EFI_LOAD_ERROR;
+    }
     
     snprintf(boot_msg, sizeof(boot_msg), "Booting %s...", menu_entry ? menu_entry->name : "kernel.bin");
     con_print_at(40, 100, boot_msg);
@@ -590,6 +692,9 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     
     //rebuild with fresh map
     boot_info = build_boot_info(req_flags, cmdline, gop, mmap, mmap_size, desc_size, &load_info, kernel_path, (uint64_t)initrd_data, initrd_size);
+    if (!boot_info) {
+        for (;;) __asm__ volatile("hlt");
+    }
     
     //exit boot services
     status = gBS->ExitBootServices(gImageHandle, mmap_key);
@@ -605,6 +710,9 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
                 ptr += desc_size;
             }
             boot_info = build_boot_info(req_flags, cmdline, gop, mmap, mmap_size, desc_size, &load_info, kernel_path, (uint64_t)initrd_data, initrd_size);
+            if (!boot_info) {
+                for (;;) __asm__ volatile("hlt");
+            }
             status = gBS->ExitBootServices(gImageHandle, mmap_key);
         }
     }

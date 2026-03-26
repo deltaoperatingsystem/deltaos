@@ -158,6 +158,12 @@ static void dns_recv_handler(netif_t *nif, uint32 src_ip, uint16 src_port,
         uint16 rdlen = ntohs(*(uint16 *)(ptr + 8));
         ptr += 10;
 
+        if (rdlen > (size)(end - ptr)) {
+            ctx->error = true;
+            ctx->done = true;
+            return;
+        }
+
         if (ctx->query_type == DNS_TYPE_A) {
             if (type == DNS_TYPE_A && class == DNS_CLASS_IN && rdlen == 4 && ptr + 4 <= end) {
                 memcpy(&ctx->resolved_ip, ptr, 4);

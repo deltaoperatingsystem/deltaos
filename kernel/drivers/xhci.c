@@ -819,20 +819,21 @@ static void xhci_nec_get_fw(xhci_ctrl_t *c) {
     (void)xhci_wait_cmd(c);
 }
 
-static void cmd_disable_slot_submit(xhci_ctrl_t *c, uint8 slot) {
-    if (slot < 1 || slot > XHCI_MAX_SLOTS) return;
+static int cmd_disable_slot_submit(xhci_ctrl_t *c, uint8 slot) {
+    if (slot < 1 || slot > XHCI_MAX_SLOTS) return -1;
 
     irq_state_t fl = spinlock_irq_acquire(&c->cmd_lock);
+    c->cmd_done = 0;
     uint32 ctrl = (TRB_TYPE_DISABLE_SLOT << TRB_TYPE_SHIFT)
                 | ((uint32)slot << TRB_SLOT_SHIFT);
-    (void)ring_enqueue(&c->cmd_ring, 0, 0, ctrl);
+    c->last_cmd_phys = ring_enqueue(&c->cmd_ring, 0, 0, ctrl);
     db_ring(c, 0, 0);
     spinlock_irq_release(&c->cmd_lock, fl);
+    return xhci_wait_cmd(c);
 }
 
 static int cmd_address_device(xhci_ctrl_t *c, uint8 slot,
-                               uintptr in_ctx_phys, bool bsr) {
-    irq_state_t fl = spinlock_irq_acquire(&c->cmd_lock);
+                                uintptr in_ctx_phys, bool bsr) {    irq_state_t fl = spinlock_irq_acquire(&c->cmd_lock);
     c->cmd_done = 0;  //cleared under lock before enqueue
 
     uint32 ctrl = (TRB_TYPE_ADDR_DEVICE << TRB_TYPE_SHIFT)
@@ -1317,10 +1318,20 @@ static void xhci_cleanup_device(xhci_ctrl_t *c, uint8 slot) {
     if (slot < 1 || slot > XHCI_MAX_SLOTS) return;
 
     xhci_device_t *dev = &c->devices[slot];
+
+    //serialize the cleanup by ensuring only one waiter submits disable slot and frees resources
+    irq_state_t fl_evt = spinlock_irq_acquire(&c->evt_lock);
+    if (dev->disable_in_progress) {
+        spinlock_irq_release(&c->evt_lock, fl_evt);
+        return;
+    }
+    dev->disable_in_progress = true;
+    spinlock_irq_release(&c->evt_lock, fl_evt);
+
     uint8 slot_id = dev->slot_id;
 
     if (dev->in_use && slot_id == slot) {
-        cmd_disable_slot_submit(c, slot_id);
+        (void)cmd_disable_slot_submit(c, slot_id);
     }
 
     if (dev->is_hid) {

@@ -682,6 +682,9 @@ void hid_usb_keyboard_detached(void) {
     memset(s_prev_kbd_report, 0, sizeof(s_prev_kbd_report));
     s_prev_kbd_report_len = 0;
 
+    //reset profile
+    memset(&s_report_profile[HID_PROTO_KEYBOARD], 0, sizeof(hid_report_profile_t));
+
     if (s_ps2_kbd_masked) {
         interrupt_unmask(1);
         s_ps2_kbd_masked = false;
@@ -690,6 +693,9 @@ void hid_usb_keyboard_detached(void) {
 
 void hid_usb_mouse_detached(void) {
     s_usb_mouse_active = false;
+
+    //reset profile
+    memset(&s_report_profile[HID_PROTO_MOUSE], 0, sizeof(hid_report_profile_t));
 
     if (s_ps2_mouse_masked) {
         interrupt_unmask(12);

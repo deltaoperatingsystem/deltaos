@@ -25,12 +25,33 @@ void pmm_init(void) {
         return;
     }
 
+    if (mmap->size < sizeof(struct db_tag_memory_map) ||
+        mmap->entry_size != sizeof(struct db_mmap_entry)) {
+        serial_write("[pmm] ERROR: malformed memory map tag\n");
+        return;
+    }
+
+    size entries_bytes = mmap->size - sizeof(struct db_tag_memory_map);
+    if (mmap->entry_size == 0 || entries_bytes % mmap->entry_size != 0) {
+        serial_write("[pmm] ERROR: memory map entry layout invalid\n");
+        return;
+    }
+
+    if (mmap->entry_count != entries_bytes / mmap->entry_size) {
+        serial_write("[pmm] ERROR: memory map entry count mismatch\n");
+        return;
+    }
+
     uint64 max_addr = 0;
     uintptr entries_ptr = (uintptr)mmap->entries;
 
     serial_write("[pmm] memory map:\n");
     for (uint32 i = 0; i < mmap->entry_count; i++) {
         struct db_mmap_entry *current = (struct db_mmap_entry *)(entries_ptr + i * mmap->entry_size);
+        if (current->length > 0 && current->base + current->length < current->base) {
+            serial_write("[pmm] WARN: skipping overflowed memory region\n");
+            continue;
+        }
         if (current->type == DB_MEM_USABLE) {
             serial_write("  - ");
             serial_write_hex(current->base);
@@ -63,6 +84,9 @@ void pmm_init(void) {
     bool found = false;
     for (uint32 i = 0; i < mmap->entry_count; i++) {
         struct db_mmap_entry *current = (struct db_mmap_entry *)(entries_ptr + i * mmap->entry_size);
+        if (current->length > 0 && current->base + current->length < current->base) {
+            continue;
+        }
         if (current->type == DB_MEM_USABLE && current->length >= bitmap_size) {
             //don't put bitmap at address 0 try to keep it above 1MB
             if (current->base >= 0x100000) {
@@ -97,6 +121,9 @@ void pmm_init(void) {
     //mark usable regions as free (0)
     for (uint32 i = 0; i < mmap->entry_count; i++) {
         struct db_mmap_entry *current = (struct db_mmap_entry *)(entries_ptr + i * mmap->entry_size);
+        if (current->length > 0 && current->base + current->length < current->base) {
+            continue;
+        }
         if (current->type == DB_MEM_USABLE) {
             size start_page = current->base / PAGE_SIZE;
             size page_count = current->length / PAGE_SIZE;
@@ -127,6 +154,9 @@ void pmm_init(void) {
     //reserve the kernel physical segments
     struct db_tag_kernel_phys *kphys = db_get_kernel_phys();
     if (kphys) {
+        if (kphys->phys_length == 0) {
+            goto skip_kernel_reserve;
+        }
         size k_start = kphys->phys_base / PAGE_SIZE;
         size k_count = kphys->phys_length / PAGE_SIZE;
         if (kphys->phys_length % PAGE_SIZE) k_count++;
@@ -139,10 +169,15 @@ void pmm_init(void) {
             }
         }
     }
+skip_kernel_reserve:
 
     //reserve the boot info structure and all tags (the tags region)
     struct db_boot_info *info = db_get_boot_info();
     if (info) {
+        if (info->total_size == 0) {
+            serial_write("[pmm] WARN: boot info size is zero\n");
+            return;
+        }
         size info_start = (uintptr)V2P(info) / PAGE_SIZE;
         size info_count = info->total_size / PAGE_SIZE;
         if (info->total_size % PAGE_SIZE) info_count++;
@@ -159,6 +194,13 @@ void pmm_init(void) {
     //reserve Initrd
     struct db_tag_initrd *initrd = db_get_initrd();
     if (initrd) {
+        if (initrd->length == 0) {
+            goto skip_initrd_reserve;
+        }
+        if (initrd->start + initrd->length < initrd->start) {
+            serial_write("[pmm] WARN: skipping overflowed initrd range\n");
+            goto skip_initrd_reserve;
+        }
         size rd_start = initrd->start / PAGE_SIZE;
         size rd_count = initrd->length / PAGE_SIZE;
         if (initrd->length % PAGE_SIZE) rd_count++;
@@ -171,6 +213,7 @@ void pmm_init(void) {
             }
         }
     }
+skip_initrd_reserve:
 
     //reserve page 0
     if (!BITMAP_TEST(0)) {

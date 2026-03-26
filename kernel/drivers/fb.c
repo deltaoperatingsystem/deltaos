@@ -268,10 +268,14 @@ void fb_drawimage(const unsigned char *src, uint32 width, uint32 height, uint32 
     }
 }
 
+//draw a glyph from a font
+//width must be <= 8 as each row is represented by a single uint8
 void fb_drawglyph(uint32 x, uint32 y, const uint8 *glyph, uint32 fg, uint32 bg, uint32 width, uint32 height) {
     uint32 *target = get_draw_target();
     if (!target || !glyph) return;
     if (x >= fb_w || y >= fb_h) return;
+
+    if (width > 8) width = 8;
     if (x + width > fb_w) width = fb_w - x;
     if (y + height > fb_h) height = fb_h - y;
 

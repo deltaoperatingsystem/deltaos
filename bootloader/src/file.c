@@ -31,36 +31,56 @@ EFI_STATUS file_load(
         return status;
     }
     
-    UINT8 info_buf[256];
-    UINTN info_size = sizeof(info_buf);
+    VOID *info_buf = NULL;
+    UINTN info_size = 0;
+
+    //query the required size first so we don't depend on a fixed metadata buffer
+    status = file->GetInfo(file, &fi_guid, &info_size, NULL);
+    if (status != EFI_BUFFER_TOO_SMALL) {
+        file->Close(file);
+        root->Close(root);
+        return EFI_LOAD_ERROR;
+    }
+
+    status = bs->AllocatePool(EfiLoaderData, info_size, &info_buf);
+    if (EFI_ERROR(status)) {
+        file->Close(file);
+        root->Close(root);
+        return status;
+    }
+
     status = file->GetInfo(file, &fi_guid, &info_size, info_buf);
     if (EFI_ERROR(status)) {
+        bs->FreePool(info_buf);
         file->Close(file);
         root->Close(root);
         return status;
     }
-    
+
     EFI_FILE_INFO *info = (EFI_FILE_INFO *)info_buf;
     *size = info->FileSize;
-    
+
     status = bs->AllocatePool(EfiLoaderData, *size, data);
     if (EFI_ERROR(status)) {
+        bs->FreePool(info_buf);
         file->Close(file);
         root->Close(root);
         return status;
     }
-    
+
     UINTN read_size = *size;
     status = file->Read(file, &read_size, *data);
-    if (EFI_ERROR(status)) {
+    if (EFI_ERROR(status) || read_size != *size) {
         bs->FreePool(*data);
+        bs->FreePool(info_buf);
         file->Close(file);
         root->Close(root);
-        return status;
+        return EFI_LOAD_ERROR;
     }
-    
+
+    bs->FreePool(info_buf);
     file->Close(file);
     root->Close(root);
-    
+
     return EFI_SUCCESS;
 }

@@ -6,6 +6,14 @@
 #include <drivers/serial.h>
 #include <proc/process.h>
 
+static int elf_phdr_bounds_ok(const Elf64_Phdr *phdr, size len) {
+    if (phdr->p_memsz < phdr->p_filesz) return 0;
+    if (phdr->p_offset > len) return 0;
+    if (phdr->p_filesz > len - phdr->p_offset) return 0;
+    if (phdr->p_vaddr > UINT64_MAX - phdr->p_memsz) return 0;
+    return 1;
+}
+
 int elf_validate(const void *data, size len) {
     if (len < sizeof(Elf64_Ehdr)) {
         return 0;
@@ -40,9 +48,30 @@ int elf_validate(const void *data, size len) {
     if (ehdr->e_machine != EM_X86_64) {
         return 0;
     }
+
+    if (ehdr->e_ehsize < sizeof(Elf64_Ehdr)) {
+        return 0;
+    }
+
+    if (ehdr->e_phentsize < sizeof(Elf64_Phdr)) {
+        return 0;
+    }
     
     //check program header table bounds
-    if (ehdr->e_phoff + (ehdr->e_phnum * ehdr->e_phentsize) > len) {
+    if (ehdr->e_phoff > len) {
+        return 0;
+    }
+    if (ehdr->e_phnum != 0) {
+        uint64 phdr_bytes = (uint64)ehdr->e_phnum * (uint64)ehdr->e_phentsize;
+        if (phdr_bytes / ehdr->e_phentsize != ehdr->e_phnum) {
+            return 0;
+        }
+        if (phdr_bytes > len - ehdr->e_phoff) {
+            return 0;
+        }
+    }
+
+    if (ehdr->e_type == ET_EXEC && ehdr->e_entry == 0) {
         return 0;
     }
     
@@ -66,6 +95,7 @@ int elf_load(const void *data, size len, elf_load_info_t *info) {
         
         if (phdr->p_type != PT_LOAD) continue;
         if (phdr->p_memsz == 0) continue;
+        if (!elf_phdr_bounds_ok(phdr, len)) return ELF_ERR_INVALID;
         
         if (phdr->p_vaddr < min_vaddr) min_vaddr = phdr->p_vaddr;
         if (phdr->p_vaddr + phdr->p_memsz > max_vaddr) max_vaddr = phdr->p_vaddr + phdr->p_memsz;
@@ -82,6 +112,9 @@ int elf_load(const void *data, size len, elf_load_info_t *info) {
     uint64 load_size = (max_vaddr - min_vaddr + offset_adjustment + align_mask) & ~align_mask;
     
     size pages = load_size / PAGE_SIZE;
+    if (pages == 0) {
+        return ELF_ERR_INVALID;
+    }
     
     //allocate physical pages
     void *alloc = pmm_alloc(pages);
@@ -100,9 +133,15 @@ int elf_load(const void *data, size len, elf_load_info_t *info) {
         
         if (phdr->p_type != PT_LOAD) continue;
         if (phdr->p_memsz == 0) continue;
+        if (!elf_phdr_bounds_ok(phdr, len)) {
+            return ELF_ERR_INVALID;
+        }
         
         //calculate destination: alloc_addr + (virt_addr - aligned_min_vaddr)
         uint64 offset = phdr->p_vaddr - aligned_min_vaddr;
+        if (offset > load_size || phdr->p_filesz > load_size - offset) {
+            return ELF_ERR_INVALID;
+        }
         uint8 *dest = (uint8 *)P2V(alloc_addr + offset);
         
         //copy file data
@@ -113,6 +152,10 @@ int elf_load(const void *data, size len, elf_load_info_t *info) {
     
     //fill in load info
     if (info) {
+        if (ehdr->e_entry < min_vaddr || ehdr->e_entry >= max_vaddr) {
+            pmm_free((void *)alloc_addr, pages);
+            return ELF_ERR_INVALID;
+        }
         info->phys_base = alloc_addr;
         info->pages = pages;
         info->virt_base = aligned_min_vaddr;
@@ -156,6 +199,9 @@ int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *
         
         if (phdr->p_type != PT_LOAD) continue;
         if (phdr->p_memsz == 0) continue;
+        if (!elf_phdr_bounds_ok(phdr, len)) {
+            return ELF_ERR_INVALID;
+        }
         
         load_count++;
         if (phdr->p_vaddr < min_vaddr) min_vaddr = phdr->p_vaddr;
@@ -186,6 +232,9 @@ int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *
         
         if (phdr->p_type == PT_INTERP) {
             //extract interpreter path
+            if (!elf_phdr_bounds_ok(phdr, len)) {
+                return ELF_ERR_INVALID;
+            }
             if (phdr->p_filesz > 0 && phdr->p_filesz < sizeof(info->interp_path)) {
                 memcpy(info->interp_path, base + phdr->p_offset, phdr->p_filesz);
                 info->interp_path[phdr->p_filesz] = '\0';
@@ -201,6 +250,10 @@ int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *
         
         if (phdr->p_type != PT_LOAD) continue;
         if (phdr->p_memsz == 0) continue;
+        if (!elf_phdr_bounds_ok(phdr, len)) {
+            elf_unload_user(pagemap, info);
+            return ELF_ERR_INVALID;
+        }
         
         //page-align the segment
         uint64 seg_vaddr = phdr->p_vaddr & ~(PAGE_SIZE - 1);
@@ -222,6 +275,11 @@ int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *
         
         //copy file data
         if (phdr->p_filesz > 0) {
+            if (seg_offset > seg_size || phdr->p_filesz > seg_size - seg_offset) {
+                elf_unload_user(pagemap, info);
+                pmm_free(phys, seg_pages);
+                return ELF_ERR_INVALID;
+            }
             memcpy((uint8 *)virt_access + seg_offset, base + phdr->p_offset, phdr->p_filesz);
         }
         
@@ -287,4 +345,3 @@ void elf_unload_user(pagemap_t *pagemap, elf_load_info_t *info) {
     
     info->segment_count = 0;
 }
-

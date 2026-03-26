@@ -94,11 +94,16 @@ uint64 initrd_get_size(void) {
 
 void initrd_reclaim(void) {
     if (!initrd_base || !initrd_size) return;
-    
-    //convert back to physical
+
     uintptr phys = V2P(initrd_base);
+    if ((phys % PAGE_SIZE) != 0 || (initrd_size % PAGE_SIZE) != 0) {
+        printf("[initrd] warn: refusing to reclaim unaligned initrd range\n");
+        initrd_base = NULL;
+        initrd_size = 0;
+        return;
+    }
+    
     size pages = initrd_size / PAGE_SIZE;
-    if (initrd_size % PAGE_SIZE) pages++;
     
     pmm_free((void *)phys, pages);
     

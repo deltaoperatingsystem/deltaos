@@ -17,6 +17,9 @@ static uint16 slp_typb = 0;
 static bool can_shutdown = false;
 
 static bool acpi_checksum(acpi_header_t *header) {
+    if (!header || header->length < sizeof(acpi_header_t)) {
+        return false;
+    }
     uint8 sum = 0;
     for (uint32 i = 0; i < header->length; i++) {
         sum += ((uint8 *)header)[i];
@@ -29,8 +32,10 @@ void *acpi_find_table(const char *signature) {
 
     int entries = 0;
     if (use_xsdt) {
+        if (xsdt->header.length < sizeof(acpi_header_t)) return NULL;
         entries = (xsdt->header.length - sizeof(acpi_header_t)) / sizeof(uint64);
     } else {
+        if (rsdt->header.length < sizeof(acpi_header_t)) return NULL;
         entries = (rsdt->header.length - sizeof(acpi_header_t)) / sizeof(uint32);
     }
 
@@ -70,6 +75,10 @@ uint8 acpi_mcfg_start_bus = 0;
 uint8 acpi_mcfg_end_bus = 0;
 
 static void acpi_parse_fadt(acpi_fadt_t *f) {
+    if (!f || f->header.length < sizeof(acpi_fadt_t)) {
+        serial_write("[acpi] ERR: malformed FADT\n");
+        return;
+    }
     fadt = f;
     printf("[acpi] FADT: PM1a_CNT_BLK @ 0x%x, Reset Reg @ 0x%lx\n", 
            fadt->pm1a_cnt_blk, fadt->reset_reg.address);
@@ -113,6 +122,10 @@ static void acpi_parse_fadt(acpi_fadt_t *f) {
 }
 
 static void acpi_parse_mcfg(acpi_mcfg_t *mcfg) {
+    if (!mcfg || mcfg->header.length < sizeof(acpi_mcfg_t)) {
+        serial_write("[acpi] ERR: malformed MCFG\n");
+        return;
+    }
     int entries = (mcfg->header.length - sizeof(acpi_mcfg_t)) / sizeof(acpi_mcfg_entry_t);
     if (entries > 0) {
         //we currently only supbport one ECAM segment
@@ -125,6 +138,10 @@ static void acpi_parse_mcfg(acpi_mcfg_t *mcfg) {
 }
 
 static void acpi_parse_madt(acpi_madt_t *madt) {
+    if (!madt || madt->header.length < sizeof(acpi_madt_t)) {
+        serial_write("[acpi] ERR: malformed MADT\n");
+        return;
+    }
     acpi_lapic_addr = madt->local_apic_address;
     
     uint8 *p = madt->entries;
@@ -132,7 +149,8 @@ static void acpi_parse_madt(acpi_madt_t *madt) {
     
     while (p < end) {
         acpi_madt_entry_t *entry = (acpi_madt_entry_t *)p;
-        if (entry->length == 0) break;
+        if (entry->length < sizeof(acpi_madt_entry_t)) break;
+        if (p + entry->length > end) break;
 
         switch (entry->type) {
             case ACPI_MADT_TYPE_LOCAL_APIC: {
@@ -226,7 +244,32 @@ void acpi_init(void) {
         return;
     }
 
+    if (rsdp->checksum != 0) {
+        uint8 sum = 0;
+        uint8 *bytes = (uint8 *)rsdp;
+        for (size i = 0; i < 20; i++) {
+            sum += bytes[i];
+        }
+        if (sum != 0) {
+            serial_write("[acpi] ERR: RSDP checksum failed\n");
+            return;
+        }
+    }
+
     if (rsdp->revision >= 2 && rsdp->xsdt_address != 0) {
+        if (rsdp->length < sizeof(acpi_rsdp_t)) {
+            serial_write("[acpi] ERR: invalid extended RSDP length\n");
+            return;
+        }
+        uint8 sum = 0;
+        uint8 *bytes = (uint8 *)rsdp;
+        for (uint32 i = 0; i < rsdp->length; i++) {
+            sum += bytes[i];
+        }
+        if (sum != 0) {
+            serial_write("[acpi] ERR: extended RSDP checksum failed\n");
+            return;
+        }
         xsdt = (acpi_xsdt_t *)P2V(rsdp->xsdt_address);
         use_xsdt = true;
         serial_write("[acpi] Using XSDP/XSDT\n");

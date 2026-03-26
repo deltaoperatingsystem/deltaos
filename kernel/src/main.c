@@ -40,11 +40,20 @@ static int spawn_init(void) {
     }
     free(init_path);
 
+    //query exact file size so we don't accidentally validate a truncated ELF
+    stat_t st;
+    if (handle_fstat(h, &st) != 0 || st.size == 0) {
+        printf("[init] failed to stat init binary\n");
+        handle_close(h);
+        return 13;
+    }
+
     //allocate buffer for init binary
-    size buf_size = 32768;  //32KB should be enough
+    size buf_size = st.size;
     char *buf = kzalloc(buf_size);
     if (!buf) {
         printf("[init] failed to allocate buffer\n");
+        handle_close(h);
         return 2;
     }
     

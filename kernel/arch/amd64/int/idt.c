@@ -48,14 +48,22 @@ typedef struct irq_handler_node {
 static irq_handler_node_t *irq_handlers[16] = {0};
 static spinlock_irq_t irq_handler_lock = SPINLOCK_IRQ_INIT;
 
-static void irq_dispatch_handlers(uint8 irq) {
-    if (irq >= 16) return;
+static bool irq_dispatch_handlers(uint8 irq) {
+    if (irq >= 16) return false;
 
-    for (irq_handler_node_t *node = irq_handlers[irq]; node; node = node->next) {
+    irq_state_t flags = spinlock_irq_acquire(&irq_handler_lock);
+    irq_handler_node_t *node = irq_handlers[irq];
+    spinlock_irq_release(&irq_handler_lock, flags);
+
+    bool handled = false;
+    while (node) {
         if (node->handler) {
             node->handler();
+            handled = true;
         }
+        node = node->next;
     }
+    return handled;
 }
 
 int interrupt_register(uint8 irq, void (*handler)(void)) {
@@ -149,9 +157,10 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
                 break;
         }
 
-        if (irq < 16 && irq_handlers[irq]) {
-            irq_dispatch_handlers(irq);
-            handled = true;
+        if (irq < 16) {
+            if (irq_dispatch_handlers(irq)) {
+                handled = true;
+            }
         }
 
         if (vector >= 0x40 && vector <= 0x47) {
