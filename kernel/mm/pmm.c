@@ -102,6 +102,9 @@ void pmm_init(void) {
     if (!found) {
         for (uint32 i = 0; i < mmap->entry_count; i++) {
             struct db_mmap_entry *current = (struct db_mmap_entry *)(entries_ptr + i * mmap->entry_size);
+            if (current->length > 0 && current->base + current->length < current->base) {
+                continue;
+            }
             if (current->type == DB_MEM_USABLE && current->length >= bitmap_size && current->base > 0) {
                 bitmap = (uint8 *)P2V(current->base);
                 found = true;

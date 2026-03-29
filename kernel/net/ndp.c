@@ -312,7 +312,7 @@ int ndp_discover_router(netif_t *nif) {
     uint32 freq = arch_timer_getfreq();
     if (freq == 0) freq = 1000;
 
-    for (int attempt = 0; attempt < 6; attempt++) {
+    for (int attempt = 0; attempt < 5; attempt++) {
         ndp_send_router_solicit(nif);
 
         uint64 start = arch_timer_get_ticks();

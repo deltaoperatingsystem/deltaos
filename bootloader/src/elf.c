@@ -56,8 +56,21 @@ int elf_validate(const void *data, uint64_t size) {
     }
 
     //basic entry point sanity
-    if (ehdr->e_type == ET_EXEC && ehdr->e_entry == 0) {
-        return 0;
+    if (ehdr->e_type == ET_EXEC) {
+        int valid_entry = 0;
+        const uint8_t *base = (const uint8_t *)data;
+        for (uint16_t i = 0; i < ehdr->e_phnum; i++) {
+            const Elf64_Phdr *phdr = (const Elf64_Phdr *)(base + ehdr->e_phoff + (i * ehdr->e_phentsize));
+            if (phdr->p_type == PT_LOAD) {
+                if (ehdr->e_entry >= phdr->p_vaddr && ehdr->e_entry < phdr->p_vaddr + phdr->p_memsz) {
+                    valid_entry = 1;
+                    break;
+                }
+            }
+        }
+        if (!valid_entry) {
+            return 0;
+        }
     }
     
     return 1;
@@ -151,9 +164,15 @@ EFI_STATUS elf_load(
         }
         
         //calculate storage location
-        //phys_addr = alloc_addr + (virt_addr - aligned_min_vaddr)
         uint64_t offset = phdr->p_vaddr - aligned_min_vaddr;
         if (offset > load_size || phdr->p_filesz > load_size - offset) {
+            return EFI_LOAD_ERROR;
+        }
+        if (phdr->p_memsz < phdr->p_filesz) {
+            return EFI_LOAD_ERROR;
+        }
+        uint64_t bss_size = phdr->p_memsz - phdr->p_filesz;
+        if (offset + phdr->p_filesz + bss_size > load_size) {
             return EFI_LOAD_ERROR;
         }
         uint8_t *dest = (uint8_t *)(alloc_addr + offset);

@@ -69,28 +69,44 @@ void db_parse(struct db_boot_info *info) {
 
         switch (tag->type) {
             case DB_TAG_BOOTLOADER:
-                cached_bootloader = (struct db_tag_bootloader *)tag;
+                if (tag->size >= sizeof(struct db_tag_bootloader) && aligned >= sizeof(struct db_tag_bootloader))
+                    cached_bootloader = (struct db_tag_bootloader *)tag;
+                else goto bad_tag;
                 break;
             case DB_TAG_FRAMEBUFFER:
-                cached_fb = (struct db_tag_framebuffer *)tag;
+                if (tag->size >= sizeof(struct db_tag_framebuffer) && aligned >= sizeof(struct db_tag_framebuffer))
+                    cached_fb = (struct db_tag_framebuffer *)tag;
+                else goto bad_tag;
                 break;
             case DB_TAG_MEMORY_MAP:
-                cached_mmap = (struct db_tag_memory_map *)tag;
+                if (tag->size >= sizeof(struct db_tag_memory_map) && aligned >= sizeof(struct db_tag_memory_map))
+                    cached_mmap = (struct db_tag_memory_map *)tag;
+                else goto bad_tag;
                 break;
             case DB_TAG_CMDLINE:
-                cached_cmdline = (struct db_tag_cmdline *)tag;
+                if (tag->size >= sizeof(struct db_tag_cmdline) && aligned >= sizeof(struct db_tag_cmdline))
+                    cached_cmdline = (struct db_tag_cmdline *)tag;
+                else goto bad_tag;
                 break;
             case DB_TAG_EFI_SYSTEM_TABLE:
-                cached_efi = (struct db_tag_efi_system_table *)tag;
+                if (tag->size >= sizeof(struct db_tag_efi_system_table) && aligned >= sizeof(struct db_tag_efi_system_table))
+                    cached_efi = (struct db_tag_efi_system_table *)tag;
+                else goto bad_tag;
                 break;
             case DB_TAG_KERNEL_PHYS:
-                cached_kernel_phys = (struct db_tag_kernel_phys *)tag;
+                if (tag->size >= sizeof(struct db_tag_kernel_phys) && aligned >= sizeof(struct db_tag_kernel_phys))
+                    cached_kernel_phys = (struct db_tag_kernel_phys *)tag;
+                else goto bad_tag;
                 break;
             case DB_TAG_INITRD:
-                cached_initrd = (struct db_tag_initrd *)tag;
+                if (tag->size >= sizeof(struct db_tag_initrd) && aligned >= sizeof(struct db_tag_initrd))
+                    cached_initrd = (struct db_tag_initrd *)tag;
+                else goto bad_tag;
                 break;
             case DB_TAG_ACPI_RSDP:
-                cached_acpi = (struct db_tag_acpi_rsdp *)tag;
+                if (tag->size >= sizeof(struct db_tag_acpi_rsdp) && aligned >= sizeof(struct db_tag_acpi_rsdp))
+                    cached_acpi = (struct db_tag_acpi_rsdp *)tag;
+                else goto bad_tag;
                 break;
             default:
                 break;
@@ -100,6 +116,11 @@ void db_parse(struct db_boot_info *info) {
             return;
         }
         p += aligned;
+        continue;
+bad_tag:
+        puts("[db] ERROR: malformed tag payload\n");
+        db_reset_cache();
+        return;
     }
 
     puts("[db] ERROR: boot info missing terminator\n");

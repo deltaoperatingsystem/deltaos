@@ -31,6 +31,20 @@ static int boot_info_reserve(uint8_t *ptr, size_t needed) {
     return needed <= sizeof(boot_info_buffer) && used <= sizeof(boot_info_buffer) - needed;
 }
 
+static void __attribute__((noreturn)) bootloader_fatal(const char *title, const char *detail) {
+    gfx_clear(COLOR_BG);
+    con_set_color(COLOR_RED, 0);
+    con_print_at(40, 40, title);
+    con_set_color(COLOR_WHITE, 0);
+    if (detail) {
+        con_print_at(40, 80, detail);
+    }
+    gBS->Stall(5000000);
+    for (;;) {
+        __asm__ volatile("hlt");
+    }
+}
+
 static struct db_request_header *find_db_header(void *kernel_data, uint64_t kernel_size) {
     uint64_t scan_size = kernel_size < KERNEL_SCAN_SIZE ? kernel_size : KERNEL_SCAN_SIZE;
     uint8_t *data = kernel_data;
@@ -40,8 +54,8 @@ static struct db_request_header *find_db_header(void *kernel_data, uint64_t kern
         if (hdr->magic == DB_REQUEST_MAGIC) {
             if (hdr->version != DB_PROTOCOL_VERSION ||
                 hdr->header_size < sizeof(struct db_request_header) ||
-                hdr->header_size > scan_size ||
-                hdr->header_size > kernel_size ||
+                hdr->header_size > scan_size - i ||
+                hdr->header_size > kernel_size - i ||
                 (hdr->header_size & 3) != 0) {
                 gfx_clear(COLOR_BG);
                 con_set_color(COLOR_RED, 0);
@@ -299,37 +313,36 @@ static struct db_boot_info *build_boot_info(
     if (gST->RuntimeServices && gST->RuntimeServices->GetTime) {
         EFI_TIME time;
         if (!EFI_ERROR(gST->RuntimeServices->GetTime(&time, NULL))) {
-            if (time.Month < 1 || time.Month > 12 || time.Day < 1 || time.Day > 31) {
-                return NULL;
+            if (time.Month >= 1 && time.Month <= 12 && time.Day >= 1 && time.Day <= 31) {
+                if (!boot_info_reserve(ptr, DB_ALIGN8(sizeof(struct db_tag_boot_time)))) {
+                    return NULL;
+                }
+                struct db_tag_boot_time *tag = (struct db_tag_boot_time *)ptr;
+                tag->type = DB_TAG_BOOT_TIME;
+                tag->flags = 0;
+                tag->size = sizeof(struct db_tag_boot_time);
+                
+                //simple conversion to Unix timestamp
+                uint64_t year = time.Year;
+                uint64_t month = time.Month;
+                uint64_t day = time.Day;
+                uint64_t hour = time.Hour;
+                uint64_t minute = time.Minute;
+                uint64_t second = time.Second;
+    
+                static const uint16_t days_before_month[] = {
+                    0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
+                };
+    
+                uint64_t total_days = (year - 1970) * 365;
+                total_days += (year - 1969) / 4;
+                if (year % 4 == 0 && month <= 2) total_days--;
+                total_days += days_before_month[month - 1];
+                total_days += day - 1;
+    
+                tag->unix_timestamp = total_days * 86400 + hour * 3600 + minute * 60 + second;
+                ptr += DB_ALIGN8(tag->size);
             }
-            if (!boot_info_reserve(ptr, DB_ALIGN8(sizeof(struct db_tag_boot_time)))) {
-                return NULL;
-            }
-            struct db_tag_boot_time *tag = (struct db_tag_boot_time *)ptr;
-            tag->type = DB_TAG_BOOT_TIME;
-            tag->flags = 0;
-            tag->size = sizeof(struct db_tag_boot_time);
-            
-            //simple conversion to Unix timestamp
-            uint64_t year = time.Year;
-            uint64_t month = time.Month;
-            uint64_t day = time.Day;
-            uint64_t hour = time.Hour;
-            uint64_t minute = time.Minute;
-            uint64_t second = time.Second;
-
-            static const uint16_t days_before_month[] = {
-                0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
-            };
-
-            uint64_t total_days = (year - 1970) * 365;
-            total_days += (year - 1969) / 4;
-            if (year % 4 == 0 && month <= 2) total_days--;
-            total_days += days_before_month[month - 1];
-            total_days += day - 1;
-
-            tag->unix_timestamp = total_days * 86400 + hour * 3600 + minute * 60 + second;
-            ptr += DB_ALIGN8(tag->size);
         }
     }
 
@@ -351,7 +364,9 @@ static struct db_boot_info *build_boot_info(
     
     //DB_TAG_INITRD
     if (initrd_addr && initrd_size) {
-        if (initrd_addr > UINT64_MAX - initrd_size) {
+        uint64_t aligned_start = initrd_addr & ~0xFFFULL;
+        uint64_t aligned_end = (initrd_addr + initrd_size + 0xFFF) & ~0xFFFULL;
+        if (initrd_addr > UINT64_MAX - initrd_size || aligned_end < aligned_start) {
             return NULL;
         }
         if (!boot_info_reserve(ptr, DB_ALIGN8(sizeof(struct db_tag_initrd)))) {
@@ -361,8 +376,8 @@ static struct db_boot_info *build_boot_info(
         tag->type = DB_TAG_INITRD;
         tag->flags = 0;
         tag->size = sizeof(struct db_tag_initrd);
-        tag->start = initrd_addr;
-        tag->length = initrd_size;
+        tag->start = aligned_start;
+        tag->length = aligned_end - aligned_start;
         ptr += DB_ALIGN8(tag->size);
     }
     
@@ -678,7 +693,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     gBS->FreePool(mmap);
     status = get_memory_map(&mmap, &mmap_size, &mmap_key, &desc_size, &desc_version);
     if (EFI_ERROR(status)) {
-        for (;;) __asm__ volatile("hlt");
+        bootloader_fatal("Boot failed", "Could not refresh UEFI memory map.");
     }
     
     //set virtual = physical for runtime regions (identity mapping)
@@ -693,7 +708,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     //rebuild with fresh map
     boot_info = build_boot_info(req_flags, cmdline, gop, mmap, mmap_size, desc_size, &load_info, kernel_path, (uint64_t)initrd_data, initrd_size);
     if (!boot_info) {
-        for (;;) __asm__ volatile("hlt");
+        bootloader_fatal("Boot failed", "Could not rebuild boot info.");
     }
     
     //exit boot services
@@ -711,14 +726,14 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
             }
             boot_info = build_boot_info(req_flags, cmdline, gop, mmap, mmap_size, desc_size, &load_info, kernel_path, (uint64_t)initrd_data, initrd_size);
             if (!boot_info) {
-                for (;;) __asm__ volatile("hlt");
+                bootloader_fatal("Boot failed", "Could not rebuild boot info.");
             }
             status = gBS->ExitBootServices(gImageHandle, mmap_key);
         }
     }
     
     if (EFI_ERROR(status)) {
-        for (;;) __asm__ volatile("hlt");
+        bootloader_fatal("Boot failed", "ExitBootServices() did not succeed.");
     }
     
     //call SetVirtualAddressMap for runtime services
@@ -756,5 +771,5 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
         );
     }
     
-    for (;;) __asm__ volatile("hlt");
+    bootloader_fatal("Boot failed", "Unexpected return from kernel entry.");
 }

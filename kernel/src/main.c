@@ -31,7 +31,11 @@ static int spawn_init(void) {
     //open init
     printf("[init] recieved path %s\n", init_path);
     char path[64];
-    snprintf(path, sizeof(path), "$files/%s", init_path);
+    if (init_path[0] == '/') {
+        snprintf(path, sizeof(path), "$files%s", init_path);
+    } else {
+        snprintf(path, sizeof(path), "$files/%s", init_path);
+    }
     handle_t h = handle_open(path, HANDLE_RIGHT_READ);
     if (h == INVALID_HANDLE) {
         printf("[init] failed to open %s\n", path);
@@ -125,7 +129,14 @@ static int spawn_init(void) {
             return 7;
         }
 
-        size interp_buf_size = 32768; //32KB for interpreter
+        stat_t ist;
+        if (handle_fstat(ih, &ist) != 0 || ist.size == 0) {
+            handle_close(ih);
+            process_destroy(proc);
+            kfree(buf);
+            return 8;
+        }
+        size interp_buf_size = ist.size;
         char *interp_buf = kzalloc(interp_buf_size);
         if (!interp_buf) {
             printf("[init] failed to allocate interpreter buffer\n");
@@ -135,7 +146,12 @@ static int spawn_init(void) {
             return 8;
         }
 
-        ssize interp_len = handle_read(ih, interp_buf, interp_buf_size);
+        ssize interp_len = 0;
+        while (interp_len < (ssize)interp_buf_size) {
+            ssize r = handle_read(ih, interp_buf + interp_len, interp_buf_size - interp_len);
+            if (r <= 0) break;
+            interp_len += r;
+        }
         handle_close(ih);
         printf("[init] interpreter file: %ld bytes read\n", interp_len);
 
@@ -177,6 +193,8 @@ static int spawn_init(void) {
     uintptr stack_phys = (uintptr)pmm_alloc(stack_size / 4096);
     if (!stack_phys) {
         printf("[init] failed to allocate stack\n");
+        process_destroy(proc);
+        kfree(buf);
         return 11;
     }
     mmu_map_range(proc->pagemap, user_stack_base - stack_size, stack_phys,
@@ -206,10 +224,10 @@ static int spawn_init(void) {
     }
     printf("[init] stack at 0x%lX, argc=1, argv[0]=%s\n", user_stack_top, init_argv[0]);
 
-    //create user thread
     thread_t *thread = thread_create_user(proc, (void*)real_entry, (void*)user_stack_top);
     if (!thread) {
         printf("[init] failed to create thread\n");
+        process_destroy(proc);
         kfree(buf);
         return 12;
     }

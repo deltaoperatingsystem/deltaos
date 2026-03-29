@@ -150,6 +150,21 @@ int elf_load(const void *data, size len, elf_load_info_t *info) {
         }
     }
     
+    int valid_entry = 0;
+    for (uint16 i = 0; i < ehdr->e_phnum; i++) {
+        const Elf64_Phdr *phdr = (const Elf64_Phdr *)(base + ehdr->e_phoff + (i * ehdr->e_phentsize));
+        if (phdr->p_type == PT_LOAD && (phdr->p_flags & PF_X)) {
+            if (ehdr->e_entry >= phdr->p_vaddr && ehdr->e_entry < phdr->p_vaddr + phdr->p_memsz) {
+                valid_entry = 1;
+                break;
+            }
+        }
+    }
+    if (!valid_entry) {
+        pmm_free(alloc, pages);
+        return ELF_ERR_INVALID;
+    }
+
     //fill in load info
     if (info) {
         if (ehdr->e_entry < min_vaddr || ehdr->e_entry >= max_vaddr) {
@@ -211,6 +226,22 @@ int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *
     if (load_count == 0) {
         return ELF_ERR_NO_SEGMENTS;
     }
+
+    if (ehdr->e_entry != 0) {
+        int valid_entry = 0;
+        for (uint16 i = 0; i < ehdr->e_phnum; i++) {
+            const Elf64_Phdr *phdr = (const Elf64_Phdr *)(base + ehdr->e_phoff + (i * ehdr->e_phentsize));
+            if (phdr->p_type == PT_LOAD && (phdr->p_flags & PF_X)) {
+                if (ehdr->e_entry >= phdr->p_vaddr && ehdr->e_entry < phdr->p_vaddr + phdr->p_memsz) {
+                    valid_entry = 1;
+                    break;
+                }
+            }
+        }
+        if (!valid_entry) {
+            return ELF_ERR_INVALID;
+        }
+    }
     
     if (load_count > ELF_MAX_SEGMENTS) {
         return ELF_ERR_TOO_MANY;
@@ -257,9 +288,23 @@ int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *
         
         //page-align the segment
         uint64 seg_vaddr = phdr->p_vaddr & ~(PAGE_SIZE - 1);
-        uint64 seg_offset = phdr->p_vaddr - seg_vaddr;
-        uint64 seg_size = (phdr->p_memsz + seg_offset + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        uint64 seg_end_unaligned = phdr->p_vaddr + phdr->p_memsz;
+        if (seg_end_unaligned < phdr->p_vaddr) {
+            elf_unload_user(pagemap, info);
+            return ELF_ERR_INVALID;
+        }
+        if (seg_end_unaligned > UINT64_MAX - (PAGE_SIZE - 1)) {
+            elf_unload_user(pagemap, info);
+            return ELF_ERR_INVALID;
+        }
+        uint64 seg_end = (seg_end_unaligned + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        uint64 seg_size = seg_end - seg_vaddr;
+        if (seg_size == 0) {
+            elf_unload_user(pagemap, info);
+            return ELF_ERR_INVALID;
+        }
         size seg_pages = seg_size / PAGE_SIZE;
+        uint64 seg_offset = phdr->p_vaddr - seg_vaddr;
         
         //allocate physical pages
         void *phys = pmm_alloc(seg_pages);

@@ -173,15 +173,17 @@ static int tcp_checksum(const net_addr_t *src_addr, const net_addr_t *dst_addr,
     pseudo.protocol = IPPROTO_TCP;
     pseudo.tcp_len = htons((uint16)tcp_len);
 
-    size total = sizeof(tcp_pseudoheader_t) + tcp_len;
-    uint8 *buf = kmalloc(total);
-    if (!buf) return -ENOMEM;
-
-    memcpy(buf, &pseudo, sizeof(pseudo));
-    memcpy(buf + sizeof(pseudo), tcp_data, tcp_len);
-
-    *out_sum = ipv4_checksum(buf, total);
-    kfree(buf);
+    uint32 sum = 0;
+    const uint16 *w1 = (const uint16 *)&pseudo;
+    for (size i = 0; i < sizeof(pseudo) / 2; i++) sum += w1[i];
+    const uint16 *w2 = (const uint16 *)tcp_data;
+    for (size i = 0; i < tcp_len / 2; i++) sum += w2[i];
+    if (tcp_len % 2) {
+        const uint8 *p2 = (const uint8 *)tcp_data;
+        sum += p2[tcp_len - 1];
+    }
+    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+    *out_sum = ~sum;
     return 0;
 }
 
@@ -236,10 +238,13 @@ static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
     }
 
     uint16 checksum = 0;
-    if (tcp_checksum(&conn->local_addr, &conn->remote_addr, packet, total, &checksum) == 0) {
-        if (checksum == 0) checksum = 0xFFFF;
-        memcpy(packet + 16, &checksum, sizeof(checksum));
+    int chk_err = tcp_checksum(&conn->local_addr, &conn->remote_addr, packet, total, &checksum);
+    if (chk_err != 0) {
+        spinlock_irq_release(&tcp_lock, lock_flags);
+        return chk_err;
     }
+    if (checksum == 0) checksum = 0xFFFF;
+    memcpy(packet + 16, &checksum, sizeof(checksum));
 
     //advance sequence number
     if (flags & TCP_SYN) conn->snd_nxt++;
@@ -275,10 +280,12 @@ static void tcp_send_rst(netif_t *nif, const net_addr_t *src_addr,
     tcp_write_u16(packet + 16, 0);
     tcp_write_u16(packet + 18, 0);
     uint16 checksum = 0;
-    if (tcp_checksum(src_addr, dst_addr, packet, sizeof(tcp_header_t), &checksum) == 0) {
-        if (checksum == 0) checksum = 0xFFFF;
-        memcpy(packet + 16, &checksum, sizeof(checksum));
+    int chk_err = tcp_checksum(src_addr, dst_addr, packet, sizeof(tcp_header_t), &checksum);
+    if (chk_err != 0) {
+        return;
     }
+    if (checksum == 0) checksum = 0xFFFF;
+    memcpy(packet + 16, &checksum, sizeof(checksum));
 
     if (dst_addr->family == NET_ADDR_FAMILY_IPV4) {
         ipv4_send(nif, dst_addr->addr.ipv4, IPPROTO_TCP, packet, sizeof(tcp_header_t));

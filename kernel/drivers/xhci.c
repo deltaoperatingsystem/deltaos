@@ -833,7 +833,8 @@ static int cmd_disable_slot_submit(xhci_ctrl_t *c, uint8 slot) {
 }
 
 static int cmd_address_device(xhci_ctrl_t *c, uint8 slot,
-                                uintptr in_ctx_phys, bool bsr) {    irq_state_t fl = spinlock_irq_acquire(&c->cmd_lock);
+                              uintptr in_ctx_phys, bool bsr) {
+    irq_state_t fl = spinlock_irq_acquire(&c->cmd_lock);
     c->cmd_done = 0;  //cleared under lock before enqueue
 
     uint32 ctrl = (TRB_TYPE_ADDR_DEVICE << TRB_TYPE_SHIFT)

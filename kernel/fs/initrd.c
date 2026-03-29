@@ -68,14 +68,26 @@ void initrd_init(void) {
     printf("[initrd] found at phys 0x%lX, size %lu bytes\n", 
            tag->start, (unsigned long)initrd_size);
     
+    //find the actual start of the DA archive (may be offset due to page alignment)
+    uint32 offset = 0;
+    for (; offset < PAGE_SIZE && offset + sizeof(da_header_t) <= initrd_size; offset += 8) {
+        da_header_t *test = (da_header_t *)((uint8 *)initrd_base + offset);
+        if (test->magic == DA_MAGIC) {
+            break;
+        }
+    }
+    
+    void *archive_start = (uint8 *)initrd_base + offset;
+    uint64 archive_size = initrd_size - offset;
+
     //validate DA archive
-    int err = da_validate(initrd_base, initrd_size);
+    int err = da_validate(archive_start, archive_size);
     if (err != DA_OK) {
         printf("[initrd] invalid DA archive (error %d)\n", err);
         return;
     }
     
-    da_header_t *hdr = (da_header_t *)initrd_base;
+    da_header_t *hdr = (da_header_t *)archive_start;
     printf("[initrd] DA v%04x, %u entries\n", hdr->version, hdr->entry_count);
     
     //populate tmpfs from archive (mount as root)

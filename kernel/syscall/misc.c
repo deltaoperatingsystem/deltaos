@@ -21,7 +21,8 @@ fault:
 }
 
 static int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) {
-    if (!user_ptr || !kernel_buf || len == 0) return 0;
+    if (len == 0) return 0;
+    if (!user_ptr || !kernel_buf) return -EFAULT;
 
     uintptr dst_addr = (uintptr)user_ptr;
     if (dst_addr < USER_SPACE_START || dst_addr >= USER_SPACE_END) return -EFAULT;
