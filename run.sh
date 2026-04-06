@@ -2,11 +2,13 @@
 set -e
 
 #config
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DISK_IMG="hda.img"
 DISK_SIZE_MB=64
 NVME_IMG="nvme.img"
 NVME_SIZE_MB=128
-EFI_BINARY="BOOTX64.EFI"
+FAT32_IMG="$ROOT_DIR/fat32.img"
+EFI_BINARY="$ROOT_DIR/bootloader/BOOTX64.EFI"
 OVMF_CODE=
 QEMU_NET_MODE="${QEMU_NET_MODE:-passt}"
 QEMU_HOSTFWD="${QEMU_HOSTFWD:-tcp::8080-:80}"
@@ -127,7 +129,7 @@ append_network_args() {
 }
 
 prepare_boot_config() {
-    echo "boot/delboot.cfg"
+    echo "$ROOT_DIR/bootloader/boot/delboot.cfg"
 }
 
 configure_tap_ipv6() {
@@ -207,8 +209,8 @@ create_disk_image() {
     local boot_cfg
     boot_cfg=$(prepare_boot_config)
     [[ -f "$boot_cfg" ]] && mcopy -i "$DISK_IMG"@@${PART_OFFSET} "$boot_cfg" ::/EFI/BOOT/delboot.cfg
-    [[ -f "../kernel/delta.elf" ]] && mcopy -i "$DISK_IMG"@@${PART_OFFSET} "../kernel/delta.elf" ::/EFI/BOOT/kernel.bin
-    [[ -f "../initrd.da" ]] && mcopy -i "$DISK_IMG"@@${PART_OFFSET} "../initrd.da" ::/EFI/BOOT/initrd.da
+    [[ -f "$ROOT_DIR/kernel/delta.elf" ]] && mcopy -i "$DISK_IMG"@@${PART_OFFSET} "$ROOT_DIR/kernel/delta.elf" ::/EFI/BOOT/kernel.bin
+    [[ -f "$ROOT_DIR/initrd.da" ]] && mcopy -i "$DISK_IMG"@@${PART_OFFSET} "$ROOT_DIR/initrd.da" ::/EFI/BOOT/initrd.da
 }
 
 #execute qemu with ovmf
@@ -232,6 +234,8 @@ run_qemu() {
         -drive "file=$DISK_IMG,format=raw"
         -drive "file=$NVME_IMG,format=raw,if=none,id=nvm"
         -device nvme,serial=deadbeef,drive=nvm
+        -drive "file=$FAT32_IMG,format=raw,if=none,id=fatdisk"
+        -device nvme,serial=feedbeef,drive=fatdisk
         -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0
         -no-reboot
         -no-shutdown
@@ -247,8 +251,8 @@ run_qemu() {
 
     #handle writable variables if available
     if [[ -n "$OVMF_VARS" ]]; then
-        [[ ! -f "ovmf_vars.fd" ]] && cp "$OVMF_VARS" "ovmf_vars.fd"
-        QEMU_ARGS+=(-drive "if=pflash,format=raw,file=ovmf_vars.fd")
+        [[ ! -f "$ROOT_DIR/ovmf_vars.fd" ]] && cp "$OVMF_VARS" "$ROOT_DIR/ovmf_vars.fd"
+        QEMU_ARGS+=(-drive "if=pflash,format=raw,file=$ROOT_DIR/ovmf_vars.fd")
     fi
 
     GDK_BACKEND=x11 qemu-system-x86_64 "${QEMU_ARGS[@]}"
@@ -285,12 +289,11 @@ main() {
     done
 
     #compile if source is newer than binary
-    make > /dev/null
+    make -C "$ROOT_DIR" > /dev/null
 
     find_ovmf
     create_disk_image
     run_qemu
 }
 
-cd bootloader
 main "$@"

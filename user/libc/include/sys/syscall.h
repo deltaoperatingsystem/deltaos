@@ -48,6 +48,7 @@
 #define SYS_TCP_CONNECT     66
 #define SYS_TCP_LISTEN      67
 #define SYS_TCP_ACCEPT      68
+#define SYS_MOUNT           69
 #define SYS_DNS_RESOLVE_AAAA 71 //resolve hostname to IPv6 address (AAAA)
 
 #define SYS_MAX             256

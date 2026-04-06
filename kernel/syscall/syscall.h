@@ -43,6 +43,7 @@
 #define SYS_READDIR         54  //read directory entries
 #define SYS_CHDIR           55  //change current working directory
 #define SYS_GETCWD          56  //get current working directory
+#define SYS_MOUNT           69  //mount a filesystem
 #define SYS_MKNODE          58  //create fs node
 #define SYS_REMOVE          59  //remove file or directory
 #define SYS_HANDLE_READ     6   //read from handle
@@ -76,7 +77,9 @@ typedef enum {
     OBJ_INFO_KMEM_STATS = 3,    //kmem_stats_t (requires system handle)
     OBJ_INFO_TIME_STATS = 4,    //time_stats_t (requires system handle)
     OBJ_INFO_SYSTEM_STATS = 5,  //system_stats_t (requires system handle)
-    OBJ_INFO_BOOT_CMDLINE = 6   //boot cmdline string (requires system handle)
+    OBJ_INFO_BOOT_CMDLINE = 6,  //boot cmdline string (requires system handle)
+    OBJ_INFO_BLOCK_DEVICE = 7,  //block_device_info_t (requires device handle)
+    OBJ_INFO_VT_STATE = 8       //vt_info_t (requires vt device handle)
 } object_info_topic_t;
 
 //info structures
@@ -108,6 +111,18 @@ typedef struct {
     uint64 ticks;
     uint32 rtc_time; //seconds since 2000-01-01
 } time_stats_t;
+
+typedef struct {
+    uint32 sector_size;
+    uint64 sector_count;
+} block_device_info_t;
+
+typedef struct {
+    uint32 cols;
+    uint32 rows;
+    uint32 cursor_col;
+    uint32 cursor_row;
+} vt_info_t;
 
 typedef struct {
     uint32 cpu_count;       //number of online CPUs
@@ -165,6 +180,7 @@ intptr sys_fstat(handle_t h, stat_t *st);
 intptr sys_readdir(handle_t h, dirent_t *entries, uint32 count, uint32 *index);
 intptr sys_chdir(const char *path);
 intptr sys_getcwd(char *buf, size bufsize);
+intptr sys_mount(handle_t source, const char *target, const char *fstype);
 intptr sys_mknode(const char *path, uint32 type);
 intptr sys_remove(const char *path);
 intptr sys_handle_read(handle_t h, void *buf, size len);

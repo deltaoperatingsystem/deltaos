@@ -6,6 +6,7 @@
 #include <lib/string.h>
 #include <lib/io.h>
 #include <lib/path.h>
+#include <fs/mount.h>
 
 
 static process_t *get_handle_owner(void) {
@@ -45,6 +46,11 @@ static int resolve_full_path(const char *path, char *out, size out_max) {
     return 0;
 }
 
+static int resolve_mounted_path(const char *resolved_path, fs_t **fs_out, const char **fs_path_out) {
+    if (!resolved_path || resolved_path[0] != '/') return 0;
+    return fs_mount_resolve(resolved_path, fs_out, fs_path_out);
+}
+
 handle_t handle_open(const char *path, handle_rights_t rights) {
     if (!path) return INVALID_HANDLE;
     
@@ -55,8 +61,21 @@ handle_t handle_open(const char *path, handle_rights_t rights) {
     if (!proc) return INVALID_HANDLE;
     
     const char *resolved_path = full_path;
-    
-    //namespace resolution
+
+    //mounted absolute paths take precedence over the legacy $files fallback
+    if (resolved_path[0] == '/') {
+        fs_t *fs = NULL;
+        const char *fs_path = NULL;
+        if (resolve_mounted_path(resolved_path, &fs, &fs_path) && fs && fs->ops && fs->ops->lookup) {
+            object_t *obj = fs->ops->lookup(fs, fs_path);
+            if (!obj) return INVALID_HANDLE;
+            handle_t h = process_grant_handle(proc, obj, rights);
+            object_deref(obj);
+            return h;
+        }
+    }
+
+    //legacy namespace resolution
     const char *final_path = resolved_path;
     const char *slash = final_path;
     char prefix[64];
@@ -100,8 +119,7 @@ handle_t handle_open(const char *path, handle_rights_t rights) {
             return h;
         }
 
-        //if it IS an OBJECT_DIR with fs_t data it's a mount point
-        //and we might want to use the fs_t specifically but better to just call lookup
+        //delegate the final lookup to the mounted root object
         object_t *file = root->ops->lookup(root, child_path);
         object_deref(root);
         if (!file) return INVALID_HANDLE;
@@ -126,19 +144,33 @@ int handle_create(const char *path, uint32 type) {
     if (resolve_full_path(path, full_path, sizeof(full_path)) < 0) return -1;
     
     const char *resolved_path = full_path;
-    
-    //find first slash
     const char *slash = resolved_path;
-    while (*slash && *slash != '/') slash++;
-    
-    if (*slash != '/') return -1;  //need fs prefix
-    
-    size prefix_len = slash - resolved_path;
     char prefix[64];
-    if (prefix_len >= sizeof(prefix)) return -1;
-    
-    memcpy(prefix, resolved_path, prefix_len);
-    prefix[prefix_len] = '\0';
+
+    //mounted filesystem path
+    if (resolved_path[0] == '/') {
+        fs_t *fs = NULL;
+        const char *fs_path = NULL;
+        if (resolve_mounted_path(resolved_path, &fs, &fs_path) && fs && fs->ops && fs->ops->create) {
+            return fs->ops->create(fs, fs_path, type);
+        }
+
+        //absolute path - default to $files namespace
+        //we skip the leading slash for the filesystem-internal path
+        strcpy(prefix, "$files");
+        slash = resolved_path;
+    } else {
+        //legacy namespace fallback
+        while (*slash && *slash != '/') slash++;
+        
+        if (*slash != '/') return -1;  //need fs prefix
+        
+        size prefix_len = slash - resolved_path;
+        if (prefix_len >= sizeof(prefix)) return -1;
+        
+        memcpy(prefix, resolved_path, prefix_len);
+        prefix[prefix_len] = '\0';
+    }
     
     object_t *root = ns_lookup(prefix);
     if (!root) return -1;
@@ -270,8 +302,24 @@ int handle_stat(const char *path, stat_t *st) {
     
     char full_path[512];
     if (resolve_full_path(path, full_path, sizeof(full_path)) < 0) return -1;
+
+    //check mounted filesystems first so /mnt/foo resolves to the mounted FS
+    if (full_path[0] == '/') {
+        fs_t *fs = NULL;
+        const char *fs_path = NULL;
+        if (resolve_mounted_path(full_path, &fs, &fs_path) && fs && fs->ops && fs->ops->lookup) {
+            object_t *obj = fs->ops->lookup(fs, fs_path);
+            if (!obj) return -1;
+            int result = -1;
+            if (obj->ops && obj->ops->stat) {
+                result = obj->ops->stat(obj, st);
+            }
+            object_deref(obj);
+            return result;
+        }
+    }
     
-    //namespace resolution
+    //legacy namespace resolution
     const char *final_path = full_path;
     const char *slash = final_path;
     char prefix[64];
@@ -343,6 +391,15 @@ int handle_remove(const char *path) {
     
     char full_path[512];
     if (resolve_full_path(path, full_path, sizeof(full_path)) < 0) return -1;
+
+    //mounted filesystem path
+    if (full_path[0] == '/') {
+        fs_t *fs = NULL;
+        const char *fs_path = NULL;
+        if (resolve_mounted_path(full_path, &fs, &fs_path) && fs && fs->ops && fs->ops->remove) {
+            return fs->ops->remove(fs, fs_path);
+        }
+    }
     
     const char *resolved_path = full_path;
     const char *slash = resolved_path;

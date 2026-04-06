@@ -17,6 +17,7 @@
 #include <drivers/blkdev.h>
 #include <drivers/gpt.h>
 #include <fs/fs.h>
+#include <syscall/syscall.h>
 
 #define NVME_QUEUE_SIZE 64
 
@@ -26,6 +27,7 @@ static uint32 ctrl_count = 0;
 static ssize nvme_read_op(object_t *obj, void *buf, size len, size offset);
 static ssize nvme_write_op(object_t *obj, const void *buf, size len, size offset);
 static int nvme_stat(object_t *obj, stat_t *st);
+static intptr nvme_get_info(object_t *obj, uint32 topic, void *buf, size len);
 static int nvme_discover_namespaces(nvme_ctrl_t *ctrl);
 
 
@@ -35,7 +37,8 @@ static object_ops_t nvme_ops = {
     .close = NULL, 
     .readdir = NULL,
     .lookup = NULL,
-    .stat = nvme_stat
+    .stat = nvme_stat,
+    .get_info = nvme_get_info
 };
 
 static int nvme_blkdev_read(blkdev_t *dev, uint64 lba, uint32 count, void *buf);
@@ -458,6 +461,21 @@ static int nvme_stat(object_t *obj, stat_t *st) {
     st->type = FS_TYPE_DEVICE;
     st->size = ns->sector_count * ns->sector_size;
     return 0;
+}
+
+static intptr nvme_get_info(object_t *obj, uint32 topic, void *buf, size len) {
+    nvme_ns_t *ns = (nvme_ns_t *)obj->data;
+    if (!ns || !buf) return -1;
+
+    if (topic == OBJ_INFO_BLOCK_DEVICE) {
+        if (len < sizeof(block_device_info_t)) return -1;
+        block_device_info_t info;
+        info.sector_size = ns->sector_size;
+        info.sector_count = ns->sector_count;
+        memcpy(buf, &info, sizeof(info));
+        return 0;
+    }
+    return -1;
 }
 
 static int nvme_enable_msix(nvme_ctrl_t *ctrl) {

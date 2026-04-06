@@ -107,6 +107,7 @@ int readdir(handle_t h, dirent_t *entries, uint32 count, uint32 *index);
 //current working directory
 int chdir(const char *path);
 int getcwd(char *buf, size size);
+int mount(int32 source, const char *target, const char *fstype);
 
 //object info
 typedef enum {
@@ -116,7 +117,9 @@ typedef enum {
     OBJ_INFO_KMEM_STATS = 3,    //kmem_stats_t (requires system handle)
     OBJ_INFO_TIME_STATS = 4,    //time_stats_t (requires system handle)
     OBJ_INFO_SYSTEM_STATS = 5,  //system_stats_t (requires system handle)
-    OBJ_INFO_BOOT_CMDLINE = 6   //boot cmdline string (requires system handle)
+    OBJ_INFO_BOOT_CMDLINE = 6,  //boot cmdline string (requires system handle)
+    OBJ_INFO_BLOCK_DEVICE = 7,  //block_device_info_t (requires device handle)
+    OBJ_INFO_VT_STATE = 8       //vt_info_t (requires vt device handle)
 } object_info_topic_t;
 
 typedef struct {
@@ -147,6 +150,18 @@ typedef struct {
     uint64 ticks;
     uint32 rtc_time; //seconds since 2000-01-01
 } time_stats_t;
+
+typedef struct {
+    uint32 sector_size;
+    uint64 sector_count;
+} block_device_info_t;
+
+typedef struct {
+    uint32 cols;
+    uint32 rows;
+    uint32 cursor_col;
+    uint32 cursor_row;
+} vt_info_t;
 
 typedef struct {
     uint32 cpu_count;       //number of online CPUs

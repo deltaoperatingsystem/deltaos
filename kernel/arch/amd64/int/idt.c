@@ -5,6 +5,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
 #include <drivers/rtl8139.h>
+#include <drivers/vt/vt.h>
 #include <drivers/xhci.h>
 #include <lib/io.h>
 #include <arch/amd64/context.h>
@@ -39,6 +40,69 @@ struct idtr  {
 static struct idtr idtr;
 extern void *isr_stub_table[];
 extern void arch_timer_tick(void);
+
+static inline uintptr arch_read_cr2(void) {
+    uintptr cr2;
+    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+    return cr2;
+}
+
+static void pf_print_flags(uint64 err) {
+    char buf[128];
+    size pos = 0;
+
+    pos += snprintf(buf + pos, sizeof(buf) - pos, "  Flags:");
+    pos += snprintf(buf + pos, sizeof(buf) - pos, " %s", (err & 1) ? "P" : "NP");
+    pos += snprintf(buf + pos, sizeof(buf) - pos, " %s", (err & 2) ? "W" : "R");
+    pos += snprintf(buf + pos, sizeof(buf) - pos, " %s", (err & 4) ? "U" : "K");
+    if (err & 8) pos += snprintf(buf + pos, sizeof(buf) - pos, " RSVD");
+    if (err & 16) pos += snprintf(buf + pos, sizeof(buf) - pos, " IFETCH");
+    if (err & 32) pos += snprintf(buf + pos, sizeof(buf) - pos, " PK");
+    if (err & 64) pos += snprintf(buf + pos, sizeof(buf) - pos, " SS");
+    pos += snprintf(buf + pos, sizeof(buf) - pos, "\n");
+
+    debug_write(buf, pos);
+}
+
+static void pf_log_user_fault(interrupt_frame_t *frame, uint64 error_code) {
+    char buf[256];
+    uintptr cr2 = arch_read_cr2();
+    process_t *p = process_current();
+
+    debug_write("\n*** USER PAGE FAULT ***\n", 24);
+
+    if (p) {
+        int n = snprintf(buf, sizeof(buf), "  Process:   pid=%u name=%s\n", p->pid, p->name);
+        debug_write(buf, n);
+    }
+
+    int n = snprintf(buf, sizeof(buf), "  Vector:    0x%lX\n", frame->vector);
+    debug_write(buf, n);
+    n = snprintf(buf, sizeof(buf), "  Error:     0x%lX\n", error_code);
+    debug_write(buf, n);
+    n = snprintf(buf, sizeof(buf), "  CR2:       0x%lX\n", cr2);
+    debug_write(buf, n);
+    n = snprintf(buf, sizeof(buf), "  RIP:       0x%lX (CS: 0x%lX)\n", frame->rip, frame->cs);
+    debug_write(buf, n);
+    n = snprintf(buf, sizeof(buf), "  RSP:       0x%lX (SS: 0x%lX)\n", frame->rsp, frame->ss);
+    debug_write(buf, n);
+    n = snprintf(buf, sizeof(buf), "  RFLAGS:    0x%lX\n", frame->rflags);
+    debug_write(buf, n);
+
+    pf_print_flags(error_code);
+
+    debug_write("  Registers:\n", 13);
+    n = snprintf(buf, sizeof(buf), "    RAX=0x%016lx RBX=0x%016lx RCX=0x%016lx\n", frame->rax, frame->rbx, frame->rcx);
+    debug_write(buf, n);
+    n = snprintf(buf, sizeof(buf), "    RDX=0x%016lx RSI=0x%016lx RDI=0x%016lx\n", frame->rdx, frame->rsi, frame->rdi);
+    debug_write(buf, n);
+    n = snprintf(buf, sizeof(buf), "    RBP=0x%016lx R8 =0x%016lx R9 =0x%016lx\n", frame->rbp, frame->r8, frame->r9);
+    debug_write(buf, n);
+    n = snprintf(buf, sizeof(buf), "    R10=0x%016lx R11=0x%016lx R12=0x%016lx\n", frame->r10, frame->r11, frame->r12);
+    debug_write(buf, n);
+    n = snprintf(buf, sizeof(buf), "    R13=0x%016lx R14=0x%016lx R15=0x%016lx\n", frame->r13, frame->r14, frame->r15);
+    debug_write(buf, n);
+}
 
 typedef struct irq_handler_node {
     void (*handler)(void);
@@ -99,6 +163,9 @@ int interrupt_register(uint8 irq, void (*handler)(void)) {
 
 static void irq0_handler(int from_usermode) {
     arch_timer_tick();
+    if (percpu_get()->cpu_index == 0) {
+        vt_tick();
+    }
     sched_tick(from_usermode);  //preemptive scheduling - only preempt if from usermode
 }
 
@@ -118,6 +185,15 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
         // we should probably have our own POSIX signal equivalent
         process_t *p = process_current();
         if (p) {
+            if (vector == PAGE_FAULT_VECTOR) {
+                pf_log_user_fault(frame, error_code);
+            } else {
+                char buf[192];
+                int n = snprintf(buf, sizeof(buf),
+                                 "\n*** USER EXCEPTION *** vector=0x%lX err=0x%lX rip=0x%lX pid=%u name=%s\n",
+                                 vector, error_code, rip, p->pid, p->name);
+                debug_write(buf, n);
+            }
             p->exit_code = 127 + vector;
             thread_exit();
             return;

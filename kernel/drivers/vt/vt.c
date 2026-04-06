@@ -5,10 +5,12 @@
 #include <obj/object.h>
 #include <obj/namespace.h>
 #include <arch/cpu.h>
+#include <syscall/syscall.h>
 #include <string.h>
 #include <lib/io.h>
 #include <lib/string.h>
 #include <drivers/init.h>
+#include <arch/timer.h>
 
 //active VT index
 static int active_vt = 0;
@@ -19,6 +21,10 @@ static vt_t *vts[VT_MAX] = {0};
 //default colors
 #define DEFAULT_FG  0xFFFFFF
 #define DEFAULT_BG  0x000000
+#define FONT_WIDTH  8
+#define FONT_HEIGHT 16
+#define VT_CURSOR_UNDERLINE_HEIGHT 2
+#define VT_CURSOR_BLINK_HZ 2
 
 //mark a row as needing redraw
 static inline void mark_dirty(vt_t *vt, uint32 row) {
@@ -26,11 +32,15 @@ static inline void mark_dirty(vt_t *vt, uint32 row) {
     if (row > vt->dirty_end) vt->dirty_end = row;
 }
 
-#define FONT_HEIGHT 16
-
 static void vt_render_to_console(vt_t *vt);
+static bool vt_cursor_should_be_visible(void);
+static void vt_draw_cell(vt_t *vt, uint32 col, uint32 row, bool cursor_visible);
+static void vt_hide_cursor(vt_t *vt);
+static void vt_sync_cursor(vt_t *vt, bool flip);
 
 static void vt_scroll(vt_t *vt) {
+    vt_hide_cursor(vt);
+
     //flush any pending dirty rows before scrolling
     //otherwise content written to buffer but not rendered will be lost
     if (vt->vt_num == active_vt && vt->dirty_start <= vt->dirty_end) {
@@ -60,11 +70,76 @@ static void vt_scroll(vt_t *vt) {
 }
 
 static void vt_newline(vt_t *vt) {
+    vt_hide_cursor(vt);
     vt->cursor_col = 0;
     vt->cursor_row++;
     if (vt->cursor_row >= vt->rows) {
         vt_scroll(vt);
         vt->cursor_row = vt->rows - 1;
+    }
+}
+
+static bool vt_cursor_should_be_visible(void) {
+    uint32 freq = arch_timer_getfreq();
+    if (freq == 0) return true;
+
+    uint64 phase_ticks = (uint64)freq / VT_CURSOR_BLINK_HZ;
+    if (phase_ticks == 0) phase_ticks = 1;
+
+    return ((arch_timer_get_ticks() / phase_ticks) & 1U) == 0;
+}
+
+static void vt_draw_cell(vt_t *vt, uint32 col, uint32 row, bool cursor_visible) {
+    if (!vt || !fb_available() || col >= vt->cols || row >= vt->rows) return;
+
+    vt_cell_t *cell = &vt->cells[row * vt->cols + col];
+    con_draw_char_at(col, row, (char)cell->codepoint, cell->fg, cell->bg);
+
+    if (cursor_visible) {
+        uint32 x = col * FONT_WIDTH;
+        uint32 y = row * FONT_HEIGHT + FONT_HEIGHT - VT_CURSOR_UNDERLINE_HEIGHT;
+        fb_fillrect(x, y, FONT_WIDTH, VT_CURSOR_UNDERLINE_HEIGHT, cell->fg);
+    }
+}
+
+static void vt_hide_cursor(vt_t *vt) {
+    if (!vt || vt->vt_num != active_vt || !vt->cursor_drawn) return;
+
+    vt_draw_cell(vt, vt->cursor_drawn_col, vt->cursor_drawn_row, false);
+    vt->cursor_drawn = false;
+}
+
+static void vt_sync_cursor(vt_t *vt, bool flip) {
+    if (!vt || vt->vt_num != active_vt || !fb_available()) return;
+
+    bool want_visible = vt->cursor_enabled && vt_cursor_should_be_visible();
+    bool same_cell = vt->cursor_drawn
+        && vt->cursor_drawn_col == vt->cursor_col
+        && vt->cursor_drawn_row == vt->cursor_row;
+
+    if (same_cell && want_visible) return;
+
+    if (vt->cursor_drawn) {
+        vt_draw_cell(vt, vt->cursor_drawn_col, vt->cursor_drawn_row, false);
+        if (flip) {
+            fb_flip_rect(vt->cursor_drawn_col * FONT_WIDTH,
+                         vt->cursor_drawn_row * FONT_HEIGHT,
+                         FONT_WIDTH, FONT_HEIGHT);
+        }
+        vt->cursor_drawn = false;
+    }
+
+    if (!want_visible || vt->cursor_col >= vt->cols || vt->cursor_row >= vt->rows) return;
+
+    vt_draw_cell(vt, vt->cursor_col, vt->cursor_row, true);
+    vt->cursor_drawn = true;
+    vt->cursor_drawn_col = vt->cursor_col;
+    vt->cursor_drawn_row = vt->cursor_row;
+
+    if (flip) {
+        fb_flip_rect(vt->cursor_col * FONT_WIDTH,
+                     vt->cursor_row * FONT_HEIGHT,
+                     FONT_WIDTH, FONT_HEIGHT);
     }
 }
 
@@ -88,7 +163,9 @@ static void vt_render_to_console(vt_t *vt) {
     //reset dirty tracking
     vt->dirty_start = vt->rows;
     vt->dirty_end = 0;
-    
+
+    vt->cursor_drawn = false;
+    vt_sync_cursor(vt, false);
     con_flush();
 }
 
@@ -117,10 +194,29 @@ static ssize vt_obj_write(object_t *obj, const void *buf, size len, size offset)
     return len;
 }
 
+static intptr vt_obj_get_info(object_t *obj, uint32 topic, void *buf, size len) {
+    vt_t *vt = (vt_t *)obj->data;
+    if (!vt || !buf) return -1;
+
+    if (topic == OBJ_INFO_VT_STATE) {
+        if (len < sizeof(vt_info_t)) return -1;
+        vt_info_t info;
+        info.cols = vt->cols;
+        info.rows = vt->rows;
+        info.cursor_col = vt->cursor_col;
+        info.cursor_row = vt->cursor_row;
+        memcpy(buf, &info, sizeof(info));
+        return 0;
+    }
+
+    return -1;
+}
+
 static object_ops_t vt_object_ops = {
     .read = vt_obj_read,
     .write = vt_obj_write,
-    .close = NULL
+    .close = NULL,
+    .get_info = vt_obj_get_info
 };
 
 void vt_init(void) {
@@ -168,6 +264,10 @@ vt_t *vt_create(void) {
     
     vt->cursor_col = 0;
     vt->cursor_row = 0;
+    vt->cursor_enabled = true;
+    vt->cursor_drawn = false;
+    vt->cursor_drawn_col = 0;
+    vt->cursor_drawn_row = 0;
     vt->event_head = 0;
     vt->event_tail = 0;
     vt->vt_num = num;
@@ -211,6 +311,8 @@ vt_t *vt_get_active(void) {
 void vt_switch(int num) {
     if (num < 0 || num >= VT_MAX || !vts[num]) return;
     
+    vt_t *old = vts[active_vt];
+    if (old) vt_hide_cursor(old);
     active_vt = num;
     vts[num]->dirty_start = 0;
     vts[num]->dirty_end = vts[num]->rows - 1;
@@ -260,13 +362,16 @@ void vt_putc(vt_t *vt, char c) {
     } else if (c == '\f') {
         vt_clear(vt);
     } else if (c == '\r') {
+        vt_hide_cursor(vt);
         vt->cursor_col = 0;
     } else if (c == '\t') {
         mark_dirty(vt, vt->cursor_row);
+        vt_hide_cursor(vt);
         vt->cursor_col = (vt->cursor_col + 4) & ~3;
         if (vt->cursor_col >= vt->cols) vt_newline(vt);
     } else if (c == '\b') {
         if (vt->cursor_col > 0) {
+            vt_hide_cursor(vt);
             vt->cursor_col--;
             vt_cell_t *cell = &vt->cells[vt->cursor_row * vt->cols + vt->cursor_col];
             cell->codepoint = ' ';
@@ -281,9 +386,10 @@ void vt_putc(vt_t *vt, char c) {
         cell->bg = vt->bg_color;
         mark_dirty(vt, vt->cursor_row);
         
+        vt_hide_cursor(vt);
         vt->cursor_col++;
         if (vt->cursor_col >= vt->cols) {
-            vt_newline(vt);
+            vt->cursor_col = vt->cols - 1;
         }
     }
 }
@@ -291,24 +397,56 @@ void vt_putc(vt_t *vt, char c) {
 void vt_write(vt_t *vt, const char *s, size len) {
     for (size i = 0; i < len; i++) {
         if (s[i] == '\e') {
-            i++;
-            if (s[i] == 'f' || s[i] == 'b') {
+            if (i + 1 >= len) break;
+
+            char mode = s[++i];
+            if (mode == 'H') {
+                vt_set_cursor(vt, 0, 0);
+                continue;
+            }
+
+            if (mode == 'P') {
+                if (i + 8 >= len) continue;
+
+                uint32 row = 0;
+                uint32 col = 0;
+                for (int shift = 12; shift >= 0; shift -= 4) {
+                    row |= (uint32)ctoh(s[++i]) << shift;
+                }
+                for (int shift = 12; shift >= 0; shift -= 4) {
+                    col |= (uint32)ctoh(s[++i]) << shift;
+                }
+
+                vt_set_cursor(vt, col, row);
+                continue;
+            }
+
+            if (mode == 'v') {
+                if (i + 1 >= len) continue;
+                char state = s[++i];
+                if (state == '0') vt_set_cursor_visible(vt, false);
+                else if (state == '1') vt_set_cursor_visible(vt, true);
+                continue;
+            }
+
+            if (mode == 'f' || mode == 'b') {
                 // SET COLOUR
                 // args: 0xNNNNNN
-                if (len - i < 7) continue;  // ensures we have enough characters
+                if (i + 6 >= len) continue;  //need 6 hex digits after the mode
 
-                char mode = s[i++];
                 uint32 colour = 0;
-                colour |= (uint32)ctoh(s[i++]) << 20;
-                colour |= (uint32)ctoh(s[i++]) << 16;
-                colour |= (uint32)ctoh(s[i++]) << 12;
-                colour |= (uint32)ctoh(s[i++]) << 8;
-                colour |= (uint32)ctoh(s[i++]) << 4;
-                colour |= (uint32)ctoh(s[i++]);
+                colour |= (uint32)ctoh(s[++i]) << 20;
+                colour |= (uint32)ctoh(s[++i]) << 16;
+                colour |= (uint32)ctoh(s[++i]) << 12;
+                colour |= (uint32)ctoh(s[++i]) << 8;
+                colour |= (uint32)ctoh(s[++i]) << 4;
+                colour |= (uint32)ctoh(s[++i]);
 
                 if (mode == 'f') vt->fg_color = colour;
                 else vt->bg_color = colour;
             }
+
+            continue;
         }
         
         vt_putc(vt, s[i]);
@@ -324,6 +462,7 @@ void vt_print(vt_t *vt, const char *s) {
 void vt_clear(vt_t *vt) {
     if (!vt) return;
     
+    vt_hide_cursor(vt);
     for (uint32 i = 0; i < vt->cols * vt->rows; i++) {
         vt->cells[i].codepoint = ' ';
         vt->cells[i].fg = vt->fg_color;
@@ -339,8 +478,26 @@ void vt_clear(vt_t *vt) {
 
 void vt_set_cursor(vt_t *vt, uint32 col, uint32 row) {
     if (!vt) return;
+    vt_hide_cursor(vt);
     if (col < vt->cols) vt->cursor_col = col;
     if (row < vt->rows) vt->cursor_row = row;
+}
+
+void vt_set_cursor_visible(vt_t *vt, bool visible) {
+    if (!vt) return;
+    vt->cursor_enabled = visible;
+    if (!visible) {
+        vt_hide_cursor(vt);
+        if (vt->vt_num == active_vt) {
+            con_flush();
+        }
+        return;
+    }
+
+    if (vt->vt_num == active_vt) {
+        vt_sync_cursor(vt, false);
+        con_flush();
+    }
 }
 
 uint32 vt_cols(vt_t *vt) {
@@ -376,4 +533,11 @@ void vt_write_cells(vt_t *vt, uint32 col, uint32 row, const vt_cell_t *cells, si
         vt->cells[r * vt->cols + c] = cells[i];
         mark_dirty(vt, r);
     }
+}
+
+void vt_tick(void) {
+    vt_t *vt = vt_get_active();
+    if (!vt || !fb_available()) return;
+
+    vt_sync_cursor(vt, true);
 }

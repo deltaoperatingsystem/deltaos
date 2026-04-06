@@ -52,6 +52,13 @@ static void free_wallpaper(void);
 static void render_wallpaper(uint32 *fb_backbuffer);
 
 static uint32 *saved_fb = NULL;
+static handle_t vt_handle = INVALID_HANDLE;
+
+static void set_vt_cursor_visible(bool visible) {
+    if (vt_handle == INVALID_HANDLE) return;
+    char cmd[3] = { 27, 'v', visible ? '1' : '0' };
+    handle_write(vt_handle, cmd, sizeof(cmd));
+}
 
 void fb_setup(handle_t *h, uint32 **backbuffer) {
     *h = get_obj(INVALID_HANDLE, "$devices/fb0", RIGHT_READ | RIGHT_WRITE);
@@ -542,9 +549,14 @@ typedef struct {
 
 void kbind_exit(void) {
     INFO("Exiting...\n");
+    set_vt_cursor_visible(true);
     handle_seek(fb_handle, 0, HANDLE_SEEK_SET);
     handle_write(fb_handle, saved_fb, fb_size);
     free(saved_fb);
+    if (vt_handle != INVALID_HANDLE) {
+        handle_close(vt_handle);
+        vt_handle = INVALID_HANDLE;
+    }
     exit(0);
 }
 
@@ -665,6 +677,8 @@ int main(void) {
 
     fb_setup(&fb_handle, &fb_backbuffer);
     INFO("Setup framebuffer handle %d\n", (int)fb_handle);
+    vt_handle = get_obj(INVALID_HANDLE, "$devices/vt0", RIGHT_WRITE);
+    set_vt_cursor_visible(false);
     kbd_init();
     INFO("Setup keyboard\n");
     server_setup(&server_handle, &client_handle);

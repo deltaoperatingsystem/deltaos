@@ -55,6 +55,10 @@ typedef struct vt {
     //cursor state
     uint32 cursor_col;
     uint32 cursor_row;
+    bool cursor_enabled;
+    bool cursor_drawn;
+    uint32 cursor_drawn_col;
+    uint32 cursor_drawn_row;
     
     //current attributes
     uint32 fg_color;
@@ -116,6 +120,7 @@ void vt_clear(vt_t *vt);
 
 //set cursor position
 void vt_set_cursor(vt_t *vt, uint32 col, uint32 row);
+void vt_set_cursor_visible(vt_t *vt, bool visible);
 
 //get dimensions
 uint32 vt_cols(vt_t *vt);
@@ -126,5 +131,8 @@ void vt_flush(vt_t *vt);
 
 //write an array of cells directly to VT at position
 void vt_write_cells(vt_t *vt, uint32 col, uint32 row, const vt_cell_t *cells, size count);
+
+//timer-driven cursor updates for the active VT
+void vt_tick(void);
 
 #endif

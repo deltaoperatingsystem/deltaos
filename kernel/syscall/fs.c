@@ -4,15 +4,93 @@
 #include <lib/string.h>
 #include <lib/path.h>
 #include <lib/io.h>
+#include <fs/mount.h>
+#include <arch/percpu.h>
+#include <mm/kheap.h>
+#include <errno.h>
+
+static int write_user_byte(uint8 *ptr, uint8 value) {
+    percpu_t *cpu = percpu_get();
+    cpu->recovery_rip = (uintptr)&&fault;
+    *ptr = value;
+    cpu->recovery_rip = 0;
+    return 0;
+fault:
+    cpu->recovery_rip = 0;
+    return -EFAULT;
+}
+
+static int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) {
+    if (len == 0) return 0;
+    if (!user_ptr || !kernel_buf) return -EFAULT;
+
+    uintptr dst_addr = (uintptr)user_ptr;
+    if (dst_addr < USER_SPACE_START || dst_addr >= USER_SPACE_END) return -EFAULT;
+    if (len > (size)(USER_SPACE_END - dst_addr)) return -EFAULT;
+
+    const uint8 *src = (const uint8 *)kernel_buf;
+    uint8 *dst = (uint8 *)user_ptr;
+    size i = 0;
+
+    while (i < len && ((uintptr)&dst[i] & (sizeof(uintptr) - 1))) {
+        if (write_user_byte(&dst[i], src[i]) != 0) return -EFAULT;
+        i++;
+    }
+
+    if (i + sizeof(uintptr) <= len) {
+        percpu_t *cpu = percpu_get();
+        cpu->recovery_rip = (uintptr)&&bulk_fault;
+
+        while (i + sizeof(uintptr) <= len) {
+            *(uintptr *)&dst[i] = *(const uintptr *)&src[i];
+            i += sizeof(uintptr);
+        }
+
+        cpu->recovery_rip = 0;
+    }
+
+    while (i < len) {
+        if (write_user_byte(&dst[i], src[i]) != 0) return -EFAULT;
+        i++;
+    }
+
+    return 0;
+
+bulk_fault:
+    percpu_get()->recovery_rip = 0;
+    return -EFAULT;
+}
 
 intptr sys_handle_read(handle_t h, void *buf, size len) {
     if (!buf || len == 0) return -1;
-    return handle_read(h, buf, len);
+    void *kbuf = kmalloc(len);
+    if (!kbuf) return -1;
+
+    ssize result = handle_read(h, kbuf, len);
+    if (result > 0) {
+        if (copy_to_user_bytes(buf, kbuf, (size)result) != 0) {
+            kfree(kbuf);
+            return -1;
+        }
+    }
+
+    kfree(kbuf);
+    return result;
 }
 
 intptr sys_handle_write(handle_t h, const void *buf, size len) {
     if (!buf || len == 0) return -1;
-    return handle_write(h, buf, len);
+    void *kbuf = kmalloc(len);
+    if (!kbuf) return -1;
+
+    if (copy_user_bytes(buf, kbuf, len) != 0) {
+        kfree(kbuf);
+        return -1;
+    }
+
+    intptr result = handle_write(h, kbuf, len);
+    kfree(kbuf);
+    return result;
 }
 
 intptr sys_handle_seek(handle_t h, size offset, int mode) {
@@ -82,25 +160,51 @@ intptr sys_getcwd(char *buf, size bufsize) {
     return (intptr)cwd_len;
 }
 
-//TODO: allow for directory creation in non-$files namespaces
-intptr sys_mknode(const char *path, uint32 type) {
-    if (!path) return -1;
+intptr sys_mount(handle_t source, const char *target, const char *fstype) {
+    if (!target || !fstype) return -1;
 
-    process_t *proc = process_current();
-    if (!proc) return -2;
-
-    if (path[0] == '$') return -4;
-
-    char full_path[256];
-    if (path[0] == '/') {
-        snprintf(full_path, sizeof(full_path), "$files/%s", path);
-    } else {
-        snprintf(full_path, sizeof(full_path), "$files/%s/%s", proc->cwd, path);
+    //mounting needs raw read/write access plus metadata access
+    if (!handle_has_rights(source, HANDLE_RIGHT_READ) ||
+        !handle_has_rights(source, HANDLE_RIGHT_WRITE) ||
+        !handle_has_rights(source, HANDLE_RIGHT_GET_INFO)) {
+        return -2;
     }
 
-    path_normalize(full_path);
+    char k_target[256];
+    char k_type[64];
+    if (copy_user_cstr(target, k_target, sizeof(k_target)) != 0) return -1;
+    if (copy_user_cstr(fstype, k_type, sizeof(k_type)) != 0) return -1;
 
-    return handle_create(full_path, type);
+    if (k_target[0] != '/') return -3;
+    path_normalize(k_target);
+    if (strcmp(k_target, "/") == 0) return -3;
+
+    //only mount onto an existing directory
+    stat_t st;
+    if (handle_stat(k_target, &st) != 0 || st.type != FS_TYPE_DIR) {
+        return -4;
+    }
+
+    //do not allow overlapping mountpoints yet
+    if (fs_mount_conflicts(k_target)) {
+        return -5;
+    }
+
+    object_t *src = handle_get(source);
+    if (!src) return -6;
+
+    intptr result = -7;
+    if (strcmp(k_type, "fat32") == 0) {
+        extern intptr fat32_mount(object_t *source, const char *target);
+        result = fat32_mount(src, k_target);
+    }
+
+    return result;
+}
+
+intptr sys_mknode(const char *path, uint32 type) {
+    if (!path) return -1;
+    return handle_create(path, type);
 }
 
 intptr sys_remove(const char *path) {

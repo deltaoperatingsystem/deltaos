@@ -32,14 +32,12 @@ It boots, runs programs,has some drivers and has a working shell.
 The window manager exists but is incomplete.
 
 # Goals (Roughly in order but not):
-- Create a on-disk filesystem
 - A basic true GPU driver
 - USB support
 - Flesh out userspace libc fully
 - Finish the coreutils
 - Expand the Init system
 - Flesh out the capability system
-- TCP/IP stack
 - AArch64 support (Later down the line)
 
 Not promises just where we're probably headed

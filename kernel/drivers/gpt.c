@@ -8,8 +8,10 @@
 #include <lib/io.h>
 #include <lib/string.h>
 #include <fs/fs.h>
+#include <syscall/syscall.h>
 
 static int part_stat_op(object_t *obj, stat_t *st);
+static intptr part_get_info_op(object_t *obj, uint32 topic, void *buf, size len);
 
 //check if GUID is null
 static bool guid_is_null(const uint8 *guid) {
@@ -106,13 +108,29 @@ static int part_stat_op(object_t *obj, stat_t *st) {
     return 0;
 }
 
+static intptr part_get_info_op(object_t *obj, uint32 topic, void *buf, size len) {
+    blkdev_t *dev = (blkdev_t *)obj->data;
+    if (!dev || !buf) return -1;
+
+    if (topic == OBJ_INFO_BLOCK_DEVICE) {
+        if (len < sizeof(block_device_info_t)) return -1;
+        block_device_info_t info;
+        info.sector_size = dev->sector_size;
+        info.sector_count = dev->sector_count;
+        memcpy(buf, &info, sizeof(info));
+        return 0;
+    }
+    return -1;
+}
+
 static object_ops_t partition_object_ops = {
     .read = part_read_op,
     .write = part_write_op,
     .close = NULL,
     .readdir = NULL,
     .lookup = NULL,
-    .stat = part_stat_op
+    .stat = part_stat_op,
+    .get_info = part_get_info_op
 };
 
 int gpt_scan(blkdev_t *dev) {

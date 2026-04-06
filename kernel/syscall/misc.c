@@ -78,9 +78,28 @@ intptr sys_object_get_info(handle_t h, uint32 topic, void *ptr, size len) {
     
     object_t *obj = handle_get(h);
     if (!obj) return -1;
-    
-    intptr ret = object_get_info(obj, topic, ptr, len);
-    return ret;
+
+    if (topic == OBJ_INFO_BLOCK_DEVICE) {
+        if (!ptr || len < sizeof(block_device_info_t)) return -1;
+
+        block_device_info_t info = {0};
+        intptr ret = object_get_info(obj, topic, &info, sizeof(info));
+        if (ret < 0) return ret;
+        if (copy_to_user_bytes(ptr, &info, sizeof(info)) != 0) return -EFAULT;
+        return 0;
+    }
+
+    if (topic == OBJ_INFO_VT_STATE) {
+        if (!ptr || len < sizeof(vt_info_t)) return -1;
+
+        vt_info_t info = {0};
+        intptr ret = object_get_info(obj, topic, &info, sizeof(info));
+        if (ret < 0) return ret;
+        if (copy_to_user_bytes(ptr, &info, sizeof(info)) != 0) return -EFAULT;
+        return 0;
+    }
+
+    return object_get_info(obj, topic, ptr, len);
 }
 
 static intptr sys_ping_impl(uint8 family, const void *dst_addr, uint32 addr_len, uint32 count) {

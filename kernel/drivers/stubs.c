@@ -98,10 +98,12 @@ WEAK void vt_putc(vt_t *vt, char c) { (void)vt; (void)c; }
 WEAK void vt_print(vt_t *vt, const char *s) { (void)vt; (void)s; }
 WEAK void vt_clear(vt_t *vt) { (void)vt; }
 WEAK void vt_set_cursor(vt_t *vt, uint32 col, uint32 row) { (void)vt; (void)col; (void)row; }
+WEAK void vt_set_cursor_visible(vt_t *vt, bool visible) { (void)vt; (void)visible; }
 WEAK uint32 vt_cols(vt_t *vt) { (void)vt; return 0; }
 WEAK uint32 vt_rows(vt_t *vt) { (void)vt; return 0; }
 WEAK void vt_flush(vt_t *vt) { (void)vt; }
 WEAK void vt_write_cells(vt_t *vt, uint32 col, uint32 row, const vt_cell_t *cells, size count) { (void)vt; (void)col; (void)row; (void)cells; (void)count; }
+WEAK void vt_tick(void) {}
 
 //RTL8139 stubs
 WEAK void rtl8139_init(void) {}
