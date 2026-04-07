@@ -52,24 +52,27 @@ static int mount_paths_overlap(const char *a, const char *b) {
     return 0;
 }
 
+static int mount_conflicts_unlocked(const char *target) {
+    for (fs_mount_entry_t *e = mounts; e; e = e->next) {
+        if (mount_paths_overlap(e->target, target) || mount_paths_overlap(target, e->target)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int fs_mount_conflicts(const char *target) {
     if (!target || target[0] != '/') return 1;
 
     //keep mount points from overlapping or nesting
     spinlock_acquire(&mount_lock);
-    for (fs_mount_entry_t *e = mounts; e; e = e->next) {
-        if (mount_paths_overlap(e->target, target) || mount_paths_overlap(target, e->target)) {
-            spinlock_release(&mount_lock);
-            return 1;
-        }
-    }
+    int rc = mount_conflicts_unlocked(target);
     spinlock_release(&mount_lock);
-    return 0;
+    return rc;
 }
 
 int fs_mount_register(const char *target, fs_t *fs) {
     if (!target || !fs || target[0] != '/') return -1;
-    if (fs_mount_conflicts(target)) return -1;
 
     fs_mount_entry_t *entry = kzalloc(sizeof(fs_mount_entry_t));
     if (!entry) return -1;
@@ -81,10 +84,15 @@ int fs_mount_register(const char *target, fs_t *fs) {
         return -1;
     }
 
+    spinlock_acquire(&mount_lock);
+    if (mount_conflicts_unlocked(target)) {
+        spinlock_release(&mount_lock);
+        kfree(entry);
+        return -1;
+    }
+
     memcpy(entry->target, target, len + 1);
     entry->fs = fs;
-
-    spinlock_acquire(&mount_lock);
     entry->next = mounts;
     mounts = entry;
     spinlock_release(&mount_lock);

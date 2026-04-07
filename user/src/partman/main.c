@@ -150,7 +150,8 @@ static int read_lba(handle_t dev, uint32 sector_size, uint64 lba, void *buf) {
     //seek once then read one logical sector
     uint64 offset = lba * (uint64)sector_size;
     if (handle_seek(dev, offset, HANDLE_SEEK_SET) < 0) return -1;
-    return handle_read(dev, buf, sector_size) == (int)sector_size ? 0 : -1;
+    ssize result = handle_read(dev, buf, sector_size);
+    return result == (ssize)sector_size ? 0 : -1;
 }
 
 static void clear_partition_state(const char *status) {

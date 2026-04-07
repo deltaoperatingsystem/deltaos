@@ -1,7 +1,7 @@
 #include <drivers/hid.h>
 #include <drivers/keyboard_protocol.h>
 #include <drivers/mouse_protocol.h>
-#include <drivers/usb.h>
+#include <drivers/usb/usb.h>
 #include <ipc/channel.h>
 #include <obj/namespace.h>
 #include <obj/object.h>

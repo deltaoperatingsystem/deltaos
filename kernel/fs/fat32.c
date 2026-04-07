@@ -20,6 +20,7 @@
 #define FAT32_ATTR_ARCHIVE  0x20
 #define FAT32_ATTR_LFN      0x0F
 #define FAT32_LFN_MAX_ENTRIES 20
+#define FAT32_MAX_ALIAS_ATTEMPTS 1000u
 
 #define FAT32_EOC_MIN       0x0FFFFFF8
 #define FAT32_EOC_MASK      0x0FFFFFFF
@@ -370,7 +371,7 @@ static uint32 fat32_fat_read_entry(fat32_fs_t *fs, uint32 cluster) {
     return entry & FAT32_EOC_MASK;
 }
 
-static int fat32_fat_write_entry(fat32_fs_t *fs, uint32 cluster, uint32 value) {
+static int fat32_fat_write_entry_locked(fat32_fs_t *fs, uint32 cluster, uint32 value) {
     //write both fat copies
     value &= FAT32_EOC_MASK;
     for (uint32 copy = 0; copy < fs->fat_count; copy++) {
@@ -380,6 +381,14 @@ static int fat32_fat_write_entry(fat32_fs_t *fs, uint32 cluster, uint32 value) {
         }
     }
     return 0;
+}
+
+static int fat32_fat_write_entry(fat32_fs_t *fs, uint32 cluster, uint32 value) {
+    if (!fs) return -1;
+    spinlock_acquire(&fs->lock);
+    int rc = fat32_fat_write_entry_locked(fs, cluster, value);
+    spinlock_release(&fs->lock);
+    return rc;
 }
 
 static uint32 fat32_cluster_next(fat32_fs_t *fs, uint32 cluster) {
@@ -428,7 +437,7 @@ static uint32 fat32_chain_length(fat32_fs_t *fs, uint32 first_cluster, uint32 *l
     return count;
 }
 
-static uint32 fat32_alloc_cluster(fat32_fs_t *fs) {
+static uint32 fat32_alloc_cluster_locked(fat32_fs_t *fs) {
     //start from the last hint and wrap once
     uint32 start = fs->next_free_cluster < 2 ? 2 : fs->next_free_cluster;
     for (uint32 pass = 0; pass < 2; pass++) {
@@ -436,9 +445,9 @@ static uint32 fat32_alloc_cluster(fat32_fs_t *fs) {
         uint32 end = (pass == 0) ? (fs->total_clusters + 2) : start;
         for (uint32 cluster = begin; cluster < end; cluster++) {
             if (fat32_fat_read_entry(fs, cluster) == 0) {
-                if (fat32_fat_write_entry(fs, cluster, FAT32_EOC_MASK) < 0) return 0;
+                if (fat32_fat_write_entry_locked(fs, cluster, FAT32_EOC_MASK) < 0) return 0;
                 if (fat32_cluster_zero(fs, cluster) < 0) {
-                    fat32_fat_write_entry(fs, cluster, 0);
+                    fat32_fat_write_entry_locked(fs, cluster, 0);
                     return 0;
                 }
                 fs->next_free_cluster = cluster + 1;
@@ -449,7 +458,15 @@ static uint32 fat32_alloc_cluster(fat32_fs_t *fs) {
     return 0;
 }
 
-static int fat32_chain_ensure(fat32_fs_t *fs, fat32_node_t *node, uint32 wanted_clusters) {
+static uint32 fat32_alloc_cluster(fat32_fs_t *fs) {
+    if (!fs) return 0;
+    spinlock_acquire(&fs->lock);
+    uint32 cluster = fat32_alloc_cluster_locked(fs);
+    spinlock_release(&fs->lock);
+    return cluster;
+}
+
+static int fat32_chain_ensure_locked(fat32_fs_t *fs, fat32_node_t *node, uint32 wanted_clusters) {
     if (!fs || !node || wanted_clusters == 0) return -1;
 
     //grow the chain until it can hold the requested size
@@ -458,21 +475,29 @@ static int fat32_chain_ensure(fat32_fs_t *fs, fat32_node_t *node, uint32 wanted_
     if (have >= wanted_clusters) return 0;
 
     while (have < wanted_clusters) {
-        uint32 cluster = fat32_alloc_cluster(fs);
+        uint32 cluster = fat32_alloc_cluster_locked(fs);
         if (!cluster) return -1;
 
         if (node->first_cluster < 2) {
             node->first_cluster = cluster;
             last = cluster;
         } else {
-            if (fat32_fat_write_entry(fs, last, cluster) < 0) return -1;
+            if (fat32_fat_write_entry_locked(fs, last, cluster) < 0) return -1;
             last = cluster;
         }
         have++;
     }
 
-    if (fat32_fat_write_entry(fs, last, FAT32_EOC_MASK) < 0) return -1;
+    if (fat32_fat_write_entry_locked(fs, last, FAT32_EOC_MASK) < 0) return -1;
     return 0;
+}
+
+static int fat32_chain_ensure(fat32_fs_t *fs, fat32_node_t *node, uint32 wanted_clusters) {
+    if (!fs) return -1;
+    spinlock_acquire(&fs->lock);
+    int rc = fat32_chain_ensure_locked(fs, node, wanted_clusters);
+    spinlock_release(&fs->lock);
+    return rc;
 }
 
 static int fat32_dir_scan(fat32_fs_t *fs, uint32 start_cluster, uint32 *visible_index,
@@ -871,7 +896,7 @@ static int fat32_short_alias_for_long_name(fat32_fs_t *fs, uint32 parent_cluster
         bi = 4;
     }
 
-    for (uint32 suffix = 1; suffix < 100000; suffix++) {
+    for (uint32 suffix = 1; suffix < FAT32_MAX_ALIAS_ATTEMPTS; suffix++) {
         //build name~n aliases until one is free
         char short_name[12];
         memset(short_name, ' ', 11);
@@ -901,6 +926,7 @@ static int fat32_short_alias_for_long_name(fat32_fs_t *fs, uint32 parent_cluster
         }
     }
 
+    //TODO: consider a hash-based alias fallback if the directory is especially crowded
     return -1;
 }
 
@@ -982,11 +1008,15 @@ static int fat32_update_file_meta(fat32_fs_t *fs, fat32_node_t *node) {
 
     //write back size and first cluster to the parent dirent
     fat32_dirent_t ent;
-    if (fat32_read_dirent(fs, node->parent_cluster, node->dir_entry_offset, &ent) < 0) return -1;
+    uint32 target_cluster = 0;
+    uint64 cluster_offset = 0;
+    if (fat32_dir_cluster_for_offset(fs, node->parent_cluster, node->dir_entry_offset,
+                                     &target_cluster, &cluster_offset) < 0) return -1;
+    if (fat32_read_dirent(fs, target_cluster, cluster_offset, &ent) < 0) return -1;
     ent.first_cluster_hi = (uint16)((node->first_cluster >> 16) & 0xFFFF);
     ent.first_cluster_lo = (uint16)(node->first_cluster & 0xFFFF);
     ent.size = node->size;
-    return fat32_update_dirent(fs, node->parent_cluster, node->dir_entry_offset, &ent);
+    return fat32_update_dirent(fs, target_cluster, cluster_offset, &ent);
 }
 
 static ssize fat32_file_read(object_t *obj, void *buf, size len, size offset) {
@@ -1097,6 +1127,7 @@ static ssize fat32_file_write(object_t *obj, const void *buf, size len, size off
     if (len == 0) return 0;
 
     uint64 end = (uint64)offset + len;
+    if (end > UINT32_MAX) return -1;
     uint32 needed_clusters = (uint32)((end + node->fs->cluster_size - 1) / node->fs->cluster_size);
     if (needed_clusters == 0) needed_clusters = 1;
 
@@ -1113,11 +1144,20 @@ static ssize fat32_file_write(object_t *obj, const void *buf, size len, size off
     //zero fill sparse gap first
     if (offset > node->size) {
         size gap = offset - node->size;
-        void *zero = kzalloc(gap);
+        size zero_len = PAGE_SIZE;
+        if (zero_len > gap) zero_len = gap;
+        void *zero = kzalloc(zero_len);
         if (!zero) return -1;
-        if (fat32_file_write_range(node, node->size, zero, gap) < 0) {
-            kfree(zero);
-            return -1;
+        size cur_off = node->size;
+        size remaining = gap;
+        while (remaining > 0) {
+            size chunk = remaining < zero_len ? remaining : zero_len;
+            if (fat32_file_write_range(node, cur_off, zero, chunk) < 0) {
+                kfree(zero);
+                return -1;
+            }
+            cur_off += chunk;
+            remaining -= chunk;
         }
         kfree(zero);
     }
@@ -1327,13 +1367,16 @@ static int fat32_dir_remove_entry_chain(fat32_fs_t *fs, uint32 parent_cluster, u
 
 static int fat32_free_chain(fat32_fs_t *fs, uint32 first_cluster) {
     //clear every fat link in the chain
+    if (!fs) return -1;
+    spinlock_acquire(&fs->lock);
     uint32 cluster = first_cluster;
     while (cluster >= 2 && cluster < FAT32_EOC_MIN) {
         uint32 next = fat32_cluster_next(fs, cluster);
-        fat32_fat_write_entry(fs, cluster, 0);
+        fat32_fat_write_entry_locked(fs, cluster, 0);
         if (next == cluster) break;
         cluster = next;
     }
+    spinlock_release(&fs->lock);
     return 0;
 }
 
@@ -1626,6 +1669,7 @@ intptr fat32_mount(object_t *source, const char *target) {
     state->data_offset = (uint64)(reserved + (bpb->fat_count * fat_size)) * bpb->bytes_per_sector;
     state->cluster_size = (uint64)bpb->bytes_per_sector * bpb->sectors_per_cluster;
     state->next_free_cluster = 2;
+    spinlock_init(&state->lock);
     state->fs = fs;
 
     //cache the derived geometry now

@@ -185,6 +185,22 @@ create_disk_image() {
         sgdisk --clear --new=1:2048:65535 --change-name=1:"TestPart1" --new=2:65536:0 --change-name=2:"TestPart2" "$NVME_IMG"
     fi
 
+    if [[ ! -f "$FAT32_IMG" ]]; then
+        print_step "creating sample FAT32 image"
+        dd if=/dev/zero of="$FAT32_IMG" bs=1M count=$NVME_SIZE_MB status=none
+        if command -v mkfs.vfat >/dev/null 2>&1; then
+            mkfs.vfat -F 32 -n DELTAOS "$FAT32_IMG"
+        elif command -v mformat >/dev/null 2>&1; then
+            mformat -F -i "$FAT32_IMG" ::
+            if command -v mlabel >/dev/null 2>&1; then
+                mlabel -i "$FAT32_IMG" ::DELTAOS
+            fi
+        else
+            echo "error: need mkfs.vfat or mtools to prepare $FAT32_IMG"
+            exit 1
+        fi
+    fi
+
     #partition table creation
     sgdisk --clear --new=1:2048:0 --typecode=1:EF00 --change-name=1:"EFI System" "$DISK_IMG"
 

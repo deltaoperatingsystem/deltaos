@@ -21,6 +21,7 @@
 #include <fs/tmpfs.h>
 #include <fs/initrd.h>
 #include <kernel/elf64.h>
+#include <drivers/usb/xhci.h>
 #include <net/net.h>
 #include <fs/initrd.h>
 
@@ -295,14 +296,15 @@ void kernel_main(const char *cmdline) {
     init_drivers();
     printf("[kernel] drivers initialized\n");
 
-    //initialize networking (runs DHCP)
-    net_init();
-
-    //test network (ping gateway)
-    net_test();
-
     //initialize scheduler (creates idle thread)
     sched_init();
+
+    //defer xHCI controller bring-up so slow hardware waits don't block boot
+    xhci_start();
+
+    //initialize networking in the background so DHCP/NDP don't block boot
+    net_init();
+
     syscall_init();
 
     //spawn init process

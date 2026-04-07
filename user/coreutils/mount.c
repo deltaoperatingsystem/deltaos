@@ -1,6 +1,7 @@
 #include <system.h>
 #include <io.h>
 #include <string.h>
+#include <isoc/stdio.h>
 
 typedef struct __attribute__((packed)) {
     uint8 jump[3];
@@ -96,9 +97,7 @@ int main(int argc, char **argv) {
 
     //cheap check so we fail fast on obvious non fat32 disks
     if (strcmp(fstype, "fat32") == 0 && !looks_like_fat32(source)) {
-        printf("mount: '%s' does not look like a FAT32 volume\n", argv[1]);
-        handle_close(source);
-        return 1;
+        fprintf(stderr, "mount: warning: '%s' does not look like a FAT32 volume; continuing anyway\n", argv[1]);
     }
 
     //hand the mount request to the kernel side

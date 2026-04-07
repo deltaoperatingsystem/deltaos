@@ -224,14 +224,38 @@
 #define HID_PENDING_MAX         8
 
 //controller quirks
-#define XHCI_QUIRK_PORT_POLLING_RECOVER   (1U << 0)
-#define XHCI_QUIRK_PORT_POLLING_WARM_RESET (1U << 1)
-#define XHCI_QUIRK_FORCE_BIOS_HANDOFF     (1U << 2)
-#define XHCI_QUIRK_NEC_HOST               (1U << 3)
-#define XHCI_QUIRK_LINK_TRB_CHAIN         (1U << 4)
-#define XHCI_QUIRK_RENESAS_FW_LOAD        (1U << 5)
-#define XHCI_QUIRK_PANTHERPOINT           (1U << 6)
-#define XHCI_QUIRK_INTEL_HOST             (1U << 7)
+#define XHCI_QUIRK_PORT_POLLING_RECOVER    (1ULL << 0)
+#define XHCI_QUIRK_PORT_POLLING_WARM_RESET (1ULL << 1)
+#define XHCI_QUIRK_FORCE_BIOS_HANDOFF      (1ULL << 2)
+#define XHCI_QUIRK_NEC_HOST                (1ULL << 3)
+#define XHCI_QUIRK_LINK_TRB_CHAIN          (1ULL << 4)
+#define XHCI_QUIRK_RENESAS_FW_LOAD         (1ULL << 5)
+#define XHCI_QUIRK_PANTHERPOINT            (1ULL << 6)
+#define XHCI_QUIRK_INTEL_HOST              (1ULL << 7)
+#define XHCI_QUIRK_TRUST_TX_LENGTH         (1ULL << 8)
+#define XHCI_QUIRK_RESET_EP_QUIRK          (1ULL << 9)
+#define XHCI_QUIRK_BROKEN_STREAMS          (1ULL << 10)
+#define XHCI_QUIRK_BROKEN_MSI              (1ULL << 11)
+#define XHCI_QUIRK_NO_64BIT_SUPPORT        (1ULL << 12)
+#define XHCI_QUIRK_RESET_ON_RESUME         (1ULL << 13)
+#define XHCI_QUIRK_LIMIT_ENDPOINT_INTERVAL_9 (1ULL << 14)
+#define XHCI_QUIRK_LIMIT_ENDPOINT_INTERVAL_7 (1ULL << 15)
+#define XHCI_QUIRK_TRB_OVERFETCH           (1ULL << 16)
+#define XHCI_QUIRK_ZERO_64B_REGS           (1ULL << 17)
+#define XHCI_QUIRK_NO_SOFT_RETRY           (1ULL << 18)
+#define XHCI_QUIRK_DEFAULT_PM_RUNTIME_ALLOW (1ULL << 19)
+#define XHCI_QUIRK_U2_DISABLE_WAKE         (1ULL << 20)
+#define XHCI_QUIRK_SPURIOUS_SUCCESS        (1ULL << 21)
+#define XHCI_QUIRK_ASMEDIA_MODIFY_FLOWCONTROL (1ULL << 22)
+#define XHCI_QUIRK_RESET_PLL_ON_DISCONNECT (1ULL << 23)
+#define XHCI_QUIRK_ZHAOXIN_HOST            (1ULL << 24)
+#define XHCI_QUIRK_LPM_SUPPORT             (1ULL << 25)
+#define XHCI_QUIRK_ETRON_HOST              (1ULL << 26)
+#define XHCI_QUIRK_SLOW_SUSPEND            (1ULL << 27)
+#define XHCI_QUIRK_AMD_0X96_HOST           (1ULL << 28)
+#define XHCI_QUIRK_AMD_PLL_FIX             (1ULL << 29)
+#define XHCI_QUIRK_SUSPEND_DELAY           (1ULL << 30)
+#define XHCI_QUIRK_SNPS_BROKEN_SUSPEND     (1ULL << 31)
 
 //deferred HID report - filled inside evt_lock, processed outside it
 typedef struct {
@@ -272,8 +296,10 @@ typedef struct {
     uint32      enq;        //enqueue index (producer writes here)
     uint32      deq;        //dequeue index (consumer / event ring only)
     uint32      size;       //total TRBs including Link TRB
+    uint32      alloc_trbs; //allocated TRBs including any overfetch padding
     uint32      pages;      //allocated backing pages
     bool        chain_links; //set CH on link TRBs for older controllers
+    bool        overfetch_guard; //leave one extra zeroed TRB past the link
     uint8       pcs;        //producer cycle state bit
 } xhci_ring_t;
 
@@ -359,7 +385,7 @@ typedef struct {
     hid_pending_t      hid_pending[HID_PENDING_MAX];
     uint32             hid_pending_count;
     bool               disconnect_ports[256]; //pending port-disconnect cleanup
-    uint32             quirks;
+    uint64             quirks;
 
     //MSI-X
     uint16             msix_cap;     //byte offset of MSI-X cap in PCI config
@@ -369,12 +395,16 @@ typedef struct {
     xhci_device_t devices[XHCI_MAX_SLOTS + 1];
 } xhci_ctrl_t;
 
-static inline bool xhci_has_quirk(const xhci_ctrl_t *c, uint32 quirk) {
+static inline bool xhci_has_quirk(const xhci_ctrl_t *c, uint64 quirk) {
     return c && (c->quirks & quirk);
 }
 
+void xhci_apply_pci_quirks(xhci_ctrl_t *c, pci_device_t *pci);
+
 //public interface
 void xhci_init(void);
+void xhci_start(void);
 void xhci_irq(void);
+void xhci_renesas_fw_load(pci_device_t *pci);
 
 #endif

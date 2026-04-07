@@ -6,7 +6,7 @@
 #include <drivers/mouse.h>
 #include <drivers/rtl8139.h>
 #include <drivers/vt/vt.h>
-#include <drivers/xhci.h>
+#include <drivers/usb/xhci.h>
 #include <lib/io.h>
 #include <arch/amd64/context.h>
 #include <arch/amd64/int/apic.h>

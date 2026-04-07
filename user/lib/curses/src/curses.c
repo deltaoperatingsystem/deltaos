@@ -73,7 +73,7 @@ static void curses_scroll(void) {
     size row_bytes = (size)curses_cols * sizeof(curses_cell_t);
     memmove(curses_cells, curses_cells + curses_cols, row_bytes * (curses_rows - 1));
     curses_fill_blank_row(curses_rows - 1);
-    if (curses_cursor_row > 0) curses_cursor_row = curses_rows - 1;
+    if (curses_cursor_row == curses_rows - 1) curses_cursor_row = curses_rows - 1;
 }
 
 static void curses_emit_color_escape(char mode, uint32 color, char *buf, size *pos, size max) {
@@ -425,7 +425,7 @@ void curses_flush(void) {
     if (!curses_ready || !curses_cells || curses_vt == INVALID_HANDLE) return;
 
     //build one vt update string for all changed cells
-    size cap = curses_cell_count() * 16 + curses_rows + 64;
+    size cap = curses_cell_count() * 32 + curses_rows + 64;
     char *buf = malloc(cap);
     if (!buf) return;
 

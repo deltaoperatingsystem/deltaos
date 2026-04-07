@@ -1,5 +1,5 @@
-#include <drivers/xhci.h>
-#include <drivers/usb.h>
+#include <drivers/usb/xhci.h>
+#include <drivers/usb/usb.h>
 #include <drivers/hid.h>
 #include <drivers/pci.h>
 #include <drivers/init.h>
@@ -18,6 +18,8 @@
 #include <errno.h>
 #include <lib/time.h>
 #include <lib/string.h>
+#include <proc/process.h>
+#include <proc/sched.h>
 #include <proc/thread.h>
 #include <proc/wait.h>
 
@@ -27,41 +29,8 @@ static xhci_ctrl_t *g_ctrls[XHCI_MAX_CTRLS];
 static uint32       g_ctrl_count = 0;
 //track which BAR0 physical addresses are already initialised (dedup guard)
 static uint64       g_ctrl_bar[XHCI_MAX_CTRLS];
-
-#define RENESAS_FW_PATH             "/system/firmware/renesas_usb_fw.mem"
-#define RENESAS_FW_MIN_SIZE         0x1000
-#define RENESAS_FW_MAX_SIZE         0x10000
-#define RENESAS_FW_VERSION          0x6C
-#define RENESAS_FW_STATUS           0xF4
-#define RENESAS_FW_STATUS_MSB       0xF5
-#define RENESAS_ROM_STATUS          0xF6
-#define RENESAS_ROM_STATUS_MSB      0xF7
-#define RENESAS_DATA0               0xF8
-#define RENESAS_DATA1               0xFC
-
-#define RENESAS_FW_STATUS_DOWNLOAD_ENABLE (1 << 0)
-#define RENESAS_FW_STATUS_LOCK            (1 << 1)
-#define RENESAS_FW_STATUS_RESULT_MASK     (0x7 << 4)
-#define RENESAS_FW_STATUS_SUCCESS         (1 << 4)
-#define RENESAS_FW_STATUS_ERROR           (1 << 5)
-#define RENESAS_FW_STATUS_SET_DATA0       (1 << 0)
-#define RENESAS_FW_STATUS_SET_DATA1       (1 << 1)
-
-#define RENESAS_ROM_STATUS_ACCESS         (1 << 0)
-#define RENESAS_ROM_STATUS_ERASE          (1 << 1)
-#define RENESAS_ROM_STATUS_RELOAD         (1 << 2)
-#define RENESAS_ROM_STATUS_RESULT_MASK    (0x7 << 4)
-#define RENESAS_ROM_STATUS_SUCCESS        (1 << 4)
-#define RENESAS_ROM_STATUS_ERROR          (1 << 5)
-#define RENESAS_ROM_STATUS_SET_DATA0      (1 << 0)
-#define RENESAS_ROM_STATUS_SET_DATA1      (1 << 1)
-#define RENESAS_ROM_STATUS_ROM_EXISTS     (1 << 15)
-
-#define RENESAS_ROM_ERASE_MAGIC           0x5A65726F
-#define RENESAS_ROM_WRITE_MAGIC           0x53524F4D
-#define RENESAS_RETRY                     50000
-#define RENESAS_CHIP_ERASE_RETRY          500000
-#define RENESAS_DELAY                     10
+static spinlock_irq_t g_ctrl_lock = SPINLOCK_IRQ_INIT;
+static bool g_xhci_boot_started = false;
 
 //forward declarations
 static void xhci_drain_events(xhci_ctrl_t *c);
@@ -71,8 +40,9 @@ static void xhci_process_disconnects(xhci_ctrl_t *c);
 static uint32 xhci_poll_pending_hid(xhci_ctrl_t *c);
 static void xhci_recover_hid_endpoints(xhci_ctrl_t *c);
 static void xhci_queue_intr(xhci_ctrl_t *c, xhci_device_t *dev);
-static void xhci_init_quirks(xhci_ctrl_t *c, pci_device_t *pci);
 static int xhci_claim_bios_ownership(xhci_ctrl_t *c, uint32 hccparams1);
+static void xhci_scan_controllers(void);
+static void xhci_boot_worker(void *arg);
 
 //register accessors
 static inline uint8 cap_read8(xhci_ctrl_t *c, uint32 off) {
@@ -146,7 +116,7 @@ static inline uint32 ctx_rd(uint32 *blk, uint32 dw_off) {
 static void ring_reinit(xhci_ring_t *ring) {
     if (!ring || !ring->trbs || ring->size < 2) return;
 
-    uint32 bytes = ring->size * (uint32)sizeof(xhci_trb_t);
+    uint32 bytes = ring->alloc_trbs * (uint32)sizeof(xhci_trb_t);
     memset(ring->trbs, 0, bytes);
 
     ring->enq = 0;
@@ -162,8 +132,10 @@ static void ring_reinit(xhci_ring_t *ring) {
     }
 }
 
-static int ring_alloc(xhci_ring_t *ring, uint32 size, bool chain_links) {
-    uint32 bytes = size * (uint32)sizeof(xhci_trb_t);
+static int ring_alloc(xhci_ctrl_t *c, xhci_ring_t *ring, uint32 size, bool chain_links) {
+    bool overfetch_guard = xhci_has_quirk(c, XHCI_QUIRK_TRB_OVERFETCH);
+    uint32 alloc_trbs = size + (overfetch_guard ? 1 : 0);
+    uint32 bytes = alloc_trbs * (uint32)sizeof(xhci_trb_t);
     uint32 pages = (bytes + PAGE_SIZE - 1) / PAGE_SIZE;
 
     void *phys = pmm_alloc(pages);
@@ -172,8 +144,10 @@ static int ring_alloc(xhci_ring_t *ring, uint32 size, bool chain_links) {
     ring->trbs = (xhci_trb_t *)P2V(phys);
     ring->phys = (uintptr)phys;
     ring->size = size;
+    ring->alloc_trbs = alloc_trbs;
     ring->pages = pages;
     ring->chain_links = chain_links;
+    ring->overfetch_guard = overfetch_guard;
     ring_reinit(ring);
 
     return 0;
@@ -319,377 +293,6 @@ static int xhci_enable_interrupts(xhci_ctrl_t *c) {
     if (xhci_enable_msix(c) == 0) return 0;
     if (xhci_enable_msi(c) == 0) return 0;
     return -1;
-}
-
-static bool xhci_renesas_fw_probe(pci_device_t *pci, uint32 *fw_version,
-                                  uint16 *fw_status, uint16 *rom_status) {
-    if (!pci || pci->vendor_id != 0x1033) return false;
-
-    if (fw_version) {
-        *fw_version = pci_config_read(pci->bus, pci->dev, pci->func, 0x6C, 4);
-    }
-    if (fw_status) {
-        *fw_status = (uint16)pci_config_read(pci->bus, pci->dev, pci->func, 0xF4, 2);
-    }
-    if (rom_status) {
-        *rom_status = (uint16)pci_config_read(pci->bus, pci->dev, pci->func, 0xF6, 2);
-    }
-    return true;
-}
-
-static bool xhci_renesas_check_rom(pci_device_t *pci) {
-    uint16 rom_status = 0;
-    if (!xhci_renesas_fw_probe(pci, NULL, NULL, &rom_status)) {
-        return false;
-    }
-    return (rom_status & RENESAS_ROM_STATUS_ROM_EXISTS) != 0;
-}
-
-static int xhci_renesas_check_rom_state(pci_device_t *pci) {
-    uint32 fw_version = 0;
-    uint16 fw_status = 0;
-    uint16 rom_status = 0;
-
-    if (!xhci_renesas_fw_probe(pci, &fw_version, &fw_status, &rom_status)) {
-        return -1;
-    }
-
-    if ((rom_status & RENESAS_ROM_STATUS_ROM_EXISTS) &&
-        ((rom_status & RENESAS_ROM_STATUS_RESULT_MASK) == RENESAS_ROM_STATUS_SUCCESS)) {
-        return 0;
-    }
-
-    (void)fw_version;
-
-    if (fw_status & RENESAS_FW_STATUS_LOCK) {
-        if (fw_status & RENESAS_FW_STATUS_SUCCESS) return 0;
-        return -EIO;
-    }
-
-    if (fw_status & RENESAS_FW_STATUS_DOWNLOAD_ENABLE) {
-        return -EIO;
-    }
-
-    switch (fw_status & RENESAS_FW_STATUS_RESULT_MASK) {
-        case 0:
-            return 1;
-        case RENESAS_FW_STATUS_SUCCESS:
-            return 0;
-        case RENESAS_FW_STATUS_ERROR:
-            return -ENODEV;
-        default:
-            return -EINVAL;
-    }
-}
-
-static int xhci_renesas_check_running(pci_device_t *pci) {
-    int rom = xhci_renesas_check_rom_state(pci);
-    if (rom == 0) return 0;
-    if (rom < 0 && rom != 1) return rom;
-
-    uint32 fw_version = 0;
-    uint16 fw_status = 0;
-    uint16 rom_status = 0;
-    if (!xhci_renesas_fw_probe(pci, &fw_version, &fw_status, &rom_status)) {
-        return -1;
-    }
-
-    (void)fw_version;
-    (void)rom_status;
-
-    if (fw_status & RENESAS_FW_STATUS_LOCK) {
-        if (fw_status & RENESAS_FW_STATUS_SUCCESS) return 0;
-        return -EIO;
-    }
-
-    if (fw_status & RENESAS_FW_STATUS_DOWNLOAD_ENABLE) {
-        return -EIO;
-    }
-
-    switch (fw_status & RENESAS_FW_STATUS_RESULT_MASK) {
-        case 0:
-            return 1;
-        case RENESAS_FW_STATUS_SUCCESS:
-            return 0;
-        case RENESAS_FW_STATUS_ERROR:
-            return -ENODEV;
-        default:
-            return -EINVAL;
-    }
-}
-
-static int xhci_renesas_fw_verify_blob(const uint8 *fw, size len) {
-    if (!fw || len < RENESAS_FW_MIN_SIZE || len >= RENESAS_FW_MAX_SIZE) {
-        return -EINVAL;
-    }
-
-    if ((uint16)fw[0] != 0xAA || (uint16)fw[1] != 0x55) {
-        return -EINVAL;
-    }
-
-    uint16 version_ptr = (uint16)fw[4] | ((uint16)fw[5] << 8);
-    if ((size)version_ptr + 2 >= len) {
-        return -EINVAL;
-    }
-
-    return 0;
-}
-
-static int xhci_renesas_fw_read_blob(const char *path, uint8 **fw_out, size *fw_len) {
-    if (!path || !fw_out || !fw_len) return -EINVAL;
-
-    stat_t st;
-    if (handle_stat(path, &st) < 0 || st.type != FS_TYPE_FILE) {
-        return -ENOENT;
-    }
-
-    if (st.size < RENESAS_FW_MIN_SIZE || st.size >= RENESAS_FW_MAX_SIZE ||
-        (st.size & 3) != 0) {
-        return -EINVAL;
-    }
-
-    object_t *file = tmpfs_open(path);
-    if (!file) return -ENOENT;
-
-    uint8 *buf = kmalloc(st.size);
-    if (!buf) {
-        object_release(file);
-        return -ENOMEM;
-    }
-
-    ssize got = object_read(file, buf, st.size, 0);
-    object_release(file);
-
-    if (got != (ssize)st.size) {
-        kfree(buf);
-        return -EIO;
-    }
-
-    *fw_out = buf;
-    *fw_len = st.size;
-    return 0;
-}
-
-static int xhci_renesas_fw_download_image(pci_device_t *pci, const uint32 *fw,
-                                          size step, bool rom) {
-    uint32 status_reg = rom ? RENESAS_ROM_STATUS_MSB : RENESAS_FW_STATUS_MSB;
-    bool data1 = (step & 1) != 0;
-    uint32 bit = data1 ? RENESAS_FW_STATUS_SET_DATA1 : RENESAS_FW_STATUS_SET_DATA0;
-
-    for (size i = 0; i < 50000; i++) {
-        uint8 fw_status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
-                                                 (uint16)status_reg, 1);
-        if (!(fw_status & (uint8)bit)) break;
-        usleep(10);
-    }
-
-    uint32 data_reg = data1 ? RENESAS_DATA1 : RENESAS_DATA0;
-    uint32 data = fw[step];
-    pci_config_write(pci->bus, pci->dev, pci->func, (uint16)data_reg, 4, data);
-    usleep(100);
-    pci_config_write(pci->bus, pci->dev, pci->func, (uint16)status_reg, 1, bit);
-
-    return 0;
-}
-
-static int xhci_renesas_fw_download(pci_device_t *pci, const uint8 *fw, size len) {
-    if (!pci || !fw || len < RENESAS_FW_MIN_SIZE) return -EINVAL;
-
-    const uint32 *fw_words = (const uint32 *)fw;
-    size word_count = len / 4;
-
-    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_FW_STATUS, 1,
-                     RENESAS_FW_STATUS_DOWNLOAD_ENABLE);
-
-    for (size i = 0; i < word_count; i++) {
-        int err = xhci_renesas_fw_download_image(pci, fw_words, i, false);
-        if (err) return err;
-    }
-
-    for (size i = 0; i < 50000; i++) {
-        uint8 fw_status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
-                                                 RENESAS_FW_STATUS_MSB, 1);
-        if (!(fw_status & (RENESAS_FW_STATUS_SET_DATA0 | RENESAS_FW_STATUS_SET_DATA1)))
-            break;
-        usleep(10);
-    }
-
-    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_FW_STATUS, 1, 0);
-
-    for (size i = 0; i < 1000; i++) {
-        uint16 fw_status = (uint16)pci_config_read(pci->bus, pci->dev, pci->func,
-                                                   RENESAS_FW_STATUS, 1);
-        if ((fw_status & RENESAS_FW_STATUS_LOCK) &&
-            (fw_status & RENESAS_FW_STATUS_SUCCESS)) {
-            return 0;
-        }
-        if ((fw_status & RENESAS_FW_STATUS_RESULT_MASK) == RENESAS_FW_STATUS_SUCCESS) {
-            return 0;
-        }
-        usleep(100);
-    }
-
-    return -ETIMEDOUT;
-}
-
-static void xhci_renesas_rom_erase(pci_device_t *pci) {
-    if (!pci) return;
-
-    printf("[xhci] Renesas ROM erase\n");
-    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_DATA0, 4,
-                     RENESAS_ROM_ERASE_MAGIC);
-
-    uint8 status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
-                                          RENESAS_ROM_STATUS, 1);
-    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1,
-                     status | RENESAS_ROM_STATUS_ERASE);
-
-    sleep(20);
-    for (size i = 0; i < RENESAS_CHIP_ERASE_RETRY; i++) {
-        status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
-                                        RENESAS_ROM_STATUS, 1);
-        if (!(status & RENESAS_ROM_STATUS_ERASE)) break;
-        usleep(RENESAS_DELAY);
-    }
-}
-
-static bool xhci_renesas_setup_rom(pci_device_t *pci, const uint8 *fw, size len) {
-    if (!pci || !fw || len < RENESAS_FW_MIN_SIZE) return false;
-
-    const uint32 *fw_words = (const uint32 *)fw;
-    size word_count = len / 4;
-
-    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_DATA0, 4,
-                     RENESAS_ROM_WRITE_MAGIC);
-    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1,
-                     RENESAS_ROM_STATUS_ACCESS);
-
-    uint8 status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
-                                          RENESAS_ROM_STATUS, 1);
-    if (status & RENESAS_ROM_STATUS_RESULT_MASK) {
-        pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1, 0);
-        return false;
-    }
-
-    for (size i = 0; i < word_count; i++) {
-        if (xhci_renesas_fw_download_image(pci, fw_words, i, true) < 0) {
-            pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1, 0);
-            return false;
-        }
-    }
-
-    for (size i = 0; i < RENESAS_RETRY; i++) {
-        status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
-                                        RENESAS_ROM_STATUS_MSB, 1);
-        if (!(status & (RENESAS_ROM_STATUS_SET_DATA0 | RENESAS_ROM_STATUS_SET_DATA1)))
-            break;
-        usleep(RENESAS_DELAY);
-    }
-
-    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1, 0);
-    usleep(10);
-
-    for (size i = 0; i < RENESAS_RETRY; i++) {
-        status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
-                                        RENESAS_ROM_STATUS, 1);
-        status &= RENESAS_ROM_STATUS_RESULT_MASK;
-        if (status == RENESAS_ROM_STATUS_SUCCESS) {
-            pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1,
-                             RENESAS_ROM_STATUS_RELOAD);
-            for (size j = 0; j < RENESAS_RETRY; j++) {
-                status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
-                                                RENESAS_ROM_STATUS, 1);
-                if (!(status & RENESAS_ROM_STATUS_RELOAD)) {
-                    return true;
-                }
-                usleep(RENESAS_DELAY);
-            }
-            return false;
-        }
-        usleep(RENESAS_DELAY);
-    }
-
-    pci_config_write(pci->bus, pci->dev, pci->func, RENESAS_ROM_STATUS, 1, 0);
-    return false;
-}
-
-static int xhci_renesas_fw_load(pci_device_t *pci) {
-    if (!pci || pci->vendor_id != 0x1033 || pci->device_id != 0x0194) {
-        return 0;
-    }
-
-    int running = xhci_renesas_check_running(pci);
-    if (running == 0) {
-        uint32 fw_version = 0;
-        uint16 fw_status = 0;
-        uint16 rom_status = 0;
-        if (xhci_renesas_fw_probe(pci, &fw_version, &fw_status, &rom_status)) {
-            if ((rom_status & RENESAS_ROM_STATUS_ROM_EXISTS) &&
-                ((rom_status & RENESAS_ROM_STATUS_RESULT_MASK) ==
-                 RENESAS_ROM_STATUS_SUCCESS)) {
-                printf("[xhci] Renesas ROM ready (ver=0x%08X rom=0x%04X)\n",
-                       fw_version, rom_status);
-            } else {
-                printf("[xhci] Renesas firmware ready (ver=0x%08X fw=0x%04X rom=0x%04X)\n",
-                       fw_version, fw_status, rom_status);
-            }
-        }
-        return 0;
-    }
-
-    if (running < 0 && running != 1) {
-        return 0;
-    }
-
-    uint8 *fw = NULL;
-    size fw_len = 0;
-    int err = xhci_renesas_fw_read_blob(RENESAS_FW_PATH, &fw, &fw_len);
-    if (err) {
-        printf("[xhci] Renesas firmware blob unavailable at %s (%d), continuing\n",
-               RENESAS_FW_PATH, err);
-        return 0;
-    }
-
-    err = xhci_renesas_fw_verify_blob(fw, fw_len);
-    if (err) {
-        printf("[xhci] Renesas firmware blob invalid (%d), continuing\n", err);
-        kfree(fw);
-        return 0;
-    }
-
-    if (xhci_renesas_check_rom(pci)) {
-        xhci_renesas_rom_erase(pci);
-        if (xhci_renesas_setup_rom(pci, fw, fw_len)) {
-            uint32 fw_version = 0;
-            uint16 fw_status = 0;
-            uint16 rom_status = 0;
-            if (xhci_renesas_fw_probe(pci, &fw_version, &fw_status, &rom_status)) {
-                printf("[xhci] Renesas ROM programmed (ver=0x%08X rom=0x%04X)\n",
-                       fw_version, rom_status);
-            }
-            kfree(fw);
-            return 0;
-        }
-
-        printf("[xhci] Renesas ROM programming failed, falling back to FW load\n");
-    }
-
-    uint32 fw_version = 0;
-    uint16 fw_status = 0;
-    uint16 rom_status = 0;
-    if (xhci_renesas_fw_probe(pci, &fw_version, &fw_status, &rom_status)) {
-        printf("[xhci] loading Renesas firmware (ver=0x%08X fw=0x%04X rom=0x%04X)\n",
-               fw_version, fw_status, rom_status);
-    }
-
-    err = xhci_renesas_fw_download(pci, fw, fw_len);
-    kfree(fw);
-    if (err) {
-        printf("[xhci] Renesas firmware load failed (%d), continuing\n", err);
-        return 0;
-    }
-
-    return 0;
 }
 
 static uint32 xhci_find_ext_cap(xhci_ctrl_t *c, uint32 hccparams1, uint8 cap_id) {
@@ -1193,6 +796,13 @@ static void xhci_drain_events(xhci_ctrl_t *c) {
 
             if (slot >= 1 && slot <= XHCI_MAX_SLOTS) {
                 xhci_device_t *dev = &c->devices[slot];
+                bool trust_tx_length = xhci_has_quirk(c, XHCI_QUIRK_TRUST_TX_LENGTH);
+
+                if (cc == TRB_CC_SUCCESS && residual != 0 && trust_tx_length) {
+                    //some controllers report "success" for short transfers;
+                    //normalize that to SHORT_PKT so the caller sees the real state
+                    cc = TRB_CC_SHORT_PKT;
+                }
 
                 if (ep_dci == DCI_EP0) {
                     dev->ctrl_cc       = cc;
@@ -1423,6 +1033,28 @@ static void xhci_recover_hid_endpoints(xhci_ctrl_t *c) {
 
         (void)cmd_reset_ep(c, dev->slot_id, dev->hid_ep_dci);
         ring_reinit(&dev->ep_ring[dev->hid_ep_dci - 1]);
+
+        if (xhci_has_quirk(c, XHCI_QUIRK_RESET_EP_QUIRK)) {
+            uintptr in_ctx_phys = 0;
+            void *in_ctx = alloc_input_ctx(c, &in_ctx_phys);
+            if (in_ctx) {
+                memset(in_ctx, 0, PAGE_SIZE);
+                build_config_hid_ctx(c, dev, in_ctx, dev->hid_ep_dci,
+                                     dev->hid_proto, dev->hid_ep_mps,
+                                     dev->hid_interval);
+
+                int cc = cmd_configure_ep(c, dev->slot_id, in_ctx_phys);
+                if (cc != TRB_CC_SUCCESS) {
+                    printf("[xhci] slot %u: HID reconfigure failed (cc=%d)\n",
+                           dev->slot_id, cc);
+                }
+                pmm_free((void *)in_ctx_phys, 1);
+            } else {
+                printf("[xhci] slot %u: HID reconfigure context alloc failed\n",
+                       dev->slot_id);
+            }
+        }
+
         (void)cmd_set_tr_deq(c, dev->slot_id, dev->hid_ep_dci,
                              dev->ep_ring[dev->hid_ep_dci - 1].phys);
 
@@ -1582,7 +1214,7 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
     arch_wmb();
 
     //allocate EP0 transfer ring
-    if (ring_alloc(&dev->ep_ring[DCI_EP0 - 1], XHCI_TR_RING_SIZE,
+    if (ring_alloc(c, &dev->ep_ring[DCI_EP0 - 1], XHCI_TR_RING_SIZE,
                    xhci_has_quirk(c, XHCI_QUIRK_LINK_TRB_CHAIN)) < 0) goto fail_ctx;
     dev->ep_ring_ok[DCI_EP0 - 1] = true;
 
@@ -1778,7 +1410,7 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
         }
 
         //allocate transfer ring for the HID interrupt endpoint
-        if (ring_alloc(&dev->ep_ring[dci - 1], XHCI_TR_RING_SIZE,
+        if (ring_alloc(c, &dev->ep_ring[dci - 1], XHCI_TR_RING_SIZE,
                        xhci_has_quirk(c, XHCI_QUIRK_LINK_TRB_CHAIN)) < 0)
             goto skip_hid;
         dev->ep_ring_ok[dci - 1] = true;
@@ -1881,9 +1513,19 @@ static void xhci_scan_ports(xhci_ctrl_t *c) {
 void xhci_irq(void) {
     static bool hse_reported = false;
     static uint32 hid_recovery_count = 0;
+    xhci_ctrl_t *ctrls[XHCI_MAX_CTRLS];
+    uint32 count = 0;
 
-    for (uint32 i = 0; i < g_ctrl_count; i++) {
-        xhci_ctrl_t *c = g_ctrls[i];
+    irq_state_t flags = spinlock_irq_acquire(&g_ctrl_lock);
+    count = g_ctrl_count;
+    if (count > XHCI_MAX_CTRLS) count = XHCI_MAX_CTRLS;
+    for (uint32 i = 0; i < count; i++) {
+        ctrls[i] = g_ctrls[i];
+    }
+    spinlock_irq_release(&g_ctrl_lock, flags);
+
+    for (uint32 i = 0; i < count; i++) {
+        xhci_ctrl_t *c = ctrls[i];
         if (!c) continue;
 
         uint32 sts = op_read32(c, XHCI_OP_USBSTS);
@@ -1915,7 +1557,7 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     if (!c) return;
 
     c->pci = pci;
-    xhci_init_quirks(c, pci);
+    xhci_apply_pci_quirks(c, pci);
     if (pci->vendor_id == 0x1033 && pci->device_id == 0x0194) {
         pci_disable_link_power_management(pci);
     }
@@ -2000,7 +1642,7 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     //command ring
     spinlock_irq_init(&c->cmd_lock);
     spinlock_irq_init(&c->evt_lock);
-    if (ring_alloc(&c->cmd_ring, XHCI_CMD_RING_SIZE,
+    if (ring_alloc(c, &c->cmd_ring, XHCI_CMD_RING_SIZE,
                    xhci_has_quirk(c, XHCI_QUIRK_LINK_TRB_CHAIN)) < 0) {
         pmm_free(dcbaa_phys, 1); kfree(c); return;
     }
@@ -2060,35 +1702,30 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     }
 
     printf("[xhci] controller running\n");
-    g_ctrl_bar[g_ctrl_count] = bar_phys;   //record BAR0 for dedup check
-    g_ctrls[g_ctrl_count++]  = c;
+    irq_state_t ctrl_flags = spinlock_irq_acquire(&g_ctrl_lock);
+    if (g_ctrl_count < XHCI_MAX_CTRLS) {
+        g_ctrl_bar[g_ctrl_count] = bar_phys;   //record BAR0 for dedup check
+        g_ctrls[g_ctrl_count++]  = c;
+    }
+    spinlock_irq_release(&g_ctrl_lock, ctrl_flags);
 
     if (!xhci_has_quirk(c, XHCI_QUIRK_RENESAS_FW_LOAD)) {
         xhci_nec_get_fw(c);
     }
 
-    //settling delay, gives the cntroler time to complete port detection
+    //settling delay, gives the controller time to complete port detection
     sleep(100);
 
     //scan ports and enumerate attached devices
     xhci_scan_ports(c);
 }
 
-static void xhci_init_quirks(xhci_ctrl_t *c, pci_device_t *pci) {
-    if (!c || !pci) return;
-
-    //renesas/NEC 1033:0194 can leave ports stuck in polling after reset
-    if (pci->vendor_id == 0x1033 && pci->device_id == 0x0194) {
-        c->quirks |= XHCI_QUIRK_PORT_POLLING_RECOVER;
-        c->quirks |= XHCI_QUIRK_PORT_POLLING_WARM_RESET;
-        c->quirks |= XHCI_QUIRK_FORCE_BIOS_HANDOFF;
-        c->quirks |= XHCI_QUIRK_NEC_HOST;
-        c->quirks |= XHCI_QUIRK_RENESAS_FW_LOAD;
-    }
-}
-
 //driver entry point
 void xhci_init(void) {
+    printf("[xhci] controller bring-up deferred until scheduler is running\n");
+}
+
+static void xhci_scan_controllers(void) {
     pci_device_t *pdev = pci_get_devices();
     while (pdev) {
         //USB xHCI: class 0x0C, subclass 0x03, prog-if 0x30
@@ -2102,9 +1739,15 @@ void xhci_init(void) {
             //devices), which would cause a double reset + double init
             uint64 bar0 = pdev->bar[0].addr;
             bool already_init = false;
+            irq_state_t flags = spinlock_irq_acquire(&g_ctrl_lock);
             for (uint32 i = 0; i < g_ctrl_count; i++) {
-                if (g_ctrl_bar[i] == bar0) { already_init = true; break; }
+                if (g_ctrl_bar[i] == bar0) {
+                    already_init = true;
+                    break;
+                }
             }
+            spinlock_irq_release(&g_ctrl_lock, flags);
+
             if (already_init) {
                 printf("[xhci] skipping duplicate controller at BAR0=0x%llX\n",
                        (unsigned long long)bar0);
@@ -2119,6 +1762,39 @@ void xhci_init(void) {
         }
         pdev = pdev->next;
     }
+}
+
+static void xhci_boot_worker(void *arg) {
+    (void)arg;
+
+    xhci_scan_controllers();
+}
+
+void xhci_start(void) {
+    irq_state_t flags = spinlock_irq_acquire(&g_ctrl_lock);
+    if (g_xhci_boot_started) {
+        spinlock_irq_release(&g_ctrl_lock, flags);
+        return;
+    }
+    g_xhci_boot_started = true;
+    spinlock_irq_release(&g_ctrl_lock, flags);
+
+    process_t *kernel = process_get_kernel();
+    if (!kernel) {
+        printf("[xhci] failed to get kernel process for deferred bring-up\n");
+        xhci_boot_worker(NULL);
+        return;
+    }
+
+    thread_t *thread = thread_create(kernel, xhci_boot_worker, NULL);
+    if (!thread) {
+        printf("[xhci] failed to create deferred bring-up thread\n");
+        xhci_boot_worker(NULL);
+        return;
+    }
+
+    sched_add(thread);
+    printf("[xhci] deferred bring-up thread scheduled\n");
 }
 
 DECLARE_DRIVER(xhci_init, INIT_LEVEL_DEVICE);

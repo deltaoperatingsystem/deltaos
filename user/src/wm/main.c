@@ -54,10 +54,10 @@ static void render_wallpaper(uint32 *fb_backbuffer);
 static uint32 *saved_fb = NULL;
 static handle_t vt_handle = INVALID_HANDLE;
 
-static void set_vt_cursor_visible(bool visible) {
-    if (vt_handle == INVALID_HANDLE) return;
+static bool set_vt_cursor_visible(bool visible) {
+    if (vt_handle == INVALID_HANDLE) return false;
     char cmd[3] = { 27, 'v', visible ? '1' : '0' };
-    handle_write(vt_handle, cmd, sizeof(cmd));
+    return handle_write(vt_handle, cmd, sizeof(cmd)) == (ssize)sizeof(cmd);
 }
 
 void fb_setup(handle_t *h, uint32 **backbuffer) {
@@ -549,7 +549,9 @@ typedef struct {
 
 void kbind_exit(void) {
     INFO("Exiting...\n");
-    set_vt_cursor_visible(true);
+    if (!set_vt_cursor_visible(true)) {
+        WARN("Failed to restore VT cursor visibility before exit\n");
+    }
     handle_seek(fb_handle, 0, HANDLE_SEEK_SET);
     handle_write(fb_handle, saved_fb, fb_size);
     free(saved_fb);
@@ -678,7 +680,9 @@ int main(void) {
     fb_setup(&fb_handle, &fb_backbuffer);
     INFO("Setup framebuffer handle %d\n", (int)fb_handle);
     vt_handle = get_obj(INVALID_HANDLE, "$devices/vt0", RIGHT_WRITE);
-    set_vt_cursor_visible(false);
+    if (!set_vt_cursor_visible(false)) {
+        WARN("Failed to hide VT cursor at startup\n");
+    }
     kbd_init();
     INFO("Setup keyboard\n");
     server_setup(&server_handle, &client_handle);

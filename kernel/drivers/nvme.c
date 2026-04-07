@@ -469,7 +469,7 @@ static intptr nvme_get_info(object_t *obj, uint32 topic, void *buf, size len) {
 
     if (topic == OBJ_INFO_BLOCK_DEVICE) {
         if (len < sizeof(block_device_info_t)) return -1;
-        block_device_info_t info;
+        block_device_info_t info = {0};
         info.sector_size = ns->sector_size;
         info.sector_count = ns->sector_count;
         memcpy(buf, &info, sizeof(info));

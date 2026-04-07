@@ -4,21 +4,27 @@
 #include <lib/string.h>
 #include <lib/path.h>
 #include <lib/io.h>
+#include <fs/fat32.h>
 #include <fs/mount.h>
 #include <arch/percpu.h>
 #include <mm/kheap.h>
 #include <errno.h>
+#include <atomic.h>
 
-static int write_user_byte(uint8 *ptr, uint8 value) {
+static __attribute__((noinline)) int write_user_byte(uint8 *ptr, uint8 value) {
     percpu_t *cpu = percpu_get();
     cpu->recovery_rip = (uintptr)&&fault;
+    atomic_signal_fence(memory_order_seq_cst);
     *ptr = value;
+    atomic_signal_fence(memory_order_seq_cst);
     cpu->recovery_rip = 0;
     return 0;
 fault:
     cpu->recovery_rip = 0;
     return -EFAULT;
 }
+
+#define MAX_HANDLE_IO (1u << 20)
 
 static int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) {
     if (len == 0) return 0;
@@ -42,7 +48,9 @@ static int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) 
         cpu->recovery_rip = (uintptr)&&bulk_fault;
 
         while (i + sizeof(uintptr) <= len) {
-            *(uintptr *)&dst[i] = *(const uintptr *)&src[i];
+            uintptr tmp = 0;
+            memcpy(&tmp, &src[i], sizeof(tmp));
+            *(uintptr *)&dst[i] = tmp;
             i += sizeof(uintptr);
         }
 
@@ -63,6 +71,7 @@ bulk_fault:
 
 intptr sys_handle_read(handle_t h, void *buf, size len) {
     if (!buf || len == 0) return -1;
+    if (len > MAX_HANDLE_IO) return -1;
     void *kbuf = kmalloc(len);
     if (!kbuf) return -1;
 
@@ -80,6 +89,7 @@ intptr sys_handle_read(handle_t h, void *buf, size len) {
 
 intptr sys_handle_write(handle_t h, const void *buf, size len) {
     if (!buf || len == 0) return -1;
+    if (len > MAX_HANDLE_IO) return -1;
     void *kbuf = kmalloc(len);
     if (!kbuf) return -1;
 
@@ -195,7 +205,6 @@ intptr sys_mount(handle_t source, const char *target, const char *fstype) {
 
     intptr result = -7;
     if (strcmp(k_type, "fat32") == 0) {
-        extern intptr fat32_mount(object_t *source, const char *target);
         result = fat32_mount(src, k_target);
     }
 
@@ -204,10 +213,14 @@ intptr sys_mount(handle_t source, const char *target, const char *fstype) {
 
 intptr sys_mknode(const char *path, uint32 type) {
     if (!path) return -1;
-    return handle_create(path, type);
+    char k_path[512];
+    if (copy_user_cstr(path, k_path, sizeof(k_path)) != 0) return -1;
+    return handle_create(k_path, type);
 }
 
 intptr sys_remove(const char *path) {
     if (!path) return -1;
-    return handle_remove(path);
+    char k_path[512];
+    if (copy_user_cstr(path, k_path, sizeof(k_path)) != 0) return -1;
+    return handle_remove(k_path);
 }

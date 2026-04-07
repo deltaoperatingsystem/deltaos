@@ -185,6 +185,8 @@ static int format_fat32(handle_t dev, uint32 sector_size, uint64 sector_count, c
         return -1;
     }
 
+    int rc = -1;
+
     //boot sector and backup copy
     memset(sector, 0, sector_size);
     fat32_boot_sector_t *bpb = (fat32_boot_sector_t *)sector;
@@ -216,8 +218,8 @@ static int format_fat32(handle_t dev, uint32 sector_size, uint64 sector_count, c
     fill_label(bpb->volume_label, label);
     memcpy(bpb->fs_type, "FAT32   ", 8);
 
-    if (write_sector(dev, sector_size, 0, sector) < 0) return -1;
-    if (write_sector(dev, sector_size, 6, sector) < 0) return -1;
+    if (write_sector(dev, sector_size, 0, sector) < 0) goto cleanup;
+    if (write_sector(dev, sector_size, 6, sector) < 0) goto cleanup;
 
     //fsinfo block
     fat32_fsinfo_t fsinfo;
@@ -229,7 +231,7 @@ static int format_fat32(handle_t dev, uint32 sector_size, uint64 sector_count, c
     fsinfo.trail_sig = 0xAA55;
     memset(sector, 0, sector_size);
     memcpy(sector, &fsinfo, sizeof(fsinfo));
-    if (write_sector(dev, sector_size, 1, sector) < 0) return -1;
+    if (write_sector(dev, sector_size, 1, sector) < 0) goto cleanup;
 
     //init both fat copies
     uint32 entries_per_sector = sector_size / 4u;
@@ -254,7 +256,7 @@ static int format_fat32(handle_t dev, uint32 sector_size, uint64 sector_count, c
             }
 
             uint64 lba = reserved_sectors + (uint64)fat_copy * fat_sectors + sec;
-            if (write_sector(dev, sector_size, lba, fat_sector) < 0) return -1;
+            if (write_sector(dev, sector_size, lba, fat_sector) < 0) goto cleanup;
         }
     }
 
@@ -262,7 +264,7 @@ static int format_fat32(handle_t dev, uint32 sector_size, uint64 sector_count, c
     memset(zero, 0, sector_size);
     uint64 root_lba = reserved_sectors + (uint64)fat_count * fat_sectors + (uint64)(root_cluster - 2u) * spc;
     for (uint32 sec = 0; sec < spc; sec++) {
-        if (write_sector(dev, sector_size, root_lba + sec, zero) < 0) return -1;
+        if (write_sector(dev, sector_size, root_lba + sec, zero) < 0) goto cleanup;
     }
 
     printf("mkfsfat32: formatted %llu sectors at %u bytes/sector, %u sectors/cluster\n",
@@ -270,10 +272,12 @@ static int format_fat32(handle_t dev, uint32 sector_size, uint64 sector_count, c
     printf("mkfsfat32: FAT size %u sectors, clusters %u, label '%s'\n",
            fat_sectors, cluster_count, label ? label : "DELTAOS");
 
+    rc = 0;
+cleanup:
     free(sector);
     free(fat_sector);
     free(zero);
-    return 0;
+    return rc;
 }
 
 int main(int argc, char **argv) {

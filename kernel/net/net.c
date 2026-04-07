@@ -8,11 +8,15 @@
 #include <lib/io.h>
 #include <lib/string.h>
 #include <lib/spinlock.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <proc/thread.h>
 
 static netif_t *netif_list = NULL;
 static netif_t *netif_tail = NULL;
 static netif_t *default_netif = NULL;
 static spinlock_irq_t netif_lock = SPINLOCK_IRQ_INIT;
+static bool net_boot_started = false;
 
 static bool netif_has_ipv6_route(const netif_t *nif) {
     return nif && !ipv6_addr_is_unspecified(nif->ipv6_gateway);
@@ -105,17 +109,22 @@ void net_poll(void) {
     }
 }
 
-void net_init(void) {
-    printf("[net] Networking subsystem initialized\n");
-    
-    //initialize TCP subsystem (zero connections table)
-    tcp_init();
-    
+static void net_boot_worker(void *arg) {
+    (void)arg;
+
     //probe DHCP in reverse registration order so we hit the NIC that actually leases first
     netif_t *order[MAX_NETIFS];
     size count = 0;
+
+    irq_state_t flags = spinlock_irq_acquire(&netif_lock);
     for (netif_t *nif = netif_list; nif && count < MAX_NETIFS; nif = nif->next) {
         order[count++] = nif;
+    }
+    spinlock_irq_release(&netif_lock, flags);
+
+    if (count == 0) {
+        printf("[net] No network interfaces available for bring-up\n");
+        return;
     }
 
     for (size i = count; i > 0; i--) {
@@ -142,12 +151,54 @@ void net_init(void) {
         break;
     }
 
-    irq_state_t flags = spinlock_irq_acquire(&netif_lock);
+    flags = spinlock_irq_acquire(&netif_lock);
     netif_t *best = net_pick_default_locked();
     if (best && best != default_netif) {
         default_netif = best;
     }
     spinlock_irq_release(&netif_lock, flags);
+
+    net_test();
+
+    flags = spinlock_irq_acquire(&netif_lock);
+    net_boot_started = false;
+    spinlock_irq_release(&netif_lock, flags);
+}
+
+void net_init(void) {
+    printf("[net] Networking subsystem initialized\n");
+    
+    //initialize TCP subsystem (zero connections table)
+    tcp_init();
+
+    irq_state_t flags = spinlock_irq_acquire(&netif_lock);
+    if (net_boot_started) {
+        spinlock_irq_release(&netif_lock, flags);
+        printf("[net] background bring-up already queued\n");
+        return;
+    }
+    spinlock_irq_release(&netif_lock, flags);
+
+    process_t *kernel = process_get_kernel();
+    if (!kernel) {
+        printf("[net] failed to get kernel process for background bring-up\n");
+        net_boot_worker(NULL);
+        return;
+    }
+
+    thread_t *thread = thread_create(kernel, net_boot_worker, NULL);
+    if (!thread) {
+        printf("[net] failed to create background bring-up thread\n");
+        net_boot_worker(NULL);
+        return;
+    }
+
+    flags = spinlock_irq_acquire(&netif_lock);
+    net_boot_started = true;
+    spinlock_irq_release(&netif_lock, flags);
+
+    sched_add(thread);
+    printf("[net] background bring-up thread scheduled\n");
 }
 
 void net_print_mac(const uint8 *mac) {
