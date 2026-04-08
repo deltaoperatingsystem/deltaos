@@ -162,6 +162,16 @@ static int xhci_renesas_fw_verify_blob(const uint8 *fw, size len) {
 static int xhci_renesas_fw_read_blob(const char *path, uint8 **fw_out, size *fw_len) {
     if (!path || !fw_out || !fw_len) return -EINVAL;
 
+    char resolved_path[512];
+    const char *open_path = path;
+    if (path[0] == '/') {
+        int n = snprintf(resolved_path, sizeof(resolved_path), "$files%s", path);
+        if (n < 0 || (size)n >= sizeof(resolved_path)) {
+            return -ENAMETOOLONG;
+        }
+        open_path = resolved_path;
+    }
+
     stat_t st;
     if (handle_stat(path, &st) < 0 || st.type != FS_TYPE_FILE) {
         return -ENOENT;
@@ -172,7 +182,7 @@ static int xhci_renesas_fw_read_blob(const char *path, uint8 **fw_out, size *fw_
         return -EINVAL;
     }
 
-    object_t *file = tmpfs_open(path);
+    object_t *file = tmpfs_open(open_path);
     if (!file) return -ENOENT;
 
     uint8 *buf = kmalloc(st.size);
@@ -199,13 +209,19 @@ static int xhci_renesas_fw_download_image(pci_device_t *pci, const uint32 *fw,
     uint32 status_reg = rom ? RENESAS_ROM_STATUS_MSB : RENESAS_FW_STATUS_MSB;
     bool data1 = (step & 1) != 0;
     uint32 bit = data1 ? RENESAS_FW_STATUS_SET_DATA1 : RENESAS_FW_STATUS_SET_DATA0;
+    bool ready = false;
 
     for (size i = 0; i < 50000; i++) {
         uint8 fw_status = (uint8)pci_config_read(pci->bus, pci->dev, pci->func,
                                                  (uint16)status_reg, 1);
-        if (!(fw_status & (uint8)bit)) break;
+        if (!(fw_status & (uint8)bit)) {
+            ready = true;
+            break;
+        }
         usleep(10);
     }
+
+    if (!ready) return -ETIMEDOUT;
 
     uint32 data_reg = data1 ? RENESAS_DATA1 : RENESAS_DATA0;
     uint32 data = fw[step];

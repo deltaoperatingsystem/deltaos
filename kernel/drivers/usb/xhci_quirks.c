@@ -254,10 +254,4 @@ void xhci_apply_pci_quirks(xhci_ctrl_t *c, pci_device_t *pci) {
                match->label, pci->vendor_id, pci->device_id);
     }
 
-    if (pci->vendor_id == 0x1033 && pci->device_id == 0x0194) {
-        //Renesas firmware loader is handled separately so it can stay isolated
-        //from the generic quirk table and keep the big vendor-specific path
-        //out of xhci.c.
-        c->quirks |= XHCI_QUIRK_RENESAS_FW_LOAD;
-    }
 }

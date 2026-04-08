@@ -161,6 +161,32 @@ static void ring_free(xhci_ring_t *ring) {
     memset(ring, 0, sizeof(*ring));
 }
 
+static void xhci_free_controller_resources(xhci_ctrl_t *c) {
+    if (!c) return;
+
+    ring_free(&c->cmd_ring);
+
+    if (c->dcbaa && c->dcbaa_phys) {
+        pmm_free((void *)c->dcbaa_phys, 1);
+        c->dcbaa = NULL;
+        c->dcbaa_phys = 0;
+    }
+
+    if (c->evt_ring && c->evt_ring_phys) {
+        uint32 evt_bytes = XHCI_EVT_RING_SIZE * (uint32)sizeof(xhci_trb_t);
+        uint32 evt_pages = (evt_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+        pmm_free((void *)c->evt_ring_phys, evt_pages);
+        c->evt_ring = NULL;
+        c->evt_ring_phys = 0;
+    }
+
+    if (c->erst && c->erst_phys) {
+        pmm_free((void *)c->erst_phys, 1);
+        c->erst = NULL;
+        c->erst_phys = 0;
+    }
+}
+
 //enqueue one TRB onto a producer ring (command or transfer rin
 //returns the physical address of the enqueued TRB (used to match completions)
 static uintptr ring_enqueue(xhci_ring_t *ring,
@@ -1644,7 +1670,9 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     spinlock_irq_init(&c->evt_lock);
     if (ring_alloc(c, &c->cmd_ring, XHCI_CMD_RING_SIZE,
                    xhci_has_quirk(c, XHCI_QUIRK_LINK_TRB_CHAIN)) < 0) {
-        pmm_free(dcbaa_phys, 1); kfree(c); return;
+        xhci_free_controller_resources(c);
+        kfree(c);
+        return;
     }
     //CRCR: physical base of command ring | RCS (ring cycle state = initial PCS = 1)
     op_write64(c, XHCI_OP_CRCR, c->cmd_ring.phys | CRCR_RCS);
@@ -1653,7 +1681,11 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     uint32 evt_bytes = XHCI_EVT_RING_SIZE * (uint32)sizeof(xhci_trb_t);
     uint32 evt_pages = (evt_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
     void *evt_phys = pmm_alloc(evt_pages);
-    if (!evt_phys) { kfree(c); return; }
+    if (!evt_phys) {
+        xhci_free_controller_resources(c);
+        kfree(c);
+        return;
+    }
     c->evt_ring      = (xhci_trb_t *)P2V(evt_phys);
     c->evt_ring_phys = (uintptr)evt_phys;
     memset(c->evt_ring, 0, evt_pages * PAGE_SIZE);
@@ -1662,7 +1694,11 @@ static void xhci_init_ctrl(pci_device_t *pci) {
 
     //event ring segment table (ERST) - single segment
     void *erst_phys = pmm_alloc(1);
-    if (!erst_phys) { kfree(c); return; }
+    if (!erst_phys) {
+        xhci_free_controller_resources(c);
+        kfree(c);
+        return;
+    }
     c->erst      = (xhci_erst_entry_t *)P2V(erst_phys);
     c->erst_phys = (uintptr)erst_phys;
     memset(c->erst, 0, PAGE_SIZE);
@@ -1698,6 +1734,7 @@ static void xhci_init_ctrl(pci_device_t *pci) {
 
     if (op_read32(c, XHCI_OP_USBSTS) & USBSTS_HCH) {
         printf("[xhci] ERR: controller failed to start\n");
+        xhci_free_controller_resources(c);
         kfree(c); return;
     }
 

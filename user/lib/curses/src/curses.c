@@ -73,38 +73,102 @@ static void curses_scroll(void) {
     size row_bytes = (size)curses_cols * sizeof(curses_cell_t);
     memmove(curses_cells, curses_cells + curses_cols, row_bytes * (curses_rows - 1));
     curses_fill_blank_row(curses_rows - 1);
-    if (curses_cursor_row == curses_rows - 1) curses_cursor_row = curses_rows - 1;
 }
 
-static void curses_emit_color_escape(char mode, uint32 color, char *buf, size *pos, size max) {
-    if (*pos + 8 >= max) return;
+static bool curses_ensure_capacity(char **buf, size *cap, size pos, size needed) {
+    if (!buf || !*buf || !cap) return false;
+    size size_max = (size)~(size)0;
+    if (needed > size_max - pos) return false;
+
+    size required = pos + needed;
+    if (required <= *cap) return true;
+
+    size new_cap = *cap ? *cap : 1;
+    while (new_cap < required) {
+        if (new_cap > size_max / 2) {
+            new_cap = required + 1;
+            break;
+        }
+        new_cap *= 2;
+    }
+
+    char *new_buf = realloc(*buf, new_cap);
+    if (!new_buf) return false;
+    *buf = new_buf;
+    *cap = new_cap;
+    return true;
+}
+
+static bool curses_emit_color_escape(char mode, uint32 color, char **buf, size *pos, size *cap) {
+    if (!curses_ensure_capacity(buf, cap, *pos, 8)) return false;
     //escape plus 6 hex digits
-    buf[(*pos)++] = (char)27;
-    buf[(*pos)++] = mode;
+    (*buf)[(*pos)++] = (char)27;
+    (*buf)[(*pos)++] = mode;
     for (int shift = 20; shift >= 0; shift -= 4) {
-        buf[(*pos)++] = hex_digits[(color >> shift) & 0xF];
+        (*buf)[(*pos)++] = hex_digits[(color >> shift) & 0xF];
     }
+    return true;
 }
 
-static void curses_emit_cursor_escape(uint32 row, uint32 col, char *buf, size *pos, size max) {
-    if (*pos + 10 >= max) return;
+static bool curses_emit_cursor_escape(uint32 row, uint32 col, char **buf, size *pos, size *cap) {
+    if (!curses_ensure_capacity(buf, cap, *pos, 10)) return false;
     //escape plus row and col in hex
-    buf[(*pos)++] = (char)27;
-    buf[(*pos)++] = 'P';
+    (*buf)[(*pos)++] = (char)27;
+    (*buf)[(*pos)++] = 'P';
     for (int shift = 12; shift >= 0; shift -= 4) {
-        buf[(*pos)++] = hex_digits[(row >> shift) & 0xF];
+        (*buf)[(*pos)++] = hex_digits[(row >> shift) & 0xF];
     }
     for (int shift = 12; shift >= 0; shift -= 4) {
-        buf[(*pos)++] = hex_digits[(col >> shift) & 0xF];
+        (*buf)[(*pos)++] = hex_digits[(col >> shift) & 0xF];
     }
+    return true;
 }
 
-static void curses_emit_cursor_visibility_escape(bool visible, char *buf, size *pos, size max) {
-    if (*pos + 3 >= max) return;
+static bool curses_emit_cursor_visibility_escape(bool visible, char **buf, size *pos, size *cap) {
+    if (!curses_ensure_capacity(buf, cap, *pos, 3)) return false;
     //tell vt whether to show the cursor
-    buf[(*pos)++] = (char)27;
-    buf[(*pos)++] = 'v';
-    buf[(*pos)++] = visible ? '1' : '0';
+    (*buf)[(*pos)++] = (char)27;
+    (*buf)[(*pos)++] = 'v';
+    (*buf)[(*pos)++] = visible ? '1' : '0';
+    return true;
+}
+
+static void curses_write_terminal_reset(bool show_cursor, bool move_cursor) {
+    if (curses_vt == INVALID_HANDLE) return;
+
+    char buf[29];
+    size pos = 0;
+
+    buf[pos++] = (char)27;
+    buf[pos++] = 'f';
+    for (int shift = 20; shift >= 0; shift -= 4) {
+        buf[pos++] = hex_digits[(CURSES_RGB(255, 255, 255) >> shift) & 0xF];
+    }
+
+    buf[pos++] = (char)27;
+    buf[pos++] = 'b';
+    for (int shift = 20; shift >= 0; shift -= 4) {
+        buf[pos++] = hex_digits[(CURSES_RGB(0, 0, 0) >> shift) & 0xF];
+    }
+
+    if (show_cursor) {
+        buf[pos++] = (char)27;
+        buf[pos++] = 'v';
+        buf[pos++] = '1';
+    }
+
+    if (move_cursor && curses_cursor_col < curses_cols && curses_cursor_row < curses_rows) {
+        buf[pos++] = (char)27;
+        buf[pos++] = 'P';
+        for (int shift = 12; shift >= 0; shift -= 4) {
+            buf[pos++] = hex_digits[(curses_cursor_row >> shift) & 0xF];
+        }
+        for (int shift = 12; shift >= 0; shift -= 4) {
+            buf[pos++] = hex_digits[(curses_cursor_col >> shift) & 0xF];
+        }
+    }
+
+    handle_write(curses_vt, buf, (int)pos);
 }
 
 static int curses_open_vt(void) {
@@ -128,17 +192,19 @@ static int curses_query_size(void) {
     return 0;
 }
 
-static void curses_render_cell(char *buf, size *pos, size max, uint32 *fg, uint32 *bg, const curses_cell_t *cell) {
+static bool curses_render_cell(char **buf, size *pos, size *cap, uint32 *fg, uint32 *bg, const curses_cell_t *cell) {
     //emit style changes before the character itself
     if (cell->fg != *fg) {
-        curses_emit_color_escape('f', cell->fg, buf, pos, max);
+        if (!curses_emit_color_escape('f', cell->fg, buf, pos, cap)) return false;
         *fg = cell->fg;
     }
     if (cell->bg != *bg) {
-        curses_emit_color_escape('b', cell->bg, buf, pos, max);
+        if (!curses_emit_color_escape('b', cell->bg, buf, pos, cap)) return false;
         *bg = cell->bg;
     }
-    if (*pos < max) buf[(*pos)++] = cell->ch;
+    if (!curses_ensure_capacity(buf, cap, *pos, 1)) return false;
+    (*buf)[(*pos)++] = cell->ch;
+    return true;
 }
 
 int curses_init(void) {
@@ -172,6 +238,9 @@ int curses_init(void) {
 }
 
 void curses_shutdown(void) {
+    if (curses_ready) {
+        curses_restore_terminal();
+    }
     if (curses_vt != INVALID_HANDLE) {
         handle_close(curses_vt);
         curses_vt = INVALID_HANDLE;
@@ -185,6 +254,12 @@ void curses_shutdown(void) {
         curses_prev_cells = NULL;
     }
     curses_ready = false;
+}
+
+void curses_restore_terminal(void) {
+    curses_reset_style();
+    curses_cursor_visible = true;
+    curses_write_terminal_reset(true, true);
 }
 
 void curses_reset_style(void) {
@@ -425,7 +500,7 @@ void curses_flush(void) {
     if (!curses_ready || !curses_cells || curses_vt == INVALID_HANDLE) return;
 
     //build one vt update string for all changed cells
-    size cap = curses_cell_count() * 32 + curses_rows + 64;
+    size cap = 4096;
     char *buf = malloc(cap);
     if (!buf) return;
 
@@ -446,7 +521,10 @@ void curses_flush(void) {
             }
 
             //jump to the first changed cell in this run
-            curses_emit_cursor_escape(row, col, buf, &pos, cap);
+            if (!curses_emit_cursor_escape(row, col, &buf, &pos, &cap)) {
+                free(buf);
+                return;
+            }
 
             while (col < curses_cols) {
                 idx = (size)row * (size)curses_cols + col;
@@ -456,22 +534,32 @@ void curses_flush(void) {
                     break;
                 }
 
-                curses_render_cell(buf, &pos, cap, &fg, &bg, cell);
-                curses_prev_cells[idx] = *cell;
+                if (!curses_render_cell(&buf, &pos, &cap, &fg, &bg, cell)) {
+                    free(buf);
+                    return;
+                }
                 col++;
             }
         }
     }
 
-    curses_emit_cursor_visibility_escape(curses_cursor_visible, buf, &pos, cap);
+    if (!curses_emit_cursor_visibility_escape(curses_cursor_visible, &buf, &pos, &cap)) {
+        free(buf);
+        return;
+    }
 
     if (curses_cursor_visible && curses_cursor_col < curses_cols && curses_cursor_row < curses_rows) {
         //put the cursor back where the caller left it
-        curses_emit_cursor_escape(curses_cursor_row, curses_cursor_col, buf, &pos, cap);
+        if (!curses_emit_cursor_escape(curses_cursor_row, curses_cursor_col, &buf, &pos, &cap)) {
+            free(buf);
+            return;
+        }
     }
 
     if (pos > 0) {
-        handle_write(curses_vt, buf, (int)pos);
+        if (handle_write(curses_vt, buf, (int)pos) == (ssize)pos) {
+            memcpy(curses_prev_cells, curses_cells, curses_cell_count() * sizeof(curses_cell_t));
+        }
     }
 
     free(buf);

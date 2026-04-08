@@ -8,6 +8,7 @@
 
 int curses_init(void);
 void curses_shutdown(void);
+void curses_restore_terminal(void);
 
 void curses_clear(void);
 void curses_clear_rect(uint32 col, uint32 row, uint32 width, uint32 height);

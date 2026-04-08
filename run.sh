@@ -8,6 +8,7 @@ DISK_SIZE_MB=64
 NVME_IMG="nvme.img"
 NVME_SIZE_MB=128
 FAT32_IMG="$ROOT_DIR/fat32.img"
+FAT32_SIZE_MB="${FAT32_SIZE_MB:-128}"
 EFI_BINARY="$ROOT_DIR/bootloader/BOOTX64.EFI"
 OVMF_CODE=
 QEMU_NET_MODE="${QEMU_NET_MODE:-passt}"
@@ -187,7 +188,7 @@ create_disk_image() {
 
     if [[ ! -f "$FAT32_IMG" ]]; then
         print_step "creating sample FAT32 image"
-        dd if=/dev/zero of="$FAT32_IMG" bs=1M count=$NVME_SIZE_MB status=none
+        dd if=/dev/zero of="$FAT32_IMG" bs=1M count=$FAT32_SIZE_MB status=none
         if command -v mkfs.vfat >/dev/null 2>&1; then
             mkfs.vfat -F 32 -n DELTAOS "$FAT32_IMG"
         elif command -v mformat >/dev/null 2>&1; then
@@ -252,7 +253,7 @@ run_qemu() {
         -device nvme,serial=deadbeef,drive=nvm
         -drive "file=$FAT32_IMG,format=raw,if=none,id=fatdisk"
         -device nvme,serial=feedbeef,drive=fatdisk
-        -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0
+        -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0 
         -no-reboot
         -no-shutdown
     )

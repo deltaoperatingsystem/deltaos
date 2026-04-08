@@ -13,3 +13,5 @@ rtl8139 = true
 serial = true
 vt = true
 xhci = true
+xhci_quirks = true
+xhci_renesas = true

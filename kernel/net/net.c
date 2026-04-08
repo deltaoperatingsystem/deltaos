@@ -124,6 +124,9 @@ static void net_boot_worker(void *arg) {
 
     if (count == 0) {
         printf("[net] No network interfaces available for bring-up\n");
+        flags = spinlock_irq_acquire(&netif_lock);
+        net_boot_started = false;
+        spinlock_irq_release(&netif_lock, flags);
         return;
     }
 
@@ -177,6 +180,7 @@ void net_init(void) {
         printf("[net] background bring-up already queued\n");
         return;
     }
+    net_boot_started = true;
     spinlock_irq_release(&netif_lock, flags);
 
     process_t *kernel = process_get_kernel();
@@ -192,10 +196,6 @@ void net_init(void) {
         net_boot_worker(NULL);
         return;
     }
-
-    flags = spinlock_irq_acquire(&netif_lock);
-    net_boot_started = true;
-    spinlock_irq_release(&netif_lock, flags);
 
     sched_add(thread);
     printf("[net] background bring-up thread scheduled\n");

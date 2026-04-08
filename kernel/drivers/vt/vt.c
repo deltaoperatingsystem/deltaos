@@ -19,6 +19,7 @@ static int active_vt = 0;
 //array of VTs
 static vt_t *vts[VT_MAX] = {0};
 static spinlock_irq_t vt_lock = SPINLOCK_IRQ_INIT;
+static vt_t *const VT_RESERVED_SLOT = (vt_t *)-1;
 
 //default colors
 #define DEFAULT_FG  0xFFFFFF
@@ -44,10 +45,17 @@ static void vt_set_cursor_locked(vt_t *vt, uint32 col, uint32 row);
 static void vt_set_cursor_visible_locked(vt_t *vt, bool visible);
 static void vt_set_attr_locked(vt_t *vt, int attr, uint32 value);
 static void vt_flush_locked(vt_t *vt);
+static void vt_write_locked(vt_t *vt, const char *s, size len);
 static void vt_write_cells_locked(vt_t *vt, uint32 col, uint32 row, const vt_cell_t *cells, size count);
 static bool vt_poll_event_locked(vt_t *vt, vt_event_t *event);
 static void vt_push_event_locked(vt_t *vt, const vt_event_t *event);
 static void vt_putc_locked(vt_t *vt, char c);
+static vt_t *vt_get_locked(int num);
+static vt_t *vt_get_active_locked(void);
+vt_t *vt_create(void);
+void vt_destroy(vt_t *vt);
+vt_t *vt_get(int num);
+vt_t *vt_get_active(void);
 
 static void vt_scroll(vt_t *vt) {
     vt_hide_cursor_locked(vt);
@@ -202,8 +210,10 @@ static ssize vt_obj_read(object_t *obj, void *buf, size len, size offset) {
 static ssize vt_obj_write(object_t *obj, const void *buf, size len, size offset) {
     (void)offset;
     vt_t *vt = (vt_t *)obj->data;
-    vt_write(vt, buf, len);
-    vt_flush(vt);  //flush to screen immediately
+    irq_state_t flags = spinlock_irq_acquire(&vt_lock);
+    vt_write_locked(vt, buf, len);
+    vt_flush_locked(vt);  //flush to screen immediately
+    spinlock_irq_release(&vt_lock, flags);
     return len;
 }
 
@@ -213,11 +223,13 @@ static intptr vt_obj_get_info(object_t *obj, uint32 topic, void *buf, size len) 
 
     if (topic == OBJ_INFO_VT_STATE) {
         if (len < sizeof(vt_info_t)) return -1;
+        irq_state_t flags = spinlock_irq_acquire(&vt_lock);
         vt_info_t info;
         info.cols = vt->cols;
         info.rows = vt->rows;
         info.cursor_col = vt->cursor_col;
         info.cursor_row = vt->cursor_row;
+        spinlock_irq_release(&vt_lock, flags);
         memcpy(buf, &info, sizeof(info));
         return 0;
     }
@@ -245,23 +257,34 @@ void vt_init(void) {
 DECLARE_DRIVER(vt_init, INIT_LEVEL_FS);
 
 vt_t *vt_create(void) {
-    //find free slot
+    //find and reserve a free slot before any sleeping allocations
     int num = -1;
+    irq_state_t flags = spinlock_irq_acquire(&vt_lock);
     for (int i = 0; i < VT_MAX; i++) {
         if (!vts[i]) {
             num = i;
+            vts[i] = VT_RESERVED_SLOT;
             break;
         }
     }
+    spinlock_irq_release(&vt_lock, flags);
     if (num < 0) return NULL;
     
     vt_t *vt = kzalloc(sizeof(vt_t));
-    if (!vt) return NULL;
+    if (!vt) {
+        flags = spinlock_irq_acquire(&vt_lock);
+        if (vts[num] == VT_RESERVED_SLOT) vts[num] = NULL;
+        spinlock_irq_release(&vt_lock, flags);
+        return NULL;
+    }
     
     vt->cols = con_cols();
     vt->rows = con_rows();
     vt->cells = kzalloc(vt->cols * vt->rows * sizeof(vt_cell_t));
     if (!vt->cells) {
+        flags = spinlock_irq_acquire(&vt_lock);
+        if (vts[num] == VT_RESERVED_SLOT) vts[num] = NULL;
+        spinlock_irq_release(&vt_lock, flags);
         kfree(vt);
         return NULL;
     }
@@ -288,25 +311,47 @@ vt_t *vt_create(void) {
     //start with nothing dirty (blank screen)
     vt->dirty_start = vt->rows;
     vt->dirty_end = 0;
-    
-    //create object and register
-    vt->obj = object_create(OBJECT_DEVICE, &vt_object_ops, vt);
-    if (vt->obj) {
-        char path[32];
-        snprintf(path, sizeof(path), "$devices/vt%d", num);
-        ns_register(path, vt->obj);
+
+    flags = spinlock_irq_acquire(&vt_lock);
+    if (vts[num] != VT_RESERVED_SLOT) {
+        spinlock_irq_release(&vt_lock, flags);
+        kfree(vt->cells);
+        kfree(vt);
+        return NULL;
     }
-    
     vts[num] = vt;
+    spinlock_irq_release(&vt_lock, flags);
+
+    //create object and register after the slot has been claimed
+    vt->obj = object_create(OBJECT_DEVICE, &vt_object_ops, vt);
+    if (!vt->obj) {
+        vt_destroy(vt);
+        return NULL;
+    }
+
+    char path[32];
+    snprintf(path, sizeof(path), "$devices/vt%d", num);
+    if (ns_register(path, vt->obj) < 0) {
+        object_deref(vt->obj);
+        vt->obj = NULL;
+        vt_destroy(vt);
+        return NULL;
+    }
+
     return vt;
 }
 
 void vt_destroy(vt_t *vt) {
     if (!vt) return;
-    
-    if (vt->vt_num >= 0 && vt->vt_num < VT_MAX) {
+
+    irq_state_t flags = spinlock_irq_acquire(&vt_lock);
+    if (vt->vt_num >= 0 && vt->vt_num < VT_MAX && vts[vt->vt_num] == vt) {
         vts[vt->vt_num] = NULL;
     }
+    if (vt->vt_num == active_vt) {
+        active_vt = 0;
+    }
+    spinlock_irq_release(&vt_lock, flags);
     
     if (vt->cells) kfree(vt->cells);
     kfree(vt);
@@ -314,26 +359,33 @@ void vt_destroy(vt_t *vt) {
 
 vt_t *vt_get(int num) {
     if (num < 0 || num >= VT_MAX) return NULL;
-    return vts[num];
+    irq_state_t flags = spinlock_irq_acquire(&vt_lock);
+    vt_t *vt = vt_get_locked(num);
+    spinlock_irq_release(&vt_lock, flags);
+    return vt;
 }
 
 vt_t *vt_get_active(void) {
-    return vts[active_vt];
+    irq_state_t flags = spinlock_irq_acquire(&vt_lock);
+    vt_t *vt = vt_get_active_locked();
+    spinlock_irq_release(&vt_lock, flags);
+    return vt;
 }
 
 void vt_switch(int num) {
     irq_state_t flags = spinlock_irq_acquire(&vt_lock);
-    if (num < 0 || num >= VT_MAX || !vts[num]) {
+    vt_t *new_vt = vt_get_locked(num);
+    if (!new_vt) {
         spinlock_irq_release(&vt_lock, flags);
         return;
     }
 
-    vt_t *old = vts[active_vt];
+    vt_t *old = vt_get_active_locked();
     if (old) vt_hide_cursor_locked(old);
     active_vt = num;
-    vts[num]->dirty_start = 0;
-    vts[num]->dirty_end = vts[num]->rows - 1;
-    vt_render_to_console_locked(vts[num]);
+    new_vt->dirty_start = 0;
+    new_vt->dirty_end = new_vt->rows - 1;
+    vt_render_to_console_locked(new_vt);
     spinlock_irq_release(&vt_lock, flags);
 }
 
@@ -437,9 +489,8 @@ void vt_putc(vt_t *vt, char c) {
     spinlock_irq_release(&vt_lock, flags);
 }
 
-void vt_write(vt_t *vt, const char *s, size len) {
+static void vt_write_locked(vt_t *vt, const char *s, size len) {
     if (!vt || !s) return;
-    irq_state_t flags = spinlock_irq_acquire(&vt_lock);
     for (size i = 0; i < len; i++) {
         if (s[i] == '\e') {
             if (i + 1 >= len) break;
@@ -493,9 +544,14 @@ void vt_write(vt_t *vt, const char *s, size len) {
 
             continue;
         }
-        
+
         vt_putc_locked(vt, s[i]);
     }
+}
+
+void vt_write(vt_t *vt, const char *s, size len) {
+    irq_state_t flags = spinlock_irq_acquire(&vt_lock);
+    vt_write_locked(vt, s, len);
     spinlock_irq_release(&vt_lock, flags);
 }
 
@@ -617,7 +673,7 @@ void vt_write_cells(vt_t *vt, uint32 col, uint32 row, const vt_cell_t *cells, si
 
 void vt_tick(void) {
     irq_state_t flags = spinlock_irq_acquire(&vt_lock);
-    vt_t *vt = vt_get_active();
+    vt_t *vt = vt_get_active_locked();
     if (!vt || !fb_available()) {
         spinlock_irq_release(&vt_lock, flags);
         return;
@@ -625,4 +681,15 @@ void vt_tick(void) {
 
     vt_sync_cursor_locked(vt, true);
     spinlock_irq_release(&vt_lock, flags);
+}
+
+static vt_t *vt_get_locked(int num) {
+    if (num < 0 || num >= VT_MAX) return NULL;
+    if (vts[num] == VT_RESERVED_SLOT) return NULL;
+    return vts[num];
+}
+
+static vt_t *vt_get_active_locked(void) {
+    if (active_vt < 0 || active_vt >= VT_MAX) return NULL;
+    return vt_get_locked(active_vt);
 }

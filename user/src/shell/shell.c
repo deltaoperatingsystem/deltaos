@@ -3,6 +3,29 @@
 #include <string.h>
 #include <keyboard.h>
 
+static void shell_reset_terminal(void) {
+    if (__stdout == INVALID_HANDLE) return;
+
+    static const char reset_seq[] = {
+        27, 'f', 'F', 'F', 'F', 'F', 'F', 'F',
+        27, 'b', '0', '0', '0', '0', '0', '0',
+        27, 'v', '1'
+    };
+
+    handle_write(__stdout, reset_seq, sizeof(reset_seq));
+}
+
+static void shell_show_prompt(void) {
+    shell_reset_terminal();
+
+    char cwd[256];
+    if (getcwd(cwd, sizeof(cwd)) >= 0) {
+        printf("%s> ", cwd);
+    } else {
+        puts("> ");
+    }
+}
+
 static void cmd_help(void) {
     puts("Commands: help, echo, cd, pwd, spawn, wm, dir, exit\n");
 }
@@ -23,7 +46,9 @@ static void cmd_spawn(char *path) {
         printf("spawn: failed to start %s (error %d)\n", path, child);
     } else {
         printf("spawn: started %s (PID %d)\n", path, child);
-        printf("spawn: child died with code %d\n", wait(child));
+        int code = wait(child);
+        shell_reset_terminal();
+        printf("spawn: child died with code %d\n", code);
     }
 }
 
@@ -89,6 +114,7 @@ static void process_command(char *line) {
                 printf("Unknown command: %s\n", cmd);
             } else {
                 int code = wait(child);
+                shell_reset_terminal();
                 if (code == 141) {
                     printf("Page fault; process killed.\n");
                 }
@@ -115,12 +141,7 @@ int main(int argc, char *argv[]) {
     int pos = 0;
     
     //show initial prompt with CWD
-    char cwd[256];
-    if (getcwd(cwd, sizeof(cwd)) >= 0) {
-        printf("%s> ", cwd);
-    } else {
-        puts("> ");
-    }
+    shell_show_prompt();
     while (1) {
         char c = kbd_getchar();
         if (c == 0) continue;
@@ -141,12 +162,7 @@ int main(int argc, char *argv[]) {
             pos = 0;
             
             //show prompt with CWD
-            char cwd[256];
-            if (getcwd(cwd, sizeof(cwd)) >= 0) {
-                printf("%s> ", cwd);
-            } else {
-                puts("> ");
-            }
+            shell_show_prompt();
         } else {
             buffer[pos++] = c;
         }

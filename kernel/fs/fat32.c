@@ -20,7 +20,7 @@
 #define FAT32_ATTR_ARCHIVE  0x20
 #define FAT32_ATTR_LFN      0x0F
 #define FAT32_LFN_MAX_ENTRIES 20
-#define FAT32_MAX_ALIAS_ATTEMPTS 1000u
+#define FAT32_MAX_ALIAS_ATTEMPTS UINT32_MAX
 
 #define FAT32_EOC_MIN       0x0FFFFFF8
 #define FAT32_EOC_MASK      0x0FFFFFFF
@@ -896,7 +896,7 @@ static int fat32_short_alias_for_long_name(fat32_fs_t *fs, uint32 parent_cluster
         bi = 4;
     }
 
-    for (uint32 suffix = 1; suffix < FAT32_MAX_ALIAS_ATTEMPTS; suffix++) {
+    for (uint32 suffix = 1; ; suffix++) {
         //build name~n aliases until one is free
         char short_name[12];
         memset(short_name, ' ', 11);
@@ -924,6 +924,8 @@ static int fat32_short_alias_for_long_name(fat32_fs_t *fs, uint32 parent_cluster
             memcpy(out, short_name, 11);
             return 0;
         }
+
+        if (suffix == FAT32_MAX_ALIAS_ATTEMPTS) break;
     }
 
     //TODO: consider a hash-based alias fallback if the directory is especially crowded
@@ -1372,7 +1374,10 @@ static int fat32_free_chain(fat32_fs_t *fs, uint32 first_cluster) {
     uint32 cluster = first_cluster;
     while (cluster >= 2 && cluster < FAT32_EOC_MIN) {
         uint32 next = fat32_cluster_next(fs, cluster);
-        fat32_fat_write_entry_locked(fs, cluster, 0);
+        if (fat32_fat_write_entry_locked(fs, cluster, 0) < 0) {
+            spinlock_release(&fs->lock);
+            return -1;
+        }
         if (next == cluster) break;
         cluster = next;
     }
@@ -1558,11 +1563,11 @@ static int fat32_fs_remove(fs_t *fs_obj, const char *path) {
         uint32 dir_cluster = ((uint32)ent.first_cluster_hi << 16) | ent.first_cluster_lo;
         if (dir_cluster == fs->root_cluster) return -1;
         if (fat32_dir_empty(fs, dir_cluster) != 1) return -1;
-        fat32_free_chain(fs, dir_cluster);
+        if (fat32_free_chain(fs, dir_cluster) < 0) return -1;
     } else {
         uint32 first_cluster = ((uint32)ent.first_cluster_hi << 16) | ent.first_cluster_lo;
         if (first_cluster >= 2) {
-            fat32_free_chain(fs, first_cluster);
+            if (fat32_free_chain(fs, first_cluster) < 0) return -1;
         }
     }
 
