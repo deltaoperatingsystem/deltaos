@@ -242,6 +242,7 @@ void curses_shutdown(void) {
         curses_restore_terminal();
     }
     if (curses_vt != INVALID_HANDLE) {
+        handle_write(curses_vt, "\f", 1);
         handle_close(curses_vt);
         curses_vt = INVALID_HANDLE;
     }
@@ -254,8 +255,6 @@ void curses_shutdown(void) {
         curses_prev_cells = NULL;
     }
     curses_ready = false;
-
-    putc('\f'); // clear the screen!
 }
 
 void curses_restore_terminal(void) {

@@ -177,11 +177,12 @@ void keyboard_irq(void) {
     //rn we only support the simple set-1 make/break path here
     //reating these as keys turns
     //boot-time controller chatter into garbage characters later
-    if (sc == KBD_DEV_ACK || sc == KBD_DEV_RESEND || sc == KBD_DEV_SELFTEST_OK || sc == KBD_DEV_ECHO) {
-        //KBD_DEV_SELFTEST_OK (aka 0xAA) clashes with the "left shift released" scancode 0xAA
-        //im not sure what to do about it other than just let them through tbh
-        //ima make this a TODO
-        if (sc != KBD_DEV_SELFTEST_OK) return;
+    if (sc == KBD_DEV_ACK || sc == KBD_DEV_RESEND || sc == KBD_DEV_ECHO) {
+        return;
+    }
+    if (sc == KBD_DEV_SELFTEST_OK && !(mods & KBD_MOD_SHIFT)) {
+        // they clash so if shift wasnt pressed down, probably wasn't the shift sc
+        return;
     }
     if (sc == KBD_SC_EXTENDED_0 || sc == KBD_SC_EXTENDED_1) {
         extended_prefix = true;
