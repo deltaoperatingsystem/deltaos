@@ -21,6 +21,12 @@
 #define HCSPARAMS1_MAX_INTRS(x) (((x) >> 8) & 0x7FF)
 #define HCSPARAMS1_MAX_PORTS(x) (((x) >> 24) & 0xFF)
 
+//HCSPARAMS2 fields
+#define HCSPARAMS2_MAX_SCRATCHPAD_LO(x) (((x) >> 27) & 0x1F)
+#define HCSPARAMS2_MAX_SCRATCHPAD_HI(x) (((x) >> 21) & 0x1F)
+#define HCSPARAMS2_MAX_SCRATCHPAD(x) \
+    (HCSPARAMS2_MAX_SCRATCHPAD_LO(x) | (HCSPARAMS2_MAX_SCRATCHPAD_HI(x) << 5))
+
 //HCCPARAMS1 bits
 #define HCCPARAMS1_AC64         (1 << 0)    //64-bit addressing supported
 #define HCCPARAMS1_CSZ          (1 << 2)    //context size: 0=32B, 1=64B
@@ -356,10 +362,15 @@ typedef struct {
     uint8          ctx_size;    //bytes per context entry: 32 or 64
     uint8          max_ports;   //from HCSPARAMS1
     uint8          max_slots;   //from HCSPARAMS1 (capped to XHCI_MAX_SLOTS)
+    bool           dma32_only;  //controller requires DMA buffers below 4G
+    uint16         scratchpad_count;
 
     //device context base address array
     uint64        *dcbaa;       //virtual
     uintptr        dcbaa_phys;  //physical
+    uint64        *scratchpad_array;      //virtual array pointed to by DCBAA[0]
+    uintptr        scratchpad_array_phys; //physical address of scratchpad array
+    uintptr       *scratchpad_pages;      //physical pages backing scratchpads
 
     //command ring
     xhci_ring_t    cmd_ring;

@@ -3,12 +3,28 @@
 #include <string.h>
 
 static void format_mem(char *buf, uint64 bytes) {
-    if (bytes >= 1024ULL * 1024 * 1024) {
-        snprintf(buf, 16, "%llu GB", bytes / (1024 * 1024 * 1024));
-    } else if (bytes >= 1024 * 1024) {
-        snprintf(buf, 16, "%llu MB", bytes / (1024 * 1024));
-    } else if (bytes >= 1024) {
-        snprintf(buf, 16, "%llu KB", bytes / 1024);
+    const uint64 gib = 1024ULL * 1024 * 1024;
+    const uint64 mib = 1024ULL * 1024;
+    const uint64 kib = 1024ULL;
+
+    if (bytes >= gib) {
+        uint64 whole = bytes / gib;
+        uint64 tenths = ((bytes % gib) * 10 + (gib / 2)) / gib;
+        if (tenths == 10) {
+            whole++;
+            tenths = 0;
+        }
+        snprintf(buf, 16, "%llu.%llu GB", whole, tenths);
+    } else if (bytes >= mib) {
+        uint64 whole = bytes / mib;
+        uint64 tenths = ((bytes % mib) * 10 + (mib / 2)) / mib;
+        if (tenths == 10) {
+            whole++;
+            tenths = 0;
+        }
+        snprintf(buf, 16, "%llu.%llu MB", whole, tenths);
+    } else if (bytes >= kib) {
+        snprintf(buf, 16, "%llu KB", bytes / kib);
     } else {
         snprintf(buf, 16, "%llu B", bytes);
     }

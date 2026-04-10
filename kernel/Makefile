@@ -17,7 +17,7 @@ LDFLAGS := -nostdlib
 LDFLAGS += -T arch/$(ARCH)/linker.ld
 
 #find all C sources in the kernel
-ALL_C_SRCS := $(shell find . -name '*.c')
+ALL_C_SRCS := $(patsubst ./%,%,$(shell find . -name '*.c'))
 
 #drivers managed by the registry (modular drivers)
 #we exclude core driver infra from this list so it's always included
@@ -33,7 +33,7 @@ DISABLED_DRIVERS_PATHS := $(filter-out $(ENABLED_DRIVERS_PATHS), $(MODULAR_DRIVE
 
 #final C source list so everything minus the explicitly disabled drivers
 C_SRCS := $(filter-out $(DISABLED_DRIVERS_PATHS), $(ALL_C_SRCS))
-ASM_SRCS := $(shell find . -name '*.asm' ! -name 'trampoline_bin.asm')
+ASM_SRCS := $(patsubst ./%,%,$(shell find . -name '*.asm' ! -name 'trampoline_bin.asm'))
 
 ASM_OBJS := $(patsubst %.asm,%.o,$(ASM_SRCS))
 C_OBJS := $(patsubst %.c,%.o,$(C_SRCS))

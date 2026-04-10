@@ -45,6 +45,7 @@ typedef struct slab_cache {
 //stored at the start of the allocated pages
 typedef struct {
     size pages;                 //number of pages (putting first to avoid padding)
+    size used_bytes;            //requested payload size for stats/realloc
     uint32 magic;               //KHEAP_MAGIC_LARGE for validation
 } kheap_large_t;
 

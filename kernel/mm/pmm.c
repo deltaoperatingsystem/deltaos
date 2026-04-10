@@ -10,11 +10,14 @@ static uint8 *bitmap = NULL;
 static size bitmap_size = 0; //in bytes
 size max_pages = 0;
 
+#define PMM_ZONE_MIN_ADDR 0x100000ULL
+
 #define BITMAP_SET(bit)   (bitmap[(bit) / 8] |= (1 << ((bit) % 8)))
 #define BITMAP_CLEAR(bit) (bitmap[(bit) / 8] &= ~(1 << ((bit) % 8)))
 #define BITMAP_TEST(bit)  (bitmap[(bit) / 8] & (1 << ((bit) % 8)))
 
 static size last_free_page = 0;
+static size last_zone_free_page = PMM_ZONE_MIN_ADDR / PAGE_SIZE;
 size free_pages = 0;
 size total_usable_pages = 0;
 
@@ -229,17 +232,19 @@ skip_initrd_reserve:
     serial_write("\n");
 }
 
-static void *pmm_alloc_internal(size pages, size limit_page) {
+static void *pmm_alloc_window_internal(size pages, size start_page, size limit_page, size *cursor) {
     if (pages == 0) return NULL;
+    if (start_page >= limit_page) return NULL;
 
     size consecutive = 0;
     size start_bit = 0;
+    size scan_start = (cursor && *cursor >= start_page && *cursor < limit_page) ? *cursor : start_page;
 
     //word skipping optimization
     uword *bitmap_words = (uword *)bitmap;
     size max_words = limit_page / ARCH_BITS;
 
-    for (size i = last_free_page; i < limit_page; ) {
+    for (size i = scan_start; i < limit_page; ) {
         //if we are at the start of a word and need more than current bit try skipping
         if ((i % ARCH_BITS == 0) && (consecutive == 0)) {
             while (i / ARCH_BITS < max_words && bitmap_words[i / ARCH_BITS] == (uword)-1) {
@@ -256,7 +261,7 @@ static void *pmm_alloc_internal(size pages, size limit_page) {
                     BITMAP_SET(start_bit + j);
                 }
                 free_pages -= pages;
-                last_free_page = start_bit + pages;
+                if (cursor) *cursor = start_bit + pages;
                 return (void *)(uintptr)(start_bit * PAGE_SIZE);
             }
         } else {
@@ -266,11 +271,10 @@ static void *pmm_alloc_internal(size pages, size limit_page) {
     }
 
     //if we reached the end try searching from the beginning once
-    if (last_free_page > 0) {
-        size search_limit = (last_free_page < limit_page) ? last_free_page : limit_page;
-        last_free_page = 0;
+    if (scan_start > start_page) {
+        size search_limit = scan_start < limit_page ? scan_start : limit_page;
         consecutive = 0;
-        for (size i = 0; i < search_limit; ) {
+        for (size i = start_page; i < search_limit; ) {
             if ((i % ARCH_BITS == 0) && (consecutive == 0)) {
                 while (i / ARCH_BITS < max_words && i + ARCH_BITS <= search_limit && bitmap_words[i / ARCH_BITS] == (uword)-1) {
                     i += ARCH_BITS;
@@ -286,7 +290,7 @@ static void *pmm_alloc_internal(size pages, size limit_page) {
                         BITMAP_SET(start_bit + j);
                     }
                     free_pages -= pages;
-                    last_free_page = start_bit + pages;
+                    if (cursor) *cursor = start_bit + pages;
                     return (void *)(uintptr)(start_bit * PAGE_SIZE);
                 }
             } else {
@@ -299,6 +303,10 @@ static void *pmm_alloc_internal(size pages, size limit_page) {
     return NULL;
 }
 
+static void *pmm_alloc_internal(size pages, size limit_page) {
+    return pmm_alloc_window_internal(pages, 0, limit_page, &last_free_page);
+}
+
 void *pmm_alloc(size pages) {
     irq_state_t flags = spinlock_irq_acquire(&pmm_lock);
     void *res = pmm_alloc_internal(pages, max_pages);
@@ -309,9 +317,11 @@ void *pmm_alloc(size pages) {
 void *pmm_alloc_zone(size pages, uintptr max_addr) {
     size limit_page = max_addr / PAGE_SIZE;
     if (limit_page > max_pages) limit_page = max_pages;
+    size start_page = PMM_ZONE_MIN_ADDR / PAGE_SIZE;
+    if (start_page >= limit_page) return NULL;
 
     irq_state_t flags = spinlock_irq_acquire(&pmm_lock);
-    void *res = pmm_alloc_internal(pages, limit_page);
+    void *res = pmm_alloc_window_internal(pages, start_page, limit_page, &last_zone_free_page);
     spinlock_irq_release(&pmm_lock, flags);
     return res;
 }
@@ -331,8 +341,9 @@ void pmm_free(void *ptr, size pages) {
         }
     }
 
-    if (start_bit < last_free_page) {
-        last_free_page = start_bit;
+    if (start_bit < last_free_page) last_free_page = start_bit;
+    if (start_bit < last_zone_free_page && start_bit >= (PMM_ZONE_MIN_ADDR / PAGE_SIZE)) {
+        last_zone_free_page = start_bit;
     }
 
     spinlock_irq_release(&pmm_lock, flags);

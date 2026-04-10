@@ -6,12 +6,25 @@
 
 static pagemap_t kernel_pagemap;
 
+static uintptr mmu_read_cr3(void) {
+    uintptr cr3;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+    return cr3;
+}
+
+static bool mmu_is_current_pagemap(pagemap_t *map) {
+    return map && map->top_level == mmu_read_cr3();
+}
+
+static void mmu_flush_current_tlb(void) {
+    uintptr cr3 = mmu_read_cr3();
+    __asm__ volatile ("mov %0, %%cr3" :: "r"(cr3) : "memory");
+}
+
 pagemap_t *mmu_get_kernel_pagemap(void) {
     if (kernel_pagemap.top_level == 0) {
         //retrieve current PML4 from CR3 on first call
-        uintptr cr3;
-        __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
-        kernel_pagemap.top_level = cr3;
+        kernel_pagemap.top_level = mmu_read_cr3();
     }
     return &kernel_pagemap;
 }
@@ -148,6 +161,7 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
     bool is_wc = (flags & MMU_FLAG_WC) != 0;
     
     bool user = (flags & MMU_FLAG_USER) != 0;
+    bool flush_tlb = mmu_is_current_pagemap(map) || map == mmu_get_kernel_pagemap();
     //printf("[mmu] map_range virt=0x%lx phys=0x%lx pages=%zu flags=0x%lx\n", virt, phys, pages, flags);
 
     size i = 0;
@@ -182,12 +196,6 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
             }
             
             pd[PD_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | huge_flags;
-            
-            //thoroughly invalidate the entire 2MB range in TLB
-            for (int j = 0; j < 512; j++) {
-                __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt + j * 4096) : "memory");
-            }
-            
             i += 512;
             mapped_huge = true;
         }
@@ -215,9 +223,6 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
 
                 //update the PD entry to point to the new PT
                 pd[PD_IDX(cur_virt)] = (uintptr)pt_phys | AMD64_PTE_PRESENT | AMD64_PTE_WRITE | (user ? AMD64_PTE_USER : 0);
-                
-                //invalidate the original huge page
-                __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt & ~0x1FFFFFULL) : "memory");
             }
 
             uint64 *pt = get_next_level(pd, PD_IDX(cur_virt), true, user);
@@ -235,13 +240,15 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
             }
             
             pt[PT_IDX(cur_virt)] = (cur_phys & AMD64_PTE_ADDR_MASK) | leaf_flags;
-            __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt) : "memory");
             i++;
         }
     }
-    
-    
-    //check that all pages are actually mapped
+
+    if (flush_tlb) {
+        mmu_flush_current_tlb();
+    }
+
+#ifdef MMU_DEBUG_VERIFY_MAPS
     for (size v = 0; v < pages; v++) {
         uintptr check_virt = virt + (v * PAGE_SIZE);
         uintptr resolved = mmu_virt_to_phys(map, check_virt);
@@ -249,6 +256,7 @@ void mmu_map_range(pagemap_t *map, uintptr virt, uintptr phys, size pages, uint6
             printf("[mmu] VERIFY FAIL: page %zu at 0x%lx not mapped!\n", v, check_virt);
         }
     }
+#endif
 }
 
 void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
@@ -258,6 +266,7 @@ void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
     } */
     
     uint64 *pml4 = (uint64 *)P2V(map->top_level);
+    bool flush_tlb = mmu_is_current_pagemap(map) || map == mmu_get_kernel_pagemap();
     
     for (size i = 0; i < pages; ) {
         uintptr cur_virt = virt + (i * PAGE_SIZE);
@@ -271,19 +280,18 @@ void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
         uint64 pd_entry = pd[PD_IDX(cur_virt)];
         if (pd_entry & AMD64_PTE_HUGE) {
             pd[PD_IDX(cur_virt)] = 0;
-            //invalidate all 512 pages in the huge block
-            for (int j = 0; j < 512; j++) {
-                __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt + j * 4096) : "memory");
-            }
             i += 512;
         } else {
             uint64 *pt = get_next_level(pd, PD_IDX(cur_virt), false, false);
             if (pt) {
                 pt[PT_IDX(cur_virt)] = 0;
             }
-            __asm__ volatile ("invlpg (%0)" :: "r"(cur_virt) : "memory");
             i++;
         }
+    }
+
+    if (flush_tlb) {
+        mmu_flush_current_tlb();
     }
 }
 

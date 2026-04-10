@@ -11,9 +11,14 @@
 static slab_cache_t buckets[BUCKET_COUNT];
 static size bucket_sizes[BUCKET_COUNT] = {16, 32, 64, 128, 256, 512, 1024, 2048};
 
+#define BACKING_TRACK_MAX 4096
+
 static uintptr heap_virt_cursor = KHEAP_VIRT_START;
 static bool kheap_ready = false;
 static spinlock_irq_t kheap_lock = SPINLOCK_IRQ_INIT;
+static uint64 current_slab_used = 0;
+static uint64 current_slab_capacity = 0;
+static uint64 current_large_used = 0;
 
 //when pages are freed we record the virtual address range as a hole so it
 //can be reused by future allocations this prevents unbounded virtual address space
@@ -27,25 +32,61 @@ typedef struct {
 
 static vhole_t vholes[VHOLE_MAX_COUNT];
 
+typedef struct {
+    uintptr virt;
+    uintptr phys;
+    size pages;
+    bool in_use;
+} backing_track_t;
+
+static backing_track_t backing_tracks[BACKING_TRACK_MAX];
+
+static void backing_track_add(uintptr virt, uintptr phys, size pages) {
+    for (int i = 0; i < BACKING_TRACK_MAX; i++) {
+        if (!backing_tracks[i].in_use) {
+            backing_tracks[i].virt = virt;
+            backing_tracks[i].phys = phys;
+            backing_tracks[i].pages = pages;
+            backing_tracks[i].in_use = true;
+            return;
+        }
+    }
+
+    printf("[kheap] WARN: backing metadata full, falling back to slow free path\n");
+}
+
+static backing_track_t *backing_track_take(uintptr virt, size pages) {
+    for (int i = 0; i < BACKING_TRACK_MAX; i++) {
+        if (!backing_tracks[i].in_use) continue;
+        if (backing_tracks[i].virt != virt || backing_tracks[i].pages != pages) continue;
+
+        backing_tracks[i].in_use = false;
+        return &backing_tracks[i];
+    }
+
+    return NULL;
+}
+
 //find and reclaim a virtual hole of the exact size needed
 static void *backing_alloc(size pages) {
     //try to find a hole that fits
     for (int i = 0; i < VHOLE_MAX_COUNT; i++) {
         if (vholes[i].in_use && vholes[i].pages >= pages) {
             uintptr vaddr = vholes[i].addr;
-            
-            if (vholes[i].pages == pages) {
-                vholes[i].in_use = false;
-            } else {
-                //split the hole
-                vholes[i].addr += pages * PAGE_SIZE;
-                vholes[i].pages -= pages;
-            }
 
             void *paddr = pmm_alloc(pages);
             if (!paddr) return NULL;
 
+            if (vholes[i].pages == pages) {
+                vholes[i].in_use = false;
+            } else {
+                //split the hole only after we know backing pages exist
+                vholes[i].addr += pages * PAGE_SIZE;
+                vholes[i].pages -= pages;
+            }
+
             vmm_kernel_map(vaddr, (uintptr)paddr, pages, MMU_FLAG_PRESENT | MMU_FLAG_WRITE);
+            backing_track_add(vaddr, (uintptr)paddr, pages);
             return (void *)vaddr;
         }
     }
@@ -61,6 +102,7 @@ static void *backing_alloc(size pages) {
 
     void *vaddr = (void *)heap_virt_cursor;
     vmm_kernel_map(heap_virt_cursor, (uintptr)paddr, pages, MMU_FLAG_PRESENT | MMU_FLAG_WRITE);
+    backing_track_add((uintptr)vaddr, (uintptr)paddr, pages);
     heap_virt_cursor += pages * PAGE_SIZE;
     
     //printf("[kheap] bump: virt=0x%lx phys=0x%lx pages=%zu\n", (uintptr)vaddr, (uintptr)paddr, pages);
@@ -73,13 +115,18 @@ static void backing_free(void *virt, size pages) {
         return;
     }
     pagemap_t *map = mmu_get_kernel_pagemap();
+    backing_track_t *track = backing_track_take((uintptr)virt, pages);
 
-    //free each underlying physical page
-    for (size i = 0; i < pages; i++) {
-        uintptr vaddr = (uintptr)virt + (i * PAGE_SIZE);
-        uintptr paddr = mmu_virt_to_phys(map, vaddr);
-        if (paddr) {
-            pmm_free((void *)paddr, 1);
+    if (track) {
+        pmm_free((void *)track->phys, pages);
+    } else {
+        //fall back to resolving each page when metadata is unavailable
+        for (size i = 0; i < pages; i++) {
+            uintptr vaddr = (uintptr)virt + (i * PAGE_SIZE);
+            uintptr paddr = mmu_virt_to_phys(map, vaddr);
+            if (paddr != (uintptr)-1) {
+                pmm_free((void *)paddr, 1);
+            }
         }
     }
 
@@ -161,6 +208,7 @@ static slab_t *slab_create(slab_cache_t *cache) {
     slab->free_list = (slab_obj_t *)obj_start;
     slab->total_objs = (PAGE_SIZE - (obj_start - (uintptr)page)) / cache->obj_size;
     slab->free_objs = slab->total_objs;
+    current_slab_capacity += (uint64)slab->total_objs * cache->obj_size;
 
     //chain all objects into the free list
     slab_obj_t *curr = slab->free_list;
@@ -176,6 +224,7 @@ static slab_t *slab_create(slab_cache_t *cache) {
 //destroy an empty slab and return its memory
 static void slab_destroy(slab_t *slab) {
     slab_cache_t *cache = slab->cache;
+    current_slab_capacity -= (uint64)slab->total_objs * cache->obj_size;
     list_remove(&cache->empty_slabs, slab);
     backing_free(slab, 1);
 }
@@ -187,6 +236,9 @@ void kheap_init(void) {
         buckets[i].full_slabs = NULL;
         buckets[i].empty_slabs = NULL;
     }
+    current_slab_used = 0;
+    current_slab_capacity = 0;
+    current_large_used = 0;
     kheap_ready = true;
     printf("[kheap] initialized (buckets: 16B-2KB, range: 0x%lX...)\n", KHEAP_VIRT_START);
 }
@@ -221,6 +273,7 @@ void *kmalloc(size n) {
             slab_obj_t *obj = slab->free_list;
             slab->free_list = obj->next;
             slab->free_objs--;
+            current_slab_used += cache->obj_size;
 
             //move to full list if slab is now exhausted
             if (slab->free_objs == 0) {
@@ -247,6 +300,8 @@ void *kmalloc(size n) {
 
     large->magic = KHEAP_MAGIC_LARGE;
     large->pages = pages;
+    large->used_bytes = n;
+    current_large_used += n;
 
     //return aligned pointer after header
     uintptr data = (uintptr)large + sizeof(kheap_large_t);
@@ -287,6 +342,7 @@ void kfree(void *p) {
         obj->next = slab->free_list;
         slab->free_list = obj;
         slab->free_objs++;
+        current_slab_used -= cache->obj_size;
 
         //manage slab list transitions
         if (slab->free_objs == 1) {
@@ -311,6 +367,7 @@ void kfree(void *p) {
         kheap_large_t *large = (kheap_large_t *)page_addr;
         if (large->magic == KHEAP_MAGIC_LARGE) {
             size pages = large->pages;
+            current_large_used -= large->used_bytes;
             //clear magic BEFORE freeing to prevent use-after-free cascades
             //if a stale pointer tries to kfree this address after reuse,
             //it will fail the magic check instead of freeing the new allocation
@@ -331,6 +388,8 @@ void *krealloc(void *p, size n) {
         return NULL;
     }
 
+    irq_state_t flags = spinlock_irq_acquire(&kheap_lock);
+
     //determine current allocation size
     uintptr page_addr = (uintptr)p & ~(PAGE_SIZE - 1);
     slab_t *meta = (slab_t *)page_addr;
@@ -338,16 +397,29 @@ void *krealloc(void *p, size n) {
     size old_size = 0;
     if (meta->magic == KHEAP_MAGIC_SLAB) {
         old_size = meta->cache->obj_size;
-        if (n <= old_size) return p; //already fits
+        if (n <= old_size) {
+            spinlock_irq_release(&kheap_lock, flags);
+            return p; //already fits
+        }
     } else {
         kheap_large_t *large = (kheap_large_t *)page_addr;
         if (large->magic == KHEAP_MAGIC_LARGE) {
-            old_size = (large->pages * PAGE_SIZE) - ((uintptr)p - (uintptr)large);
-            if (n <= old_size) return p; //already fits
+            size old_capacity = (large->pages * PAGE_SIZE) - ((uintptr)p - (uintptr)large);
+            old_size = large->used_bytes;
+            if (n <= old_capacity) {
+                current_large_used -= old_size;
+                current_large_used += n;
+                large->used_bytes = n;
+                spinlock_irq_release(&kheap_lock, flags);
+                return p;
+            }
         } else {
+            spinlock_irq_release(&kheap_lock, flags);
             return NULL; //invalid pointer
         }
     }
+
+    spinlock_irq_release(&kheap_lock, flags);
 
     //allocate new block ,copy data, free old
     void *new_p = kmalloc(n);
@@ -381,28 +453,9 @@ void kheap_get_stats(kheap_stats_t *stats) {
     stats->slab_used = 0;
     stats->slab_capacity = 0;
     stats->large_used = 0;
-    
-    //iterate buckets and count slab usage
-    for (int i = 0; i < BUCKET_COUNT; i++) {
-        slab_cache_t *cache = &buckets[i];
-        
-        //partial slabs
-        for (slab_t *s = cache->partial_slabs; s; s = s->next) {
-            stats->slab_capacity += s->total_objs * cache->obj_size;
-            stats->slab_used += (s->total_objs - s->free_objs) * cache->obj_size;
-        }
-        
-        //full slabs
-        for (slab_t *s = cache->full_slabs; s; s = s->next) {
-            stats->slab_capacity += s->total_objs * cache->obj_size;
-            stats->slab_used += s->total_objs * cache->obj_size;
-        }
-        
-        //empty slabs (capacity only)
-        for (slab_t *s = cache->empty_slabs; s; s = s->next) {
-            stats->slab_capacity += s->total_objs * cache->obj_size;
-        }
-    }
+    stats->slab_used = current_slab_used;
+    stats->slab_capacity = current_slab_capacity;
+    stats->large_used = current_large_used;
     
     spinlock_irq_release(&kheap_lock, flags);
 }

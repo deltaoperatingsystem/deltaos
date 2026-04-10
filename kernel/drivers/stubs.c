@@ -9,6 +9,7 @@
 #include <drivers/mouse.h>
 #include <drivers/vt/vt.h>
 #include <drivers/rtl8139.h>
+#include <drivers/usb/xhci.h>
 
 #define WEAK __attribute__((weak))
 
@@ -109,3 +110,7 @@ WEAK void vt_tick(void) {}
 WEAK void rtl8139_init(void) {}
 WEAK void rtl8139_irq(void) {}
 WEAK void rtl8139_poll(void) {}
+
+//xHCI stubs
+WEAK void xhci_start(void) {}
+WEAK void xhci_irq(void) {}

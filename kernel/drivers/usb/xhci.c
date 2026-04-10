@@ -44,6 +44,13 @@ static int xhci_claim_bios_ownership(xhci_ctrl_t *c, uint32 hccparams1);
 static void xhci_scan_controllers(void);
 static void xhci_boot_worker(void *arg);
 
+static void *xhci_dma_alloc(xhci_ctrl_t *c, uint32 pages) {
+    if (c && c->dma32_only) {
+        return pmm_alloc_zone(pages, 0x100000000ULL);
+    }
+    return pmm_alloc(pages);
+}
+
 //register accessors
 static inline uint8 cap_read8(xhci_ctrl_t *c, uint32 off) {
     return *(volatile uint8 *)((uint8 *)c->cap_base + off);
@@ -138,7 +145,7 @@ static int ring_alloc(xhci_ctrl_t *c, xhci_ring_t *ring, uint32 size, bool chain
     uint32 bytes = alloc_trbs * (uint32)sizeof(xhci_trb_t);
     uint32 pages = (bytes + PAGE_SIZE - 1) / PAGE_SIZE;
 
-    void *phys = pmm_alloc(pages);
+    void *phys = xhci_dma_alloc(c, pages);
     if (!phys) return -1;
 
     ring->trbs = (xhci_trb_t *)P2V(phys);
@@ -166,6 +173,25 @@ static void xhci_free_controller_resources(xhci_ctrl_t *c) {
 
     ring_free(&c->cmd_ring);
 
+    if (c->scratchpad_pages) {
+        for (uint16 i = 0; i < c->scratchpad_count; i++) {
+            if (c->scratchpad_pages[i]) {
+                pmm_free((void *)c->scratchpad_pages[i], 1);
+            }
+        }
+        kfree(c->scratchpad_pages);
+        c->scratchpad_pages = NULL;
+    }
+
+    if (c->scratchpad_array && c->scratchpad_array_phys) {
+        uint32 sp_array_bytes = (uint32)c->scratchpad_count * (uint32)sizeof(uint64);
+        uint32 sp_array_pages = (sp_array_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+        if (sp_array_pages == 0) sp_array_pages = 1;
+        pmm_free((void *)c->scratchpad_array_phys, sp_array_pages);
+        c->scratchpad_array = NULL;
+        c->scratchpad_array_phys = 0;
+    }
+
     if (c->dcbaa && c->dcbaa_phys) {
         pmm_free((void *)c->dcbaa_phys, 1);
         c->dcbaa = NULL;
@@ -184,6 +210,71 @@ static void xhci_free_controller_resources(xhci_ctrl_t *c) {
         pmm_free((void *)c->erst_phys, 1);
         c->erst = NULL;
         c->erst_phys = 0;
+    }
+}
+
+static void xhci_zero_64b_regs_quirk(xhci_ctrl_t *c, uint32 max_intrs) {
+    if (!xhci_has_quirk(c, XHCI_QUIRK_ZERO_64B_REGS)) return;
+
+    printf("[xhci] quirk: zeroing 64-bit base registers before reset\n");
+
+    uint32 cmd = op_read32(c, XHCI_OP_USBCMD);
+    op_write32(c, XHCI_OP_USBCMD, cmd & ~USBCMD_HSEE);
+
+    uint32 sts = op_read32(c, XHCI_OP_USBSTS);
+    op_write32(c, XHCI_OP_USBSTS, sts | USBSTS_HSE);
+
+    if ((op_read64(c, XHCI_OP_DCBAAP) >> 32) != 0) {
+        op_write64(c, XHCI_OP_DCBAAP, 0);
+    }
+    if ((op_read64(c, XHCI_OP_CRCR) >> 32) != 0) {
+        op_write64(c, XHCI_OP_CRCR, 0);
+    }
+
+    for (uint32 i = 0; i < max_intrs; i++) {
+        uint64 erstba = rt_read32(c, XHCI_RT_ERSTBA(i));
+        erstba |= (uint64)rt_read32(c, XHCI_RT_ERSTBA(i) + 4) << 32;
+        if ((erstba >> 32) != 0) {
+            rt_write64(c, XHCI_RT_ERSTBA(i), 0);
+        }
+
+        uint64 erdp = rt_read32(c, XHCI_RT_ERDP(i));
+        erdp |= (uint64)rt_read32(c, XHCI_RT_ERDP(i) + 4) << 32;
+        if ((erdp >> 32) != 0) {
+            rt_write64(c, XHCI_RT_ERDP(i), 0);
+        }
+    }
+}
+
+static void xhci_apply_stability_quirks(xhci_ctrl_t *c) {
+    if (!c || !c->pci) return;
+
+    uint64 lpm_sensitive =
+        XHCI_QUIRK_RESET_ON_RESUME |
+        XHCI_QUIRK_U2_DISABLE_WAKE |
+        XHCI_QUIRK_RESET_PLL_ON_DISCONNECT |
+        XHCI_QUIRK_LPM_SUPPORT |
+        XHCI_QUIRK_ETRON_HOST |
+        XHCI_QUIRK_SLOW_SUSPEND |
+        XHCI_QUIRK_AMD_PLL_FIX |
+        XHCI_QUIRK_SUSPEND_DELAY |
+        XHCI_QUIRK_SNPS_BROKEN_SUSPEND;
+
+    if (c->quirks & lpm_sensitive) {
+        printf("[xhci] quirk: disabling PCIe link power management for controller stability\n");
+        pci_disable_link_power_management(c->pci);
+    }
+
+    uint64 pm_placeholders =
+        XHCI_QUIRK_RESET_ON_RESUME |
+        XHCI_QUIRK_DEFAULT_PM_RUNTIME_ALLOW |
+        XHCI_QUIRK_U2_DISABLE_WAKE |
+        XHCI_QUIRK_SLOW_SUSPEND |
+        XHCI_QUIRK_SUSPEND_DELAY |
+        XHCI_QUIRK_SNPS_BROKEN_SUSPEND;
+
+    if (c->quirks & pm_placeholders) {
+        printf("[xhci] note: suspend/runtime-PM quirks recorded; full PM hooks not implemented yet\n");
     }
 }
 
@@ -317,6 +408,10 @@ static int xhci_enable_msi(xhci_ctrl_t *c) {
 
 static int xhci_enable_interrupts(xhci_ctrl_t *c) {
     if (xhci_enable_msix(c) == 0) return 0;
+    if (xhci_has_quirk(c, XHCI_QUIRK_BROKEN_MSI)) {
+        printf("[xhci] quirk: skipping MSI fallback on broken-MSI controller\n");
+        return -1;
+    }
     if (xhci_enable_msi(c) == 0) return 0;
     return -1;
 }
@@ -667,7 +762,7 @@ static void xhci_queue_intr(xhci_ctrl_t *c, xhci_device_t *dev) {
 //allocate one page for an input context and zero it
 //returns virtual pointer; *phys_out receives physical address
 static void *alloc_input_ctx(xhci_ctrl_t *c, uintptr *phys_out) {
-    void *phys = pmm_alloc(1);
+    void *phys = xhci_dma_alloc(c, 1);
     if (!phys) return NULL;
     *phys_out = (uintptr)phys;
     void *virt = P2V(phys);
@@ -769,6 +864,17 @@ static void build_config_hid_ctx(xhci_ctrl_t *c, xhci_device_t *dev,
     if (xhci_has_quirk(c, XHCI_QUIRK_NEC_HOST) && ep_interval < 6) {
         ep_interval = 6;
     }
+
+    if (xhci_has_quirk(c, XHCI_QUIRK_LIMIT_ENDPOINT_INTERVAL_9) &&
+        ep_interval >= 9) {
+        ep_interval = 8;
+    }
+
+    if (xhci_has_quirk(c, XHCI_QUIRK_LIMIT_ENDPOINT_INTERVAL_7) &&
+        (dev->speed == USB_SPEED_HS || dev->speed == USB_SPEED_SS || dev->speed == USB_SPEED_SSP) &&
+        ep_interval >= 7) {
+        ep_interval = 6;
+    }
     
     if (ep_interval > 15) ep_interval = 15;
 
@@ -823,10 +929,15 @@ static void xhci_drain_events(xhci_ctrl_t *c) {
             if (slot >= 1 && slot <= XHCI_MAX_SLOTS) {
                 xhci_device_t *dev = &c->devices[slot];
                 bool trust_tx_length = xhci_has_quirk(c, XHCI_QUIRK_TRUST_TX_LENGTH);
+                bool spurious_success = xhci_has_quirk(c, XHCI_QUIRK_SPURIOUS_SUCCESS);
 
                 if (cc == TRB_CC_SUCCESS && residual != 0 && trust_tx_length) {
                     //some controllers report "success" for short transfers;
                     //normalize that to SHORT_PKT so the caller sees the real state
+                    cc = TRB_CC_SHORT_PKT;
+                } else if (cc == TRB_CC_SUCCESS && residual != 0 && spurious_success) {
+                    //older controllers can signal success while leaving part of
+                    //the transfer uncompleted; make that visible to callers.
                     cc = TRB_CC_SHORT_PKT;
                 }
 
@@ -1231,7 +1342,7 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
     dev->mps0    = usb_default_mps0(speed);
 
     //allocate output device context
-    void *out_phys = pmm_alloc(1);
+    void *out_phys = xhci_dma_alloc(c, 1);
     if (!out_phys) goto fail_slot;
     dev->out_ctx_phys = out_phys;
     dev->out_ctx      = P2V(out_phys);
@@ -1260,7 +1371,7 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
     }
 
     //get first 8 bytes of device descriptor (to learn real mps0)
-    void *desc_phys = pmm_alloc(1);
+    void *desc_phys = xhci_dma_alloc(c, 1);
     if (!desc_phys) { pmm_free((void *)in_ctx_phys, 1); goto fail_ep0; }
     void *desc_virt = P2V(desc_phys);
     memset(desc_virt, 0, PAGE_SIZE);
@@ -1395,7 +1506,7 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
     //if this is a HID interface, try to parse the report descriptor so we
     //can accept report-protocol devices instead of boot-only ones
     if (found_hid && hid_desc && hid_report_desc_len > 0) {
-        void *report_phys = pmm_alloc(1);
+        void *report_phys = xhci_dma_alloc(c, 1);
         if (report_phys) {
             void *report_virt = P2V(report_phys);
             uint16 fetch_len = hid_report_desc_len;
@@ -1459,7 +1570,7 @@ static void xhci_enumerate_device(xhci_ctrl_t *c, uint8 port_idx) {
         }
 
         //allocate DMA buffer for HID reports (one page)
-        void *hid_phys = pmm_alloc(1);
+        void *hid_phys = xhci_dma_alloc(c, 1);
         if (!hid_phys) goto skip_hid;
         dev->hid_buf_phys = hid_phys;
         dev->hid_buf      = P2V(hid_phys);
@@ -1579,11 +1690,15 @@ void xhci_irq(void) {
 static void xhci_init_ctrl(pci_device_t *pci) {
     if (g_ctrl_count >= XHCI_MAX_CTRLS) return;
 
+    printf("[xhci] stage 0: init_ctrl enter for %04X:%04X\n",
+           pci->vendor_id, pci->device_id);
+
     xhci_ctrl_t *c = kzalloc(sizeof(xhci_ctrl_t));
     if (!c) return;
 
     c->pci = pci;
     xhci_apply_pci_quirks(c, pci);
+    printf("[xhci] stage 1: quirks applied\n");
     if (pci->vendor_id == 0x1033 && pci->device_id == 0x0194) {
         pci_disable_link_power_management(pci);
     }
@@ -1592,6 +1707,7 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     }
     pci_enable_mmio(pci);
     pci_enable_bus_master(pci);
+    printf("[xhci] stage 2: pci enabled\n");
 
     //map BAR0 (may be 64-bit)
     uint64 bar_phys = pci->bar[0].addr;
@@ -1602,6 +1718,7 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     c->cap_base  = (void *)P2V(bar_phys);
     vmm_kernel_map((uintptr)c->cap_base, bar_phys, pages,
                    MMU_FLAG_WRITE | MMU_FLAG_NOCACHE);
+    printf("[xhci] stage 3: BAR mapped\n");
 
     printf("[xhci] BAR0 phys=0x%llX virt=%p size=%llu\n",
            (unsigned long long)bar_phys, c->cap_base,
@@ -1613,29 +1730,48 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     c->hci_ver        = (uint16)(cap0 >> 16);
 
     uint32 hcsparams1 = cap_read32(c, XHCI_CAP_HCSPARAMS1);
+    uint32 hcsparams2 = cap_read32(c, XHCI_CAP_HCSPARAMS2);
     uint32 hccparams1 = cap_read32(c, XHCI_CAP_HCCPARAMS1);
-    uint32 dboff      = cap_read32(c, XHCI_CAP_DBOFF);
-    uint32 rtsoff     = cap_read32(c, XHCI_CAP_RTSOFF);
+    uint32 dboff      = cap_read32(c, XHCI_CAP_DBOFF) & ~0x3U;
+    uint32 rtsoff     = cap_read32(c, XHCI_CAP_RTSOFF) & ~0x1FU;
 
     c->op_base  = (uint8 *)c->cap_base + caplength;
     c->rt_base  = (uint8 *)c->cap_base + rtsoff;
     c->db_base  = (uint32 *)((uint8 *)c->cap_base + dboff);
 
+    uint32 pagesize = op_read32(c, XHCI_OP_PAGESIZE);
     c->ctx_size  = (hccparams1 & HCCPARAMS1_CSZ) ? 64 : 32;
     c->max_ports = (uint8)HCSPARAMS1_MAX_PORTS(hcsparams1);
     c->max_slots = (uint8)HCSPARAMS1_MAX_SLOTS(hcsparams1);
+    c->scratchpad_count = (uint16)HCSPARAMS2_MAX_SCRATCHPAD(hcsparams2);
+    c->dma32_only = xhci_has_quirk(c, XHCI_QUIRK_NO_64BIT_SUPPORT) ||
+                    !(hccparams1 & HCCPARAMS1_AC64);
     if (c->max_slots > XHCI_MAX_SLOTS) c->max_slots = XHCI_MAX_SLOTS;
 
-    printf("[xhci] version 0x%04X ctx_size=%u max_ports=%u max_slots=%u\n",
-           c->hci_ver, c->ctx_size, c->max_ports, c->max_slots);
+    printf("[xhci] version 0x%04X ctx_size=%u max_ports=%u max_slots=%u scratchpads=%u dma32=%u\n",
+           c->hci_ver, c->ctx_size, c->max_ports, c->max_slots,
+           c->scratchpad_count, c->dma32_only ? 1 : 0);
+    printf("[xhci] stage 4: capability decode done\n");
 
+    if (!(pagesize & 0x1)) {
+        printf("[xhci] ERR: controller does not advertise 4K page support (PAGESIZE=0x%08X)\n",
+               pagesize);
+        kfree(c);
+        return;
+    }
+
+    xhci_apply_stability_quirks(c);
+    printf("[xhci] stage 5: before BIOS handoff\n");
     xhci_claim_bios_ownership(c, hccparams1);
+    printf("[xhci] stage 6: after BIOS handoff\n");
 
     //wait for controller not ready to clear (up to 1 s)
     for (uint32 elapsed = 0; elapsed < 1000; elapsed++) {
         if (!(op_read32(c, XHCI_OP_USBSTS) & USBSTS_CNR)) break;
         sleep(1);
     }
+    printf("[xhci] stage 7: controller ready wait done (USBSTS=0x%08X)\n",
+           op_read32(c, XHCI_OP_USBSTS));
 
     //stop controller if running
     uint32 cmd = op_read32(c, XHCI_OP_USBCMD);
@@ -1646,6 +1782,10 @@ static void xhci_init_ctrl(pci_device_t *pci) {
             sleep(1);
         }
     }
+    printf("[xhci] stage 8: controller stop done (USBCMD=0x%08X USBSTS=0x%08X)\n",
+           op_read32(c, XHCI_OP_USBCMD), op_read32(c, XHCI_OP_USBSTS));
+
+    xhci_zero_64b_regs_quirk(c, HCSPARAMS1_MAX_INTRS(hcsparams1));
 
     //reset the controller
     op_write32(c, XHCI_OP_USBCMD, USBCMD_HCRST);
@@ -1656,14 +1796,58 @@ static void xhci_init_ctrl(pci_device_t *pci) {
         sleep(1);
     }
     printf("[xhci] reset complete\n");
+    printf("[xhci] stage 9: reset done (USBCMD=0x%08X USBSTS=0x%08X)\n",
+           op_read32(c, XHCI_OP_USBCMD), op_read32(c, XHCI_OP_USBSTS));
 
     //DCBAA
-    void *dcbaa_phys = pmm_alloc(1);
+    void *dcbaa_phys = xhci_dma_alloc(c, 1);
     if (!dcbaa_phys) { kfree(c); return; }
     c->dcbaa      = (uint64 *)P2V(dcbaa_phys);
     c->dcbaa_phys = (uintptr)dcbaa_phys;
     memset(c->dcbaa, 0, PAGE_SIZE);
+    printf("[xhci] stage 10: dcbaa allocated phys=0x%llX\n",
+           (unsigned long long)c->dcbaa_phys);
+
+    if (c->scratchpad_count > 0) {
+        uint32 sp_array_bytes = (uint32)c->scratchpad_count * (uint32)sizeof(uint64);
+        uint32 sp_array_pages = (sp_array_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+        if (sp_array_pages == 0) sp_array_pages = 1;
+
+        void *sp_array_phys = xhci_dma_alloc(c, sp_array_pages);
+        if (!sp_array_phys) {
+            xhci_free_controller_resources(c);
+            kfree(c);
+            return;
+        }
+
+        c->scratchpad_array = (uint64 *)P2V(sp_array_phys);
+        c->scratchpad_array_phys = (uintptr)sp_array_phys;
+        memset(c->scratchpad_array, 0, sp_array_pages * PAGE_SIZE);
+
+        c->scratchpad_pages = kzalloc((size)c->scratchpad_count * sizeof(uintptr));
+        if (!c->scratchpad_pages) {
+            xhci_free_controller_resources(c);
+            kfree(c);
+            return;
+        }
+
+        for (uint16 i = 0; i < c->scratchpad_count; i++) {
+            void *sp_phys = xhci_dma_alloc(c, 1);
+            if (!sp_phys) {
+                xhci_free_controller_resources(c);
+                kfree(c);
+                return;
+            }
+            c->scratchpad_pages[i] = (uintptr)sp_phys;
+            c->scratchpad_array[i] = (uint64)(uintptr)sp_phys;
+            memset(P2V(sp_phys), 0, PAGE_SIZE);
+        }
+
+        c->dcbaa[0] = (uint64)c->scratchpad_array_phys;
+    }
+
     op_write64(c, XHCI_OP_DCBAAP, c->dcbaa_phys);
+    printf("[xhci] stage 11: dcbaap programmed\n");
 
     //command ring
     spinlock_irq_init(&c->cmd_lock);
@@ -1676,11 +1860,13 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     }
     //CRCR: physical base of command ring | RCS (ring cycle state = initial PCS = 1)
     op_write64(c, XHCI_OP_CRCR, c->cmd_ring.phys | CRCR_RCS);
+    printf("[xhci] stage 12: command ring ready phys=0x%llX\n",
+           (unsigned long long)c->cmd_ring.phys);
 
     //event ring
     uint32 evt_bytes = XHCI_EVT_RING_SIZE * (uint32)sizeof(xhci_trb_t);
     uint32 evt_pages = (evt_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
-    void *evt_phys = pmm_alloc(evt_pages);
+    void *evt_phys = xhci_dma_alloc(c, evt_pages);
     if (!evt_phys) {
         xhci_free_controller_resources(c);
         kfree(c);
@@ -1691,9 +1877,11 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     memset(c->evt_ring, 0, evt_pages * PAGE_SIZE);
     c->evt_deq = 0;
     c->evt_ccs = 1;
+    printf("[xhci] stage 13: event ring ready phys=0x%llX pages=%u\n",
+           (unsigned long long)c->evt_ring_phys, evt_pages);
 
     //event ring segment table (ERST) - single segment
-    void *erst_phys = pmm_alloc(1);
+    void *erst_phys = xhci_dma_alloc(c, 1);
     if (!erst_phys) {
         xhci_free_controller_resources(c);
         kfree(c);
@@ -1705,6 +1893,8 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     c->erst[0].base = c->evt_ring_phys;
     c->erst[0].size = XHCI_EVT_RING_SIZE;
     arch_wmb();
+    printf("[xhci] stage 14: ERST ready phys=0x%llX\n",
+           (unsigned long long)c->erst_phys);
 
     //program interrupter 0
     rt_write32(c, XHCI_RT_ERSTSZ(0), 1);
@@ -1717,6 +1907,7 @@ static void xhci_init_ctrl(pci_device_t *pci) {
 
     //enable interrupter 0 (IE bit)
     rt_write32(c, XHCI_RT_IMAN(0), IMAN_IE | IMAN_IP);
+    printf("[xhci] stage 15: interrupter programmed\n");
 
     //max slots
     op_write32(c, XHCI_OP_CONFIG, CONFIG_MAX_SLOTS_EN(c->max_slots));
@@ -1724,6 +1915,7 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     //interrupts
     if (xhci_enable_interrupts(c) < 0)
         printf("[xhci] MSI/MSI-X unavailable - interrupts will not work\n");
+    printf("[xhci] stage 16: interrupt setup done\n");
 
     //start controller
     op_write32(c, XHCI_OP_USBCMD, USBCMD_RUN | USBCMD_INTE | USBCMD_HSEE);
@@ -1739,6 +1931,7 @@ static void xhci_init_ctrl(pci_device_t *pci) {
     }
 
     printf("[xhci] controller running\n");
+    printf("[xhci] stage 17: controller running\n");
     irq_state_t ctrl_flags = spinlock_irq_acquire(&g_ctrl_lock);
     if (g_ctrl_count < XHCI_MAX_CTRLS) {
         g_ctrl_bar[g_ctrl_count] = bar_phys;   //record BAR0 for dedup check
@@ -1804,7 +1997,9 @@ static void xhci_scan_controllers(void) {
 static void xhci_boot_worker(void *arg) {
     (void)arg;
 
+    printf("[xhci] boot worker: scanning controllers\n");
     xhci_scan_controllers();
+    printf("[xhci] boot worker: scan complete\n");
 }
 
 void xhci_start(void) {
