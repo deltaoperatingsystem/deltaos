@@ -33,6 +33,7 @@
 #define HHDM_OFFSET      0xFFFF800000000000ULL
 #define KHEAP_VIRT_START 0xFFFF900000000000ULL
 #define KHEAP_VIRT_END   0xFFFFA00000000000ULL
+#define ARCH_PMM_ZONE_MIN_ADDR 0x100000ULL
 
 typedef struct pagemap {
     uintptr top_level; //physical address of PML4
