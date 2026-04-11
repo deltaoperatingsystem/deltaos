@@ -8,8 +8,8 @@ A hobby desktop-oriented operating system for AMD64, written in C and x86 assemb
 - Preemptive multitasking with a RR scheduler
 - Virtual memory with paging
 - Dynamically linked userspace
-- Shell with basic commands (`ls`, `cat`, `echo`, `cd`, `pwd`)
-- Framebuffer graphics and a basic window manager (WIP)
+- Shell with basic commands (`dir`, `read`, `echo`, `cd`, `pwd`)
+- Framebuffer graphics and a window manager (WIP)
 
 ## Building
 
@@ -22,7 +22,6 @@ You need:
 
 ```bash
 make        # build everything
-make img    # create disk image
 make run    #run in QEMU
 ```
 
