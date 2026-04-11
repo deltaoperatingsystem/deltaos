@@ -14,6 +14,8 @@ OVMF_CODE=
 QEMU_NET_MODE="${QEMU_NET_MODE:-passt}"
 QEMU_USER_GUEST_IP="${QEMU_USER_GUEST_IP:-10.0.2.15}"
 QEMU_HOSTFWD="${QEMU_HOSTFWD:-tcp:127.0.0.1:8080-$QEMU_USER_GUEST_IP:80}"
+QEMU_HOSTFWD_PRIMARY_IPV6="${QEMU_HOSTFWD_PRIMARY_IPV6:-on}"
+QEMU_HOSTFWD_SECONDARY_IPV6="${QEMU_HOSTFWD_SECONDARY_IPV6:-off}"
 QEMU_BRIDGE="${QEMU_BRIDGE:-}"
 QEMU_TAP_IFACE="${QEMU_TAP_IFACE:-tap0}"
 QEMU_KERNEL_IRQCHIP="${QEMU_KERNEL_IRQCHIP:-}"
@@ -100,14 +102,14 @@ append_network_args() {
         if [[ "$QEMU_NET_MODE" == "passt" || "$QEMU_NET_MODE" == "auto" ]] && qemu_supports_passt_netdev; then
             print_step "using passt primary NIC plus user-mode forwarding NIC"
             append_rtl8139_netdev qemu_args_ref net0 passt,id=net0,ipv6=on
-            append_rtl8139_netdev qemu_args_ref net1 "user,id=net1,hostfwd=$QEMU_HOSTFWD,ipv6=off"
+            append_rtl8139_netdev qemu_args_ref net1 "user,id=net1,hostfwd=$QEMU_HOSTFWD,ipv6=$QEMU_HOSTFWD_SECONDARY_IPV6"
             echo "primary NIC: passt"
             echo "forwarding host port(s) via $QEMU_HOSTFWD on secondary NIC"
             return 0
         fi
 
         print_step "using QEMU user networking for host forwarding"
-        append_rtl8139_netdev qemu_args_ref net0 "user,id=net0,hostfwd=$QEMU_HOSTFWD,ipv6=off"
+        append_rtl8139_netdev qemu_args_ref net0 "user,id=net0,hostfwd=$QEMU_HOSTFWD,ipv6=$QEMU_HOSTFWD_PRIMARY_IPV6"
         echo "forwarding host port(s) via $QEMU_HOSTFWD"
         return 0
     fi
