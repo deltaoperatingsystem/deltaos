@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>DeltaOS</title>
+    <style>
+        :root {
+            --accent-colour: #1782FF;
+            --background-colour: #D6D6D6;
+            --gap: 10px;
+            --left-width: 60%;
+            --right-width: 40%;
+            --bevel-size: 10px;
+            --edge-colour: #bdbdbd;
+            --highlight: #ffffff;
+            --shadow: rgba(0, 0, 0, 0.12);
+            --titlebar-height: 72px;
+            --font-size-base: 32px;
+            --btn-font-size: 18px;
+            --box-padding: 28px;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            font-family: system-ui, Segoe UI, Roboto, Arial, sans-serif;
+            font-size: var(--font-size-base);
+        }
+
+        body {
+            background: var(--accent-colour);
+            color: #111;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: var(--left-width) var(--right-width);
+            gap: var(--gap);
+            padding: var(--gap);
+            box-sizing: border-box;
+            height: 100vh;
+        }
+
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: var(--gap);
+            overflow: auto;
+            padding: 12px;
+            box-sizing: border-box;
+        }
+
+        .box {
+            background: linear-gradient(180deg, #f8f8f8, #e6e6e6);
+            border: 1px solid var(--edge-colour);
+            padding: var(--box-padding);
+            box-sizing: border-box;
+            border-radius: 0;
+            box-shadow:
+                inset var(--bevel-size) var(--bevel-size) 0 rgba(0, 0, 0, 0.06),
+                inset calc(-1 * var(--bevel-size)) calc(-1 * var(--bevel-size)) 0 var(--highlight);
+            line-height: 1.35;
+        }
+
+        .titlebar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            padding: 10px 16px;
+            height: var(--titlebar-height);
+            min-height: var(--titlebar-height);
+            box-sizing: border-box;
+        }
+
+        .titlebar .actions {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 18px;
+            font-size: var(--btn-font-size);
+            color: #111;
+            text-decoration: none;
+            border: 1px solid var(--edge-colour);
+            background: linear-gradient(180deg, #f8f8f8, #e6e6e6);
+            box-shadow:
+                inset var(--bevel-size) var(--bevel-size) 0 rgba(0, 0, 0, 0.06),
+                inset calc(-1 * var(--bevel-size)) calc(-1 * var(--bevel-size)) 0 var(--highlight);
+            border-radius: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .btn:active {
+            box-shadow:
+                inset calc(var(--bevel-size) + 2px) calc(var(--bevel-size) + 2px) 0 rgba(0, 0, 0, 0.08),
+                inset calc(-1 * (var(--bevel-size) + 2px)) calc(-1 * (var(--bevel-size) + 2px)) 0 var(--highlight);
+        }
+
+        .titlebar .logo {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        .titlebar .logo img {
+            height: 44px;
+            width: auto;
+            display: block;
+        }
+
+        .tall {
+            min-height: 420px;
+        }
+
+        .medium {
+            min-height: 260px;
+        }
+
+        .small {
+            min-height: 120px;
+        }
+
+        @media (max-width:920px) {
+            :root {
+                --font-size-base: 18px;
+                --btn-font-size: 16px;
+                --box-padding: 20px;
+                --gap: 20px;
+                --titlebar-height: 64px;
+            }
+
+            .layout {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+
+            .titlebar {
+                flex-wrap: wrap;
+                height: auto;
+                padding: 14px;
+            }
+
+            .titlebar .logo {
+                width: 100%;
+                justify-content: flex-end;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="layout" aria-label="Main split layout">
+        <section class="column" aria-label="Left column">
+            <div class="box tall">blah blah blah</div>
+            <div class="box medium">blah blah blah</div>
+            <div class="box small">blah blah blah</div>
+        </section>
+
+        <aside class="column" aria-label="Right column">
+            <div class="box titlebar" role="navigation" aria-label="Application title bar">
+                <nav class="actions" aria-label="Primary actions">
+                    <a class="btn" href="#forum" role="button">Forum</a>
+                    <a class="btn" href="#github" role="button">GitHub</a>
+                    <a class="btn" href="#about" role="button">About</a>
+                </nav>
+
+                <div class="logo" aria-hidden="false" title="DeltaOS logo">
+                    <img src="favicon.ico" alt="DeltaOS logo">
+                </div>
+            </div>
+
+            <div class="box medium">blah blah blah</div>
+            <div class="box small">blah blah blah</div>
+        </aside>
+    </main>
+</body>
+
+</html>
