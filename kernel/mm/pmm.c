@@ -10,14 +10,12 @@ static uint8 *bitmap = NULL;
 static size bitmap_size = 0; //in bytes
 size max_pages = 0;
 
-#define PMM_ZONE_MIN_ADDR 0x100000ULL
-
 #define BITMAP_SET(bit)   (bitmap[(bit) / 8] |= (1 << ((bit) % 8)))
 #define BITMAP_CLEAR(bit) (bitmap[(bit) / 8] &= ~(1 << ((bit) % 8)))
 #define BITMAP_TEST(bit)  (bitmap[(bit) / 8] & (1 << ((bit) % 8)))
 
 static size last_free_page = 0;
-static size last_zone_free_page = PMM_ZONE_MIN_ADDR / PAGE_SIZE;
+static size last_zone_free_page = ARCH_PMM_ZONE_MIN_ADDR / PAGE_SIZE;
 size free_pages = 0;
 size total_usable_pages = 0;
 
@@ -317,7 +315,7 @@ void *pmm_alloc(size pages) {
 void *pmm_alloc_zone(size pages, uintptr max_addr) {
     size limit_page = max_addr / PAGE_SIZE;
     if (limit_page > max_pages) limit_page = max_pages;
-    size start_page = PMM_ZONE_MIN_ADDR / PAGE_SIZE;
+    size start_page = ARCH_PMM_ZONE_MIN_ADDR / PAGE_SIZE;
     if (start_page >= limit_page) return NULL;
 
     irq_state_t flags = spinlock_irq_acquire(&pmm_lock);
@@ -342,7 +340,7 @@ void pmm_free(void *ptr, size pages) {
     }
 
     if (start_bit < last_free_page) last_free_page = start_bit;
-    if (start_bit < last_zone_free_page && start_bit >= (PMM_ZONE_MIN_ADDR / PAGE_SIZE)) {
+    if (start_bit < last_zone_free_page && start_bit >= (ARCH_PMM_ZONE_MIN_ADDR / PAGE_SIZE)) {
         last_zone_free_page = start_bit;
     }
 
