@@ -23,8 +23,7 @@ static bool netif_has_ipv6_route(const netif_t *nif) {
 }
 
 static bool netif_is_configured(const netif_t *nif) {
-    return nif && (nif->gateway != 0 || nif->ip_addr != 0 || nif->dns_server != 0 ||
-                   netif_has_ipv6_route(nif));
+    return nif && (nif->gateway != 0 || netif_has_ipv6_route(nif));
 }
 
 static netif_t *net_pick_default_locked(void) {
