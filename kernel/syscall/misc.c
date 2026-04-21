@@ -20,7 +20,7 @@ fault:
     return -EFAULT;
 }
 
-static int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) {
+int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) {
     if (len == 0) return 0;
     if (!user_ptr || !kernel_buf) return -EFAULT;
 

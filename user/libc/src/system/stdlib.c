@@ -38,7 +38,15 @@ double atof(const char *s) {
 }
 
 char *getenv(const char *name) {
-    return NULL;
+    static char value[256];
+
+    //getenv is kept as acompatibility shim over the typed process context
+    if (!name) return NULL;
+    if (context_get_string(name, value, sizeof(value), NULL) < 0) {
+        return NULL;
+    }
+
+    return value;
 }
 
 int atexit(void (*function)(void)) {

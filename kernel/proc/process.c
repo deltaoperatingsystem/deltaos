@@ -116,6 +116,7 @@ process_t *process_create(const char *name) {
     //initialize current working directory to root
     proc->cwd[0] = '/';
     proc->cwd[1] = '\0';
+    proc_context_init(&proc->context);
     
     proc->pagemap = NULL;
     proc->threads = NULL;
@@ -164,6 +165,7 @@ void process_destroy(process_t *proc) {
         }
     }
     kfree(proc->handles);
+    proc_context_destroy(&proc->context);
     
     //free user address space if present
     if (proc->pagemap) {

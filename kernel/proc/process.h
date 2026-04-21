@@ -4,6 +4,7 @@
 #include <arch/types.h>
 #include <obj/object.h>
 #include <obj/rights.h>
+#include <proc/context.h>
 #include <proc/wait.h>
 #include <lib/spinlock.h>
 
@@ -45,6 +46,7 @@ typedef struct process {
     char name[32];
     char cwd[256];  //current working directory
     uint32 state;
+    proc_context_t context; //typed inherited runtime context
     
     //kernel object wrapper (for capability-based access)
     object_t *obj;

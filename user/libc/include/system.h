@@ -23,11 +23,37 @@ typedef int32 handle_t;
 //invalid handle sentinel
 #define INVALID_HANDLE      (-1)
 
+typedef enum {
+    CONTEXT_VALUE_STRING = 1,
+    CONTEXT_VALUE_I64 = 2,
+    CONTEXT_VALUE_U64 = 3,
+    CONTEXT_VALUE_BOOL = 4,
+    CONTEXT_VALUE_OBJECT = 5
+} context_value_type_t;
+
+#define CONTEXT_FLAG_INHERIT   (1u << 0)
+#define CONTEXT_FLAG_READONLY  (1u << 1)
+
+typedef struct {
+    const char *key;
+    uint32 type;
+    uint32 flags;
+    size value_len;
+    union {
+        const void *ptr;
+        int64 i64;
+        uint64 u64;
+        uint32 boolean;
+        handle_t handle;
+    } value;
+} context_spawn_entry_t;
+
 //process control
 void exit(int code);
 int64 getpid(void);
 void yield(void);
 int spawn(char *path, int argc, char **argv);
+int spawn_ctx(char *path, int argc, char **argv, const context_spawn_entry_t *entries, size entry_count);
 int wait(int pid);
 uint64 get_ticks(void);
 
@@ -174,6 +200,19 @@ typedef struct {
 } system_stats_t;
 
 int object_get_info(handle_t h, uint32 topic, void *ptr, uint64 len);
+
+//typed process context
+int context_set_string(const char *key, const char *value, uint32 flags);
+int context_set_i64(const char *key, int64 value, uint32 flags);
+int context_set_u64(const char *key, uint64 value, uint32 flags);
+int context_set_bool(const char *key, int value, uint32 flags);
+int context_set_handle(const char *key, handle_t h, uint32 flags);
+int context_get_string(const char *key, char *buf, size bufsize, uint32 *flags_out);
+int context_get_i64(const char *key, int64 *out_value, uint32 *flags_out);
+int context_get_u64(const char *key, uint64 *out_value, uint32 *flags_out);
+int context_get_bool(const char *key, int *out_value, uint32 *flags_out);
+int context_get_handle(const char *key, handle_t *out_h, uint32 *flags_out);
+int context_remove(const char *key);
 
 //networking
 #define IPV6_ADDR_LEN 16

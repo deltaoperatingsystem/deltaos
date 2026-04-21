@@ -10,6 +10,8 @@ intptr syscall_dispatch(uintptr num, uintptr arg1, uintptr arg2, uintptr arg3,
         case SYS_YIELD: return sys_yield();
         case SYS_DEBUG_WRITE: return sys_debug_write((const char *)arg1, (size)arg2);
         case SYS_SPAWN: return sys_spawn((const char *)arg1, (int)arg2, (char **)arg3);
+        case SYS_SPAWN_CTX: return sys_spawn_ctx((const char *)arg1, (int)arg2, (char **)arg3,
+                                                 (const context_spawn_entry_t *)arg4, (size)arg5);
         case SYS_GET_OBJ: return sys_get_obj((handle_t)arg1, (const char *)arg2, (handle_rights_t)arg3);
         case SYS_HANDLE_READ: return sys_handle_read((handle_t)arg1, (void *)arg2, (size)arg3);
         case SYS_HANDLE_WRITE: return sys_handle_write((handle_t)arg1, (const void *)arg2, (size)arg3);
@@ -57,6 +59,13 @@ intptr syscall_dispatch(uintptr num, uintptr arg1, uintptr arg2, uintptr arg3,
         case SYS_TCP_CONNECT: return sys_tcp_connect((uint32)arg1, (const void *)arg2, (uint32)arg3, (uint16)arg4);
         case SYS_TCP_LISTEN: return sys_tcp_listen((uint32)arg1, (const void *)arg2, (uint32)arg3, (uint16)arg4);
         case SYS_TCP_ACCEPT: return sys_tcp_accept((handle_t)arg1);
+        case SYS_CONTEXT_SET: return sys_context_set((const char *)arg1, (uint32)arg2,
+                                                     (const void *)arg3, (size)arg4, (uint32)arg5);
+        case SYS_CONTEXT_GET: return sys_context_get((const char *)arg1, (uint32)arg2,
+                                                     (void *)arg3, (size)arg4, (uint32 *)arg5);
+        case SYS_CONTEXT_SET_HANDLE: return sys_context_set_handle((const char *)arg1, (handle_t)arg2, (uint32)arg3);
+        case SYS_CONTEXT_GET_HANDLE: return sys_context_get_handle((const char *)arg1, (handle_t *)arg2, (uint32 *)arg3);
+        case SYS_CONTEXT_REMOVE: return sys_context_remove((const char *)arg1);
         
         default: return -1;
     }

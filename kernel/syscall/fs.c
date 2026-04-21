@@ -11,63 +11,7 @@
 #include <errno.h>
 #include <atomic.h>
 
-static __attribute__((noinline)) int write_user_byte(uint8 *ptr, uint8 value) {
-    percpu_t *cpu = percpu_get();
-    cpu->recovery_rip = (uintptr)&&fault;
-    atomic_signal_fence(memory_order_seq_cst);
-    *ptr = value;
-    atomic_signal_fence(memory_order_seq_cst);
-    cpu->recovery_rip = 0;
-    return 0;
-fault:
-    cpu->recovery_rip = 0;
-    return -EFAULT;
-}
-
 #define MAX_HANDLE_IO (1u << 20)
-
-static int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) {
-    if (len == 0) return 0;
-    if (!user_ptr || !kernel_buf) return -EFAULT;
-
-    uintptr dst_addr = (uintptr)user_ptr;
-    if (dst_addr < USER_SPACE_START || dst_addr >= USER_SPACE_END) return -EFAULT;
-    if (len > (size)(USER_SPACE_END - dst_addr)) return -EFAULT;
-
-    const uint8 *src = (const uint8 *)kernel_buf;
-    uint8 *dst = (uint8 *)user_ptr;
-    size i = 0;
-
-    while (i < len && ((uintptr)&dst[i] & (sizeof(uintptr) - 1))) {
-        if (write_user_byte(&dst[i], src[i]) != 0) return -EFAULT;
-        i++;
-    }
-
-    if (i + sizeof(uintptr) <= len) {
-        percpu_t *cpu = percpu_get();
-        cpu->recovery_rip = (uintptr)&&bulk_fault;
-
-        while (i + sizeof(uintptr) <= len) {
-            uintptr tmp = 0;
-            memcpy(&tmp, &src[i], sizeof(tmp));
-            *(uintptr *)&dst[i] = tmp;
-            i += sizeof(uintptr);
-        }
-
-        cpu->recovery_rip = 0;
-    }
-
-    while (i < len) {
-        if (write_user_byte(&dst[i], src[i]) != 0) return -EFAULT;
-        i++;
-    }
-
-    return 0;
-
-bulk_fault:
-    percpu_get()->recovery_rip = 0;
-    return -EFAULT;
-}
 
 intptr sys_handle_read(handle_t h, void *buf, size len) {
     if (!buf || len == 0) return -1;

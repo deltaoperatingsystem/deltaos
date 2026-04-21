@@ -1,7 +1,10 @@
+#include <system.h>
 #include <sys/syscall.h>
 
-// __syscall3(SYS_SPAWN, (long)"/initrd/init", 1, (long)(char*[]){"/initrd/init", NULL});
-
 int spawn(char *path, int argc, char **argv) {
-    return __syscall3(SYS_SPAWN, (long)path, argc, (long)argv);
+    return spawn_ctx(path, argc, argv, NULL, 0);
+}
+
+int spawn_ctx(char *path, int argc, char **argv, const context_spawn_entry_t *entries, size entry_count) {
+    return __syscall5(SYS_SPAWN_CTX, (long)path, argc, (long)argv, (long)entries, (long)entry_count);
 }

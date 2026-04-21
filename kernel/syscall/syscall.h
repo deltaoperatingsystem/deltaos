@@ -10,6 +10,7 @@
 #define SYS_GETPID          1
 #define SYS_YIELD           2
 #define SYS_SPAWN           4   //spawns a new process
+#define SYS_SPAWN_CTX       77  //spawn with per-child context overrides
 #define SYS_WAIT            47  //wait for process to exit
 #define SYS_PROCESS_CREATE  50  //create suspended process, returns handle
 #define SYS_HANDLE_GRANT    51  //inject handle into child process
@@ -44,6 +45,11 @@
 #define SYS_CHDIR           55  //change current working directory
 #define SYS_GETCWD          56  //get current working directory
 #define SYS_MOUNT           69  //mount a filesystem
+#define SYS_CONTEXT_SET     72  //set a typed process context entry
+#define SYS_CONTEXT_GET     73  //get a typed process context entry
+#define SYS_CONTEXT_SET_HANDLE 74 //capture a handle-backed process context entry
+#define SYS_CONTEXT_GET_HANDLE 75 //materialize a handle from a context entry
+#define SYS_CONTEXT_REMOVE  76  //remove a process context entry
 #define SYS_MKNODE          58  //create fs node
 #define SYS_REMOVE          59  //remove file or directory
 #define SYS_HANDLE_READ     6   //read from handle
@@ -141,6 +147,31 @@ typedef struct {
     uint32 sender_pid;   //PID of the process that sent this message (0 if kernel)
 } channel_recv_result_t;
 
+typedef enum {
+    CONTEXT_VALUE_STRING = 1,
+    CONTEXT_VALUE_I64 = 2,
+    CONTEXT_VALUE_U64 = 3,
+    CONTEXT_VALUE_BOOL = 4,
+    CONTEXT_VALUE_OBJECT = 5
+} context_value_type_t;
+
+#define CONTEXT_FLAG_INHERIT   (1u << 0)
+#define CONTEXT_FLAG_READONLY  (1u << 1)
+
+typedef struct {
+    const char *key;
+    uint32 type;
+    uint32 flags;
+    size value_len;
+    union {
+        const void *ptr;
+        int64 i64;
+        uint64 u64;
+        uint32 boolean;
+        handle_t handle;
+    } value;
+} context_spawn_entry_t;
+
 intptr syscall_dispatch(uintptr num, uintptr arg1, uintptr arg2, uintptr arg3,
                        uintptr arg4, uintptr arg5, uintptr arg6);
 
@@ -151,6 +182,8 @@ intptr sys_exit(intptr status);
 intptr sys_getpid(void);
 intptr sys_yield(void);
 intptr sys_spawn(const char *path, int argc, char **argv);
+intptr sys_spawn_ctx(const char *path, int argc, char **argv,
+                     const context_spawn_entry_t *entries, size entry_count);
 intptr sys_wait(uintptr pid);
 intptr sys_process_create(const char *name);
 intptr sys_handle_grant(handle_t proc_h, handle_t local_h, handle_rights_t rights);
@@ -197,9 +230,15 @@ intptr sys_dns_resolve_aaaa(const char *hostname, uint8 *ipv6_out);
 intptr sys_tcp_connect(uint32 family, const void *dst_addr, uint32 addr_len, uint16 port);
 intptr sys_tcp_listen(uint32 family, const void *local_addr, uint32 addr_len, uint16 port);
 intptr sys_tcp_accept(handle_t listen_h);
+intptr sys_context_set(const char *key, uint32 type, const void *value_ptr, size value_len, uint32 flags);
+intptr sys_context_get(const char *key, uint32 type, void *value_ptr, size value_len, uint32 *flags_out);
+intptr sys_context_set_handle(const char *key, handle_t h, uint32 flags);
+intptr sys_context_get_handle(const char *key, handle_t *out_h, uint32 *flags_out);
+intptr sys_context_remove(const char *key);
 
 //helper for safe user-space copies
 int copy_user_bytes(const void *user_ptr, void *kernel_buf, size len);
 int copy_user_cstr(const char *user_str, char *kernel_buf, size kernel_len);
+int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len);
 
 #endif

@@ -6,6 +6,7 @@
 #define SYS_YIELD           2
 #define SYS_DEBUG_WRITE     3
 #define SYS_SPAWN           4
+#define SYS_SPAWN_CTX       77
 #define SYS_GET_OBJ         5
 #define SYS_HANDLE_READ     6
 #define SYS_HANDLE_WRITE    7
@@ -50,6 +51,11 @@
 #define SYS_TCP_ACCEPT      68
 #define SYS_MOUNT           69
 #define SYS_DNS_RESOLVE_AAAA 71 //resolve hostname to IPv6 address (AAAA)
+#define SYS_CONTEXT_SET     72
+#define SYS_CONTEXT_GET     73
+#define SYS_CONTEXT_SET_HANDLE 74
+#define SYS_CONTEXT_GET_HANDLE 75
+#define SYS_CONTEXT_REMOVE  76
 
 #define SYS_MAX             256
 
