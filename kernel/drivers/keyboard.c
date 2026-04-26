@@ -8,6 +8,8 @@
 #include <proc/process.h>
 #include <proc/event.h>
 #include <proc/wait.h>
+#include <proc/thread.h>
+#include <proc/sched.h>
 #include <mm/kheap.h>
 #include <lib/string.h>
 #include <drivers/keyboard_protocol.h>
@@ -44,6 +46,10 @@
 //modifier state
 static uint8 mods = 0;
 static bool extended_prefix = false;
+static spinlock_irq_t ctrlc_lock = SPINLOCK_IRQ_INIT;
+static wait_queue_t ctrlc_wait;
+static uint64 ctrlc_pending_pid = 0;
+static bool ctrlc_worker_started = false;
 
 static const char scancodes_normal[128] = {
     0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', '\t',
@@ -151,6 +157,40 @@ static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
     spinlock_irq_release(&ch->lock, flags);
 }
 
+void keyboard_queue_interrupt(uint64 pid) {
+    irq_state_t flags;
+
+    if (pid == 0) return;
+
+    flags = spinlock_irq_acquire(&ctrlc_lock);
+    ctrlc_pending_pid = pid;
+    spinlock_irq_release(&ctrlc_lock, flags);
+    thread_wake_one(&ctrlc_wait);
+}
+
+//ctrl+c posts are deferred so IRQ context never takes process/event locks
+static void keyboard_ctrlc_worker(void *arg) {
+    (void)arg;
+
+    for (;;) {
+        irq_state_t flags = spinlock_irq_acquire(&ctrlc_lock);
+        while (ctrlc_pending_pid == 0) {
+            thread_sleep_locked_irq(&ctrlc_wait, &ctrlc_lock, &flags);
+        }
+        uint64 pid = ctrlc_pending_pid;
+        ctrlc_pending_pid = 0;
+        spinlock_irq_release(&ctrlc_lock, flags);
+
+        process_t *fg = process_find_ref(pid);
+        if (fg) {
+            proc_post_event(fg, PROC_EVENT_INTERRUPT);
+            process_unref(fg);
+        } else {
+            proc_clear_console_foreground_if_owner(pid);
+        }
+    }
+}
+
 void keyboard_irq(void) {
     irq_state_t flags = spinlock_irq_acquire(&ps2_lock);
     uint8 status = inb(KBD_STATUS);
@@ -216,13 +256,7 @@ void keyboard_irq(void) {
     }
 
     if (!released && (mods & KBD_MOD_CTRL) && (ascii == 'c' || ascii == 'C')) {
-        uint64 fg_pid = proc_get_console_foreground_pid();
-        if (fg_pid != 0) {
-            process_t *fg = process_find(fg_pid);
-            if (fg) {
-                proc_post_event(fg, PROC_EVENT_INTERRUPT);
-            }
-        }
+        keyboard_queue_interrupt(proc_get_console_foreground_pid());
     }
     
     //push to channel (for userspace/consumers)
@@ -230,6 +264,8 @@ void keyboard_irq(void) {
 }
 
 void keyboard_init(void) {
+    wait_queue_init(&ctrlc_wait);
+
     irq_state_t flags = spinlock_irq_acquire(&ps2_lock);
 
     //stop the keyboard from queueing more scan codes while we reconfigure the 8042
@@ -282,6 +318,24 @@ void keyboard_init(void) {
                 ns_register("$devices/keyboard/channel", client_obj);
             }
         }
+    }
+}
+
+void keyboard_start(void) {
+    irq_state_t flags = spinlock_irq_acquire(&ctrlc_lock);
+    if (ctrlc_worker_started) {
+        spinlock_irq_release(&ctrlc_lock, flags);
+        return;
+    }
+    ctrlc_worker_started = true;
+    spinlock_irq_release(&ctrlc_lock, flags);
+
+    process_t *kernel = process_get_kernel();
+    thread_t *thread = kernel ? thread_create(kernel, keyboard_ctrlc_worker, NULL) : NULL;
+    if (thread) {
+        sched_add(thread);
+    } else {
+        printf("[keyboard] failed to start Ctrl+C worker\n");
     }
 }
 

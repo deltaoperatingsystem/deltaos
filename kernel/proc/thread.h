@@ -16,6 +16,11 @@ struct process;
 #define THREAD_STATE_BLOCKED 2
 #define THREAD_STATE_DEAD    3
 
+typedef enum event_restore_slot {
+    EVENT_RESTORE_KERNEL_CTX = 0,
+    EVENT_RESTORE_USER_CONTEXT = 1
+} event_restore_slot_t;
+
 //thread structure
 typedef struct thread {
     uint64 tid;
@@ -64,7 +69,7 @@ typedef struct thread {
     //scheduler state
     int cpu_id;             //ID of CPU currently running this thread (-1 if none)
     int wait_cpu;           //CPU this thread blocked on (for targeted wakeups)
-    spinlock_t lock;        //thread-specific lock for state changes
+    spinlock_irq_t lock;    //thread-specific lock for state changes
 
     //linked list within process
     struct thread *next;

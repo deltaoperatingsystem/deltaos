@@ -223,11 +223,11 @@ static void schedule(void) {
     //the current thread. So the prev_thread is no longer using this CPU.
     if (pc->prev_thread) {
         thread_t *prev = (thread_t *)pc->prev_thread;
-        spinlock_acquire(&prev->lock);
+        irq_state_t prev_flags = spinlock_irq_acquire(&prev->lock);
         if (prev->cpu_id == (int)pc->cpu_index) {
             prev->cpu_id = -1;
         }
-        spinlock_release(&prev->lock);
+        spinlock_irq_release(&prev->lock, prev_flags);
         pc->prev_thread = NULL;
     }
 

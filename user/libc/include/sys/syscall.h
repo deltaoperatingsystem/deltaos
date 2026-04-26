@@ -1,70 +1,7 @@
 #ifndef __SYS_SYSCALL_H
 #define __SYS_SYSCALL_H
 
-#define SYS_EXIT            0
-#define SYS_GETPID          1
-#define SYS_YIELD           2
-#define SYS_DEBUG_WRITE     3
-#define SYS_SPAWN           4
-#define SYS_SPAWN_CTX       77
-#define SYS_GET_OBJ         5
-#define SYS_HANDLE_READ     6
-#define SYS_HANDLE_WRITE    7
-#define SYS_HANDLE_SEEK     8
-
-#define SYS_HANDLE_CLOSE    32
-#define SYS_HANDLE_DUP      33
-#define SYS_CHANNEL_CREATE  34
-#define SYS_CHANNEL_SEND    35
-#define SYS_CHANNEL_RECV    36
-#define SYS_VMO_CREATE      37
-#define SYS_VMO_READ        38
-#define SYS_VMO_WRITE       39
-#define SYS_VMO_MAP         40
-#define SYS_VMO_UNMAP       41
-#define SYS_NS_REGISTER     42
-#define SYS_STAT            43
-#define SYS_CHANNEL_TRY_RECV 44
-#define SYS_CHANNEL_RECV_MSG 45
-#define SYS_CHANNEL_TRY_RECV_MSG 46
-#define SYS_WAIT            47
-
-//capability-based process creation (Zircon-style)
-#define SYS_PROCESS_CREATE  50  //create suspended process, returns handle
-#define SYS_HANDLE_GRANT    51  //inject handle into child process
-#define SYS_PROCESS_START   52  //start initial thread in process
-#define SYS_VMO_RESIZE      53  //resize a VMO
-#define SYS_READDIR         54  //read directory entries
-#define SYS_CHDIR           55  //change current working directory
-#define SYS_GETCWD          56  //get current working directory
-#define SYS_GET_TICKS       57  //get timer ticks since boot
-#define SYS_MKNODE           58
-#define SYS_REMOVE          59
-#define SYS_FSTAT           60
-#define SYS_REBOOT          61
-#define SYS_SHUTDOWN        62
-#define SYS_OBJECT_GET_INFO 63
-#define SYS_PING            64
-#define SYS_DNS_RESOLVE     65
-#define SYS_TCP_CONNECT     66
-#define SYS_TCP_LISTEN      67
-#define SYS_TCP_ACCEPT      68
-#define SYS_MOUNT           69
-#define SYS_DNS_RESOLVE_AAAA 71 //resolve hostname to IPv6 address (AAAA)
-#define SYS_CONTEXT_SET     72
-#define SYS_CONTEXT_GET     73
-#define SYS_CONTEXT_SET_HANDLE 74
-#define SYS_CONTEXT_GET_HANDLE 75
-#define SYS_CONTEXT_REMOVE  76
-#define SYS_PROC_SEND_EVENT 78 //post an async event to another process
-#define SYS_PROC_SET_EVENT_HANDLER 79 //install a userspace async event handler
-#define SYS_PROC_MASK_EVENTS 80 //block selected events on the current thread
-#define SYS_PROC_UNMASK_EVENTS 81 //unblock selected events on the current thread
-#define SYS_PROC_GET_PENDING_EVENTS 82 //read current process pending event mask
-#define SYS_PROC_EVENT_RETURN 83 //return from a userspace event handler
-#define SYS_PROC_SET_CONSOLE_FOREGROUND 84 //set process receiving Ctrl+C interrupts
-
-#define SYS_MAX             256
+#include <sys/sysnums.h>
 
 /*
  *System V AMD64 syscall ABI:

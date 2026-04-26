@@ -96,6 +96,7 @@ static int process_apply_context_override(process_t *target, process_t *source,
     if (entry->type == CONTEXT_VALUE_OBJECT) {
         proc_handle_t *handle_entry = process_get_handle_entry(source, entry->value.handle);
         if (!handle_entry) return -1;
+        if (!rights_has(handle_entry->rights, HANDLE_RIGHT_DUPLICATE)) return -1;
 
         //capture the parent's current handle rights so the child receives the
         //same capability envelope when it materializes the entry later
@@ -308,7 +309,7 @@ static intptr sys_spawn_impl(const char *path, int argc, char **argv,
 }
 
 intptr sys_exit(intptr status) {
-    process_current()->exit_code = status;
+    process_exit(process_current(), (int)status);
     thread_exit();
     return 0;
 }
@@ -336,18 +337,20 @@ intptr sys_spawn_ctx(const char *path, int argc, char **argv,
 }
 
 intptr sys_wait(uintptr pid) {
-    process_t *proc = process_find(pid);
+    process_t *proc = process_find_ref(pid);
     if (!proc) return -1;
 
     while (proc->state != PROC_STATE_ZOMBIE && proc->state != PROC_STATE_DEAD) {
         thread_sleep(&proc->exit_wait);
 
-        proc = process_find(pid);
+        process_unref(proc);
+        proc = process_find_ref(pid);
         if (!proc) return -1;
     }
 
     int64 exit_code = proc->exit_code;
     process_destroy(proc);
+    process_unref(proc);
     return exit_code;
 }
 
@@ -411,9 +414,24 @@ intptr sys_process_start(handle_t proc_h, uintptr entry, uintptr stack) {
 }
 
 intptr sys_proc_send_event(uintptr pid, uint32 event) {
-    process_t *target = process_find(pid);
+    process_t *caller = process_current();
+    process_t *target;
+    intptr ret;
+
+    if (!caller) return -1;
+    target = process_find_ref(pid);
     if (!target) return -1;
-    return proc_post_event(target, event);
+
+    if (target->pid != caller->pid &&
+        target->parent_pid != caller->pid &&
+        caller->parent_pid != target->pid) {
+        process_unref(target);
+        return -1;
+    }
+
+    ret = proc_post_event(target, event);
+    process_unref(target);
+    return ret;
 }
 
 intptr sys_proc_set_event_handler(uint32 event, uintptr entry, uint32 flags) {
@@ -425,14 +443,18 @@ intptr sys_proc_set_event_handler(uint32 event, uintptr entry, uint32 flags) {
 intptr sys_proc_mask_events(uint64 mask) {
     thread_t *current = thread_current();
     if (!current) return -1;
+    irq_state_t flags = spinlock_irq_acquire(&current->lock);
     current->blocked_events |= (mask & PROC_EVENT_MASK_ALL);
+    spinlock_irq_release(&current->lock, flags);
     return 0;
 }
 
 intptr sys_proc_unmask_events(uint64 mask) {
     thread_t *current = thread_current();
     if (!current) return -1;
+    irq_state_t flags = spinlock_irq_acquire(&current->lock);
     current->blocked_events &= ~(mask & PROC_EVENT_MASK_ALL);
+    spinlock_irq_release(&current->lock, flags);
     return 0;
 }
 
@@ -447,21 +469,44 @@ intptr sys_proc_get_pending_events(uint64 *out_mask) {
 
 intptr sys_proc_event_return(void) {
     thread_t *current = thread_current();
-    if (!current || !current->in_event_handler) return -1;
+    if (!current) return -1;
 
-    if (current->event_restore_slot == 0) {
-        current->context = current->saved_event_context;
-    } else {
-        current->user_context = current->saved_event_context;
+    irq_state_t flags = spinlock_irq_acquire(&current->lock);
+    if (!current->in_event_handler) {
+        spinlock_irq_release(&current->lock, flags);
+        return -1;
     }
+    if (current->event_restore_slot != EVENT_RESTORE_KERNEL_CTX &&
+        current->event_restore_slot != EVENT_RESTORE_USER_CONTEXT) {
+        spinlock_irq_release(&current->lock, flags);
+        return -1;
+    }
+
+    if (current->event_restore_slot == EVENT_RESTORE_KERNEL_CTX) {
+        current->context = current->saved_event_context;
+    }
+    //syscall return always exits through user_context, including IRQ-delivered handlers
+    current->user_context = current->saved_event_context;
     current->blocked_events = current->saved_blocked_events;
     current->in_event_handler = 0;
     current->event_returning = 1;
+    spinlock_irq_release(&current->lock, flags);
     return 0;
 }
 
 intptr sys_proc_set_console_foreground(uintptr pid) {
     process_t *current = process_current();
+    process_t *target;
+
     if (!current) return -1;
+    if (pid != 0) {
+        target = process_find_ref(pid);
+        if (!target) return -1;
+        if (target->pid != current->pid && target->parent_pid != current->pid) {
+            process_unref(target);
+            return -1;
+        }
+        process_unref(target);
+    }
     return proc_set_console_foreground(current, pid);
 }

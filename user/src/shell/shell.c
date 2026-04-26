@@ -42,7 +42,7 @@ static void cmd_spawn(char *path) {
     if (child < 0) {
         printf("spawn: failed to start %s (error %d)\n", path, child);
     } else {
-        proc_set_console_foreground(child);
+        proc_set_console_foreground((uintptr)child);
         printf("spawn: started %s (PID %d)\n", path, child);
         int code = wait(child);
         proc_set_console_foreground(0);
@@ -110,7 +110,7 @@ static void process_command(char *line) {
             if (child < 0) {
                 printf("Unknown command: %s\n", cmd);
             } else {
-                proc_set_console_foreground(child);
+                proc_set_console_foreground((uintptr)child);
                 int code = wait(child);
                 proc_set_console_foreground(0);
                 shell_reset_terminal();
@@ -149,12 +149,14 @@ int main(int argc, char *argv[]) {
 
         //for ctrl+C in the shell f the line is empty do nothing otherwise erase the current input
         if ((ev.mods & KBD_MOD_CTRL) && (ev.codepoint == 'c' || ev.codepoint == 'C')) {
-            if (pos > 0) {
-                while (pos > 0) {
-                    pos--;
-                    puts("\b \b");
-                }
+            while (pos > 0) {
+                pos--;
+                puts("\b \b");
             }
+            continue;
+        }
+
+        if (ev.mods & (KBD_MOD_CTRL | KBD_MOD_ALT)) {
             continue;
         }
 

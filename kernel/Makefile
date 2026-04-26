@@ -6,7 +6,7 @@ CC := gcc
 NASM := nasm
 LD := ld
 
-CFLAGS := -Ilib -I. -DARCH_$(shell echo $(ARCH) | tr a-z A-Z) -std=c11 -ffreestanding -fno-stack-protector -fno-pic -m64 -mcmodel=kernel \
+CFLAGS := -Ilib -I. -I../include -DARCH_$(shell echo $(ARCH) | tr a-z A-Z) -std=c11 -ffreestanding -fno-stack-protector -fno-pic -m64 -mcmodel=kernel \
           -mno-red-zone \
           -mgeneral-regs-only \
           -Wall -Wextra -O2 -g

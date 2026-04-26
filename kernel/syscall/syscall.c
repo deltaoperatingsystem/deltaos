@@ -66,13 +66,13 @@ intptr syscall_dispatch(uintptr num, uintptr arg1, uintptr arg2, uintptr arg3,
         case SYS_CONTEXT_SET_HANDLE: return sys_context_set_handle((const char *)arg1, (handle_t)arg2, (uint32)arg3);
         case SYS_CONTEXT_GET_HANDLE: return sys_context_get_handle((const char *)arg1, (handle_t *)arg2, (uint32 *)arg3);
         case SYS_CONTEXT_REMOVE: return sys_context_remove((const char *)arg1);
-        case SYS_PROC_SEND_EVENT: return sys_proc_send_event(arg1, (uint32)arg2);
-        case SYS_PROC_SET_EVENT_HANDLER: return sys_proc_set_event_handler((uint32)arg1, arg2, (uint32)arg3);
+        case SYS_PROC_SEND_EVENT: return sys_proc_send_event((uintptr)arg1, (uint32)arg2);
+        case SYS_PROC_SET_EVENT_HANDLER: return sys_proc_set_event_handler((uint32)arg1, (uintptr)arg2, (uint32)arg3);
         case SYS_PROC_MASK_EVENTS: return sys_proc_mask_events((uint64)arg1);
         case SYS_PROC_UNMASK_EVENTS: return sys_proc_unmask_events((uint64)arg1);
         case SYS_PROC_GET_PENDING_EVENTS: return sys_proc_get_pending_events((uint64 *)arg1);
         case SYS_PROC_EVENT_RETURN: return sys_proc_event_return();
-        case SYS_PROC_SET_CONSOLE_FOREGROUND: return sys_proc_set_console_foreground(arg1);
+        case SYS_PROC_SET_CONSOLE_FOREGROUND: return sys_proc_set_console_foreground((uintptr)arg1);
         
         default: return -1;
     }

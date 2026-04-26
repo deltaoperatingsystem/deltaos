@@ -70,6 +70,10 @@ typedef struct process {
     
     int64 exit_code;
     wait_queue_t exit_wait;
+    //keeps raw process_t users stable after lookup until process_unref()
+    uint32 refcount;
+    //set once the process leaves process_list so new lookups ignore it
+    uint8 destroying;
 
     //process-wide pending async events and handler table
     proc_event_mask_t pending_events;
@@ -78,9 +82,10 @@ typedef struct process {
     //linked list for scheduler
     struct process *next;
 
+    //always acquire lock before event_lock when both are needed
     spinlock_t lock;
     //protects pending_events and event_actions
-    spinlock_t event_lock;
+    spinlock_irq_t event_lock;
 } process_t;
 
 //user address space bounds
@@ -89,6 +94,11 @@ typedef struct process {
 
 //find a process by PID
 process_t *process_find(uint64 pid);
+//returns a stable reference that must be released with process_unref()
+process_t *process_find_ref(uint64 pid);
+void process_ref(process_t *proc);
+void process_unref(process_t *proc);
+void process_exit(process_t *proc, int code);
 
 //create a new process
 process_t *process_create(const char *name);

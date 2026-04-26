@@ -58,7 +58,7 @@ thread_t *thread_create(process_t *proc, void (*entry)(void *), void *arg) {
     thread->state = THREAD_STATE_READY;
     thread->cpu_id = -1;
     thread->wait_cpu = -1;
-    spinlock_init(&thread->lock);
+    spinlock_irq_init(&thread->lock);
     
     //create kernel object for this thread
     thread->obj = object_create(OBJECT_THREAD, &thread_object_ops, thread);
@@ -128,9 +128,10 @@ void thread_destroy(thread_t *thread) {
     if (proc && proc->thread_count == 0 && proc->pid != 0) {
         proc->state = PROC_STATE_ZOMBIE;
         thread_wake_all(&proc->exit_wait);
-        process_t *parent = process_find(proc->parent_pid);
+        process_t *parent = process_find_ref(proc->parent_pid);
         if (parent) {
             proc_post_event(parent, PROC_EVENT_CHILD);
+            process_unref(parent);
         }
     }
 }
@@ -176,7 +177,7 @@ thread_t *thread_create_user(process_t *proc, void *entry, void *user_stack) {
     thread->state = THREAD_STATE_READY;
     thread->cpu_id = -1;
     thread->wait_cpu = -1;
-    spinlock_init(&thread->lock);
+    spinlock_irq_init(&thread->lock);
     
     //create kernel object for this thread
     thread->obj = object_create(OBJECT_THREAD, &thread_object_ops, thread);

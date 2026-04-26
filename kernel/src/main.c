@@ -22,6 +22,7 @@
 #include <fs/initrd.h>
 #include <kernel/elf64.h>
 #include <drivers/usb/xhci.h>
+#include <drivers/keyboard.h>
 #include <net/net.h>
 #include <fs/initrd.h>
 
@@ -298,6 +299,8 @@ void kernel_main(const char *cmdline) {
 
     //initialize scheduler (creates idle thread)
     sched_init();
+
+    keyboard_start();
 
     //defer xHCI controller bring-up so slow hardware waits don't block boot
     xhci_start();

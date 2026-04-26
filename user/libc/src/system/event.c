@@ -1,7 +1,7 @@
 #include <system.h>
 #include <sys/syscall.h>
 
-int proc_send_event(int pid, uint32 event) {
+int proc_send_event(uintptr pid, uint32 event) {
     return (int)__syscall2(SYS_PROC_SEND_EVENT, (long)pid, (long)event);
 }
 
@@ -25,6 +25,6 @@ int proc_event_return(void) {
     return (int)__syscall0(SYS_PROC_EVENT_RETURN);
 }
 
-int proc_set_console_foreground(int pid) {
+int proc_set_console_foreground(uintptr pid) {
     return (int)__syscall1(SYS_PROC_SET_CONSOLE_FOREGROUND, (long)pid);
 }

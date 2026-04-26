@@ -570,8 +570,11 @@ tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
         
         while (arch_timer_get_ticks() - start < timeout) {
             if (proc_current_should_abort_blocking()) {
+                //Do not send RST on local async abort; the peer will retransmit until timeout.
+                lock_flags = spinlock_irq_acquire(&tcp_lock);
                 conn->state = TCP_STATE_CLOSED;
                 conn->active = false;
+                spinlock_irq_release(&tcp_lock, lock_flags);
                 return NULL;
             }
             if (conn->state == TCP_STATE_ESTABLISHED) return conn;
@@ -588,8 +591,10 @@ tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
         }
     }
     
+    lock_flags = spinlock_irq_acquire(&tcp_lock);
     conn->state = TCP_STATE_CLOSED;
     conn->active = false;
+    spinlock_irq_release(&tcp_lock, lock_flags);
     return NULL;
 }
 
@@ -696,6 +701,10 @@ tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
     uint64 start = arch_timer_get_ticks();
     
     while (arch_timer_get_ticks() - start < timeout) {
+        if (proc_current_should_abort_blocking()) {
+            return NULL;
+        }
+
         //scan for connections on this port that completed handshake
         irq_state_t scan_flags = spinlock_irq_acquire(&tcp_lock);
         for (int i = 0; i < TCP_MAX_CONNECTIONS; i++) {

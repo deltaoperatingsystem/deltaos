@@ -49,5 +49,6 @@ int proc_current_should_abort_blocking(void);
 //console foreground owner receives keyboard-generated interrupt events
 int proc_set_console_foreground(struct process *caller, uint64 pid);
 uint64 proc_get_console_foreground_pid(void);
+void proc_clear_console_foreground_if_owner(uint64 pid);
 
 #endif

@@ -8,6 +8,7 @@
 #include <lib/string.h>
 #include <lib/io.h>
 #include <proc/sched.h>
+#include <proc/event.h>
 #include <lib/spinlock.h>
 #include <arch/percpu.h>
 #include <syscall/syscall.h>
@@ -20,6 +21,8 @@ static process_t *kernel_process = NULL;
 
 static spinlock_t proc_lock = SPINLOCK_INIT;
 static spinlock_t pid_lock = SPINLOCK_INIT;
+
+static void process_free(process_t *proc);
 
 //process object ops (called when all handles to a process are closed)
 static int process_obj_close(object_t *obj);
@@ -67,7 +70,47 @@ process_t *process_find(uint64 pid) {
     spinlock_acquire(&proc_lock);
     process_t *p = process_list;
     while (p) {
-        if (p->pid == pid) {
+        if (p->pid == pid && !p->destroying) {
+            spinlock_release(&proc_lock);
+            return p;
+        }
+        p = p->next;
+    }
+    spinlock_release(&proc_lock);
+    return NULL;
+}
+
+void process_ref(process_t *proc) {
+    if (!proc) return;
+
+    spinlock_acquire(&proc_lock);
+    proc->refcount++;
+    spinlock_release(&proc_lock);
+}
+
+void process_unref(process_t *proc) {
+    int do_free = 0;
+
+    if (!proc) return;
+
+    spinlock_acquire(&proc_lock);
+    if (proc->refcount > 0) {
+        proc->refcount--;
+    }
+    do_free = (proc->refcount == 0);
+    spinlock_release(&proc_lock);
+
+    if (do_free) {
+        process_free(proc);
+    }
+}
+
+process_t *process_find_ref(uint64 pid) {
+    spinlock_acquire(&proc_lock);
+    process_t *p = process_list;
+    while (p) {
+        if (p->pid == pid && !p->destroying) {
+            p->refcount++;
             spinlock_release(&proc_lock);
             return p;
         }
@@ -122,10 +165,12 @@ process_t *process_create(const char *name) {
     proc->threads = NULL;
     proc->thread_count = 0;
     proc->exit_code = 0;
+    proc->refcount = 1;
+    proc->destroying = 0;
     proc->pending_events = 0;
     wait_queue_init(&proc->exit_wait);
     spinlock_init(&proc->lock);
-    spinlock_init(&proc->event_lock);
+    spinlock_irq_init(&proc->event_lock);
     
     //add to process list
     spinlock_acquire(&proc_lock);
@@ -154,8 +199,31 @@ process_t *process_create_user_suspended(const char *name) {
     return proc;
 }
 
+static void process_free(process_t *proc) {
+    kfree(proc);
+}
+
 void process_destroy(process_t *proc) {
     if (!proc) return;
+
+    spinlock_acquire(&proc_lock);
+    if (proc->destroying) {
+        spinlock_release(&proc_lock);
+        return;
+    }
+    process_t **pp = &process_list;
+    while (*pp) {
+        if (*pp == proc) {
+            *pp = proc->next;
+            break;
+        }
+        pp = &(*pp)->next;
+    }
+    proc->destroying = 1;
+    proc->next = NULL;
+    spinlock_release(&proc_lock);
+
+    proc_clear_console_foreground_if_owner(proc->pid);
     
     //wake any threads waiting for this process to exit
     thread_wake_all(&proc->exit_wait);
@@ -202,25 +270,29 @@ void process_destroy(process_t *proc) {
         proc->pagemap = NULL;
     }
     
-    //remove from process list
-    spinlock_acquire(&proc_lock);
-    process_t **pp = &process_list;
-    while (*pp) {
-        if (*pp == proc) {
-            *pp = proc->next;
-            break;
-        }
-        pp = &(*pp)->next;
-    }
-    spinlock_release(&proc_lock);
-    
     //free the process object
     if (proc->obj) {
         proc->obj->data = NULL; //clear back-pointer
         object_deref(proc->obj);
     }
-    
-    kfree(proc);
+
+    process_unref(proc);
+}
+
+void process_exit(process_t *proc, int code) {
+    thread_t *thread;
+
+    if (!proc) return;
+
+    spinlock_acquire(&proc->lock);
+    proc->exit_code = code;
+    proc->state = PROC_STATE_ZOMBIE;
+    for (thread = proc->threads; thread; thread = thread->next) {
+        thread->state = THREAD_STATE_DEAD;
+    }
+    spinlock_release(&proc->lock);
+
+    thread_wake_all(&proc->exit_wait);
 }
 
 object_t *process_get_object(process_t *proc) {

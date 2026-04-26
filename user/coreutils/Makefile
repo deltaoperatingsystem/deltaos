@@ -3,7 +3,7 @@
 CC := gcc
 LD := ld
 
-CFLAGS := -ffreestanding -fno-builtin -fno-stack-protector -m64 -c -O2 -I../libc/include -std=c11 -fPIC
+CFLAGS := -ffreestanding -fno-builtin -fno-stack-protector -m64 -c -O2 -I../libc/include -I../../include -std=c11 -fPIC
 LDFLAGS := -nostdlib
 
 CRT0 := ../libc/src/crt0.o

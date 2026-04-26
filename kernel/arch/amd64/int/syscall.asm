@@ -96,7 +96,7 @@ syscall_entry_simple:
     mov rax, [rbp - 40]
     mov [rbx + CTX_R15], rax
 
-    ;RIP, RSP, rfals are not on a normal iret frame here so rebuild them from the values syscall gave us
+    ;RIP, RSP, rflags are not on a normal iret frame here so rebuild them from the values syscall gave us
     ;RCX R11 also have to be restored as general regs not syscall metadata
     mov rax, [rbp + 16]
     mov [rbx + CTX_RIP], rax

@@ -253,16 +253,17 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
         if (vector >= 0x40 && vector <= 0x47) {
             extern void nvme_isr_callback(uint64);
             nvme_isr_callback(vector);
-            return;
+            goto interrupt_epilogue;
         } else if (vector == XHCI_MSI_VECTOR) {
             xhci_irq();
-            return;
+            goto interrupt_epilogue;
         }
 
         if (!handled && irq < 16) {
             printf("Unhandled IRQ: 0x%X (vector 0x%X)\n", irq + 32, vector);
         }
 
+interrupt_epilogue:
         if (from_usermode) {
             thread_t *current = thread_current();
             if (current) {

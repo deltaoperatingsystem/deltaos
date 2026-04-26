@@ -37,6 +37,8 @@ typedef enum {
 
 #define PROC_EVENT_BIT(event) (1ULL << (event))
 
+//async event handlers must call proc_event_return() to resume interrupted user state
+//do not use a normal return from the handler
 typedef void (*proc_event_handler_t)(uint32 event);
 
 typedef enum {
@@ -73,13 +75,13 @@ int spawn_ctx(char *path, int argc, char **argv, const context_spawn_entry_t *en
 int wait(int pid);
 uint64 get_ticks(void);
 //process async event control
-int proc_send_event(int pid, uint32 event);
+int proc_send_event(uintptr pid, uint32 event);
 int proc_set_event_handler(uint32 event, proc_event_handler_t handler, uint32 flags);
 int proc_mask_events(proc_event_mask_t mask);
 int proc_unmask_events(proc_event_mask_t mask);
 int proc_get_pending_events(proc_event_mask_t *out_mask);
 int proc_event_return(void);
-int proc_set_console_foreground(int pid);
+int proc_set_console_foreground(uintptr pid);
 
 //capability-based process creation (Zircon-style)
 int32 process_create(const char *name);              //create suspended process, returns handle

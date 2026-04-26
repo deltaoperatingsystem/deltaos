@@ -71,28 +71,31 @@ static int proc_context_ensure_capacity_locked(proc_context_t *ctx) {
 //slot for the key or appends one fresh entry at the end of the array
 static proc_context_entry_t *proc_context_reserve_entry_locked(proc_context_t *ctx, const char *key, uint32 flags) {
     proc_context_entry_t *entry = proc_context_find_locked(ctx, key);
+    size key_len = strlen(key) + 1;
+    char *key_copy;
+
     if (entry) {
         if (entry->flags & PROC_CONTEXT_FLAG_READONLY) {
             return NULL;
         }
-
-        //replacing an entry always tears down the previous payload first so we
-        //cannot accidentally leak a stale object ref or heap string
-        proc_context_release_entry(entry);
     } else {
         if (proc_context_ensure_capacity_locked(ctx) != 0) return NULL;
+    }
+
+    key_copy = kmalloc(key_len);
+    if (!key_copy) {
+        return NULL;
+    }
+    memcpy(key_copy, key, key_len);
+
+    if (entry) {
+        proc_context_release_entry(entry);
+    } else {
         entry = &ctx->entries[ctx->count++];
         memset(entry, 0, sizeof(*entry));
     }
 
-    size key_len = strlen(key) + 1;
-    entry->key = kmalloc(key_len);
-    if (!entry->key) {
-        memset(entry, 0, sizeof(*entry));
-        return NULL;
-    }
-
-    memcpy(entry->key, key, key_len);
+    entry->key = key_copy;
     entry->flags = flags & PROC_CONTEXT_FLAG_VALID_MASK;
     return entry;
 }

@@ -1,6 +1,7 @@
 #include <syscall/syscall.h>
 #include <proc/process.h>
 #include <proc/context.h>
+#include <obj/rights.h>
 #include <mm/kheap.h>
 #include <lib/string.h>
 
@@ -140,6 +141,7 @@ intptr sys_context_set_handle(const char *key, handle_t h, uint32 flags) {
 
     entry = process_get_handle_entry(proc, h);
     if (!entry) return -1;
+    if (!rights_has(entry->rights, HANDLE_RIGHT_DUPLICATE)) return -1;
 
     //the context stores the object plus its rights snapshot so inheritance
     //keeps the same capability envelope without eagerly minting child handles

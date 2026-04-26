@@ -1,4 +1,5 @@
 #include <drivers/hid.h>
+#include <drivers/keyboard.h>
 #include <drivers/keyboard_protocol.h>
 #include <drivers/mouse_protocol.h>
 #include <drivers/usb/usb.h>
@@ -6,6 +7,7 @@
 #include <obj/namespace.h>
 #include <obj/object.h>
 #include <mm/kheap.h>
+#include <proc/event.h>
 #include <proc/wait.h>
 #include <lib/io.h>
 #include <lib/string.h>
@@ -519,6 +521,10 @@ static void hid_push_key(uint8 keycode, uint8 mods, uint8 pressed) {
     ev->pressed   = pressed;
     ev->_pad      = 0;
     ev->codepoint = (uint32)(unsigned char)ascii;
+
+    if (pressed && (mods & KBD_MOD_CTRL) && (ascii == 'c' || ascii == 'C')) {
+        keyboard_queue_interrupt(proc_get_console_foreground_pid());
+    }
 
     push_to_channel(ep, ev, sizeof(kbd_event_t));
 }
