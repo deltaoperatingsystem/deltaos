@@ -116,6 +116,9 @@ channel_endpoint_t *channel_get_endpoint(process_t *proc, int32 handle) {
 
 int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     if (!proc || !msg) return -1;
+    if (!process_handle_has_rights(proc, endpoint_handle, HANDLE_RIGHT_WRITE)) {
+        return -8;
+    }
     
     channel_endpoint_t *ep = channel_get_endpoint(proc, endpoint_handle);
     if (!ep) return -1;
@@ -289,6 +292,9 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
 
 int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     if (!proc || !msg) return -1;
+    if (!process_handle_has_rights(proc, endpoint_handle, HANDLE_RIGHT_READ)) {
+        return -4;
+    }
     
     channel_endpoint_t *ep = channel_get_endpoint(proc, endpoint_handle);
     if (!ep) return -1;
@@ -380,6 +386,9 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
 
 int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     if (!proc || !msg) return -1;
+    if (!process_handle_has_rights(proc, endpoint_handle, HANDLE_RIGHT_READ)) {
+        return -4;
+    }
     
     channel_endpoint_t *ep = channel_get_endpoint(proc, endpoint_handle);
     if (!ep) return -1;

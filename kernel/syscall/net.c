@@ -9,16 +9,7 @@
 #include <mm/kheap.h>
 #include <arch/percpu.h>
 
-static int read_user_byte(const uint8 *ptr, uint8 *out) {
-    percpu_t *cpu = percpu_get();
-    cpu->recovery_rip = (uintptr)&&fault;
-    *out = *ptr;
-    cpu->recovery_rip = 0;
-    return 0;
-fault:
-    cpu->recovery_rip = 0;
-    return -1;
-}
+#include <arch/mmu.h>
 
 int copy_user_bytes(const void *user_ptr, void *kernel_buf, size len) {
     if (!user_ptr || !kernel_buf) return -1;
@@ -27,10 +18,9 @@ int copy_user_bytes(const void *user_ptr, void *kernel_buf, size len) {
     if (start < USER_SPACE_START || start >= USER_SPACE_END) return -1;
     if (len > (size)(USER_SPACE_END - start)) return -1;
 
-    const uint8 *src = (const uint8 *)user_ptr;
-    uint8 *dst = (uint8 *)kernel_buf;
-    for (size i = 0; i < len; i++) {
-        if (read_user_byte(&src[i], &dst[i]) != 0) return -1;
+    percpu_t *cpu = percpu_get();
+    if (mmu_copy_from_user(kernel_buf, user_ptr, len, &cpu->recovery_rip, (uintptr)mmu_user_access_fault) != 0) {
+        return -1;
     }
 
     return 0;
@@ -40,19 +30,22 @@ int copy_user_cstr(const char *user_str, char *kernel_buf, size kernel_len) {
     if (!user_str || !kernel_buf || kernel_len == 0) return -1;
     if ((uintptr)user_str < USER_SPACE_START || (uintptr)user_str >= USER_SPACE_END) return -1;
 
+    percpu_t *cpu = percpu_get();
     size i = 0;
     while (i + 1 < kernel_len) {
         uintptr addr = (uintptr)&user_str[i];
-        if (addr >= USER_SPACE_END) return -1;
+        if (addr >= USER_SPACE_END) break;
 
-        uint8 c;
-        if (read_user_byte((const uint8 *)&user_str[i], &c) != 0) return -1;
+        char c;
+        if (mmu_copy_from_user(&c, &user_str[i], 1, &cpu->recovery_rip, (uintptr)mmu_user_access_fault) != 0) {
+            break;
+        }
         
-        kernel_buf[i++] = (char)c;
+        kernel_buf[i++] = c;
         if (c == '\0') return 0;
     }
 
-    kernel_buf[kernel_len - 1] = '\0';
+    kernel_buf[i] = '\0';
     return -1;
 }
 

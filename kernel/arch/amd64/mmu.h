@@ -59,6 +59,11 @@ pagemap_t *mmu_pagemap_create(void);
 void mmu_pagemap_destroy(pagemap_t *map);
 uintptr mmu_kvtop(void *virt);
 
+//user memory access helpers
+int mmu_copy_to_user(void *dst, const void *src, size len, volatile uintptr *recovery_ptr, uintptr recovery_addr);
+int mmu_copy_from_user(void *dst, const void *src, size len, volatile uintptr *recovery_ptr, uintptr recovery_addr);
+void mmu_user_access_fault(void);
+
 //debug
 void mmu_debug_walk(pagemap_t *map, uintptr virt, const char *label);
 

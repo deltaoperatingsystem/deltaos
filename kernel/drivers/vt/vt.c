@@ -492,7 +492,7 @@ void vt_putc(vt_t *vt, char c) {
 static void vt_write_locked(vt_t *vt, const char *s, size len) {
     if (!vt || !s) return;
     for (size i = 0; i < len; i++) {
-        if (s[i] == '\e') {
+        if (s[i] == '\033') {
             if (i + 1 >= len) break;
 
             char mode = s[++i];

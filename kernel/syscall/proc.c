@@ -383,6 +383,7 @@ intptr sys_handle_grant(handle_t proc_h, handle_t local_h, handle_rights_t right
 
     object_t *proc_obj = process_get_handle(current, proc_h);
     if (!proc_obj || proc_obj->type != OBJECT_PROCESS) return -2;
+    if (!process_handle_has_rights(current, proc_h, HANDLE_RIGHT_WRITE)) return -5;
 
     process_t *target = (process_t *)proc_obj->data;
     if (!target) return -3;
@@ -402,6 +403,7 @@ intptr sys_process_start(handle_t proc_h, uintptr entry, uintptr stack) {
 
     object_t *proc_obj = process_get_handle(current, proc_h);
     if (!proc_obj || proc_obj->type != OBJECT_PROCESS) return -2;
+    if (!process_handle_has_rights(current, proc_h, HANDLE_RIGHT_EXECUTE)) return -5;
 
     process_t *target = (process_t *)proc_obj->data;
     if (!target) return -3;

@@ -5,5 +5,5 @@ void* malloc(size n) {
 }
 
 void free(void* p) {
-    return kfree(p);
+    kfree(p);
 }

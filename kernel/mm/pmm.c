@@ -173,7 +173,7 @@ void pmm_init(void) {
             }
         }
     }
-skip_kernel_reserve:
+skip_kernel_reserve:;
 
     //reserve the boot info structure and all tags (the tags region)
     struct db_boot_info *info = db_get_boot_info();

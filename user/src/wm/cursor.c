@@ -9,25 +9,25 @@ typedef struct {
 } cursor_row_t;
 
 static const cursor_row_t cursor_data[CURSOR_HEIGHT] = {
-    { 0b100000000000, 0b000000000000 },  //X
-    { 0b110000000000, 0b010000000000 },  //XW
-    { 0b111000000000, 0b011000000000 },  //XWW
-    { 0b111100000000, 0b011100000000 },  //XWWW
-    { 0b111110000000, 0b011110000000 },  //XWWWW
-    { 0b111111000000, 0b011111000000 },  //XWWWWW
-    { 0b111111100000, 0b011111100000 },  //XWWWWWW
-    { 0b111111110000, 0b011111110000 },  //XWWWWWWW
-    { 0b111111111000, 0b011111111000 },  //XWWWWWWWW
-    { 0b111111111100, 0b011111111100 },  //XWWWWWWWWW
-    { 0b111111111110, 0b011111111110 },  //XWWWWWWWWWW
-    { 0b111111111111, 0b011111000000 },  //XWWWWWXXXXXX
-    { 0b111011100000, 0b011011100000 },  //XWWXWWW
-    { 0b111001110000, 0b010001110000 },  //XWX.XWW
-    { 0b110001110000, 0b000001110000 },  //XX..XWW
-    { 0b100000111000, 0b000000111000 },  //X....XWW
-    { 0b000000111000, 0b000000111000 },  //.....XWW
-    { 0b000000011100, 0b000000011100 },  //......XWW
-    { 0b000000011000, 0b000000000000 },  //......XX
+    { 0x800, 0x000 },  //X
+    { 0xC00, 0x400 },  //XW
+    { 0xE00, 0x600 },  //XWW
+    { 0xF00, 0x700 },  //XWWW
+    { 0xF80, 0x780 },  //XWWWW
+    { 0xFC0, 0x7C0 },  //XWWWWW
+    { 0xFE0, 0x7E0 },  //XWWWWWW
+    { 0xFF0, 0x7F0 },  //XWWWWWWW
+    { 0xFF8, 0x7F8 },  //XWWWWWWWW
+    { 0xFFC, 0x7FC },  //XWWWWWWWWW
+    { 0xFFE, 0x7FE },  //XWWWWWWWWWW
+    { 0xFFF, 0x7C0 },  //XWWWWWXXXXXX
+    { 0xEE0, 0x6E0 },  //XWWXWWW
+    { 0xE70, 0x470 },  //XWX.XWW
+    { 0xC70, 0x070 },  //XX..XWW
+    { 0x838, 0x038 },  //X....XWW
+    { 0x038, 0x038 },  //.....XWW
+    { 0x01C, 0x01C },  //......XWW
+    { 0x018, 0x000 },  //......XX
 };
 
 //get cursor dimensions

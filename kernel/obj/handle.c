@@ -220,6 +220,7 @@ ssize handle_read(handle_t h, void *buf, size len) {
     
     proc_handle_t *entry = process_get_handle_entry(proc, h);
     if (!entry) return -2;
+    if (!rights_has(entry->rights, HANDLE_RIGHT_READ)) return -4;
     if (!entry->obj->ops || !entry->obj->ops->read) return -3;
     
     ssize result = entry->obj->ops->read(entry->obj, buf, len, entry->offset);
@@ -235,6 +236,7 @@ ssize handle_write(handle_t h, const void *buf, size len) {
     
     proc_handle_t *entry = process_get_handle_entry(proc, h);
     if (!entry) return -1;
+    if (!rights_has(entry->rights, HANDLE_RIGHT_WRITE)) return -2;
     if (!entry->obj->ops || !entry->obj->ops->write) return -1;
     
     ssize result = entry->obj->ops->write(entry->obj, buf, len, entry->offset);
@@ -250,6 +252,8 @@ ssize handle_seek(handle_t h, ssize offset, int whence) {
     
     proc_handle_t *entry = process_get_handle_entry(proc, h);
     if (!entry) return -1;
+    if (!rights_has(entry->rights, HANDLE_RIGHT_READ) &&
+        !rights_has(entry->rights, HANDLE_RIGHT_WRITE)) return -2;
     
     switch (whence) {
         case SEEK_SET:
@@ -284,6 +288,7 @@ int handle_readdir(handle_t h, void *entries, uint32 count) {
     
     proc_handle_t *entry = process_get_handle_entry(proc, h);
     if (!entry) return -1;
+    if (!rights_has(entry->rights, HANDLE_RIGHT_READ)) return -2;
     if (!entry->obj->ops || !entry->obj->ops->readdir) return -1;
     
     uint32 index = (uint32)entry->offset;
@@ -375,8 +380,11 @@ int handle_fstat(handle_t h, stat_t *st) {
     process_t *proc = get_handle_owner();
     if (!proc) return -1;
     
-    object_t *obj = process_get_handle(proc, h);
-    if (!obj) return -1;
+    proc_handle_t *entry = process_get_handle_entry(proc, h);
+    if (!entry) return -1;
+    if (!rights_has(entry->rights, HANDLE_RIGHT_GET_INFO)) return -2;
+    
+    object_t *obj = entry->obj;
     
     int result = -1;
     if (obj->ops && obj->ops->stat) {

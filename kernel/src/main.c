@@ -38,7 +38,7 @@ static int spawn_init(void) {
     } else {
         snprintf(path, sizeof(path), "$files/%s", init_path);
     }
-    handle_t h = handle_open(path, HANDLE_RIGHT_READ);
+    handle_t h = handle_open(path, HANDLE_RIGHT_READ | HANDLE_RIGHT_GET_INFO);
     if (h == INVALID_HANDLE) {
         printf("[init] failed to open %s\n", path);
         free(init_path);
@@ -123,7 +123,7 @@ static int spawn_init(void) {
         }
 
         //load interpreter
-        handle_t ih = handle_open(interp_fullpath, HANDLE_RIGHT_READ);
+        handle_t ih = handle_open(interp_fullpath, HANDLE_RIGHT_READ | HANDLE_RIGHT_GET_INFO);
         if (ih == INVALID_HANDLE) {
             printf("[init] failed to open interpreter: %s\n", interp_fullpath);
             process_destroy(proc);

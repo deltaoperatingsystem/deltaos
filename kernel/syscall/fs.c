@@ -94,6 +94,8 @@ intptr sys_readdir(handle_t h, dirent_t *entries, uint32 count, uint32 *index) {
     
     process_t *proc = process_current();
     if (!proc) return -1;
+
+    if (!process_handle_has_rights(proc, h, HANDLE_RIGHT_READ)) return -4;
     
     object_t *obj = process_get_handle(proc, h);
     if (!obj) return -2;

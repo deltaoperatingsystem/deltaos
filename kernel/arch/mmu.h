@@ -30,6 +30,11 @@
  * mmu_pagemap_create() - create a new address space (pagemap)
  * mmu_pagemap_destroy(map) - destroy an address space
  *
+ * user memory access:
+ * mmu_copy_to_user(dst, src, len, recovery_ptr, recovery_addr)
+ * mmu_copy_from_user(dst, src, len, recovery_ptr, recovery_addr)
+ * mmu_user_access_fault() - assembly entry point for fault recovery
+ *
  * required types:
  * pagemap_t - structure representing an address space (page tables)
  *

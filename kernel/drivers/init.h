@@ -15,7 +15,7 @@ typedef void (*driver_init_func_t)(void);
 
 #define DECLARE_DRIVER(func, level) \
     __attribute__((used, section(".driver_init." level))) \
-    static driver_init_func_t __driver_init_entry_##func = func;
+    static driver_init_func_t __driver_init_entry_##func = func
 
 void init_drivers(void);
 

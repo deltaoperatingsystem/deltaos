@@ -29,7 +29,7 @@ void arch_timer_setfreq(uint32 hz) {
     if (hz == 0) return;
     timer_freq = hz;
     uint16 div = (uint16)(PIT_BASE / hz);
-    outb(PIT_CMD, 0b00110110);
+    outb(PIT_CMD, 0x36);
     outb(PIT_CH0, div & 0xFF);
     outb(PIT_CH0, (div >> 8) & 0xFF);
 }

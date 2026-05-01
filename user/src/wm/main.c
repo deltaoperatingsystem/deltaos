@@ -22,11 +22,11 @@ size screen_width = 1280;
 size screen_height = 800;
 size screen_bpp = sizeof(uint32);
 
-#define ASSERT(expr, msg, ...) do { if (expr) { dprintf("\033[31m[wm]: ERROR: "); dprintf(msg, ##__VA_ARGS__); dprintf("\033[0m"); exit(1); } } while (0)
-#define ERROR(msg, ...) do { dprintf("\033[31m[wm]: ERROR: "); dprintf(msg, ##__VA_ARGS__); dprintf("\033[0m"); } while (0)
-#define WARN(msg, ...) do { if (debug == true) { dprintf("\033[33m[wm]: WARN: "); dprintf(msg, ##__VA_ARGS__); dprintf("\033[0m"); } } while (0)
-#define INFO(msg, ...) do { if (debug == true) { dprintf("[wm]: INFO: "); dprintf(msg, ##__VA_ARGS__); } } while (0)
-#define LOG_ERR_RET(expr, msg, ...) do { if (expr) { dprintf("\033[31m[wm]: ERROR: "); dprintf(msg, ##__VA_ARGS__); dprintf("\033[0m"); return -1; } } while (0)
+#define ASSERT(expr, ...) do { if (expr) { dprintf("\033[31m[wm]: ERROR: "); dprintf(__VA_ARGS__); dprintf("\033[0m"); exit(1); } } while (0)
+#define ERROR(...) do { dprintf("\033[31m[wm]: ERROR: "); dprintf(__VA_ARGS__); dprintf("\033[0m"); } while (0)
+#define WARN(...) do { if (debug == true) { dprintf("\033[33m[wm]: WARN: "); dprintf(__VA_ARGS__); dprintf("\033[0m"); } } while (0)
+#define INFO(...) do { if (debug == true) { dprintf("[wm]: INFO: "); dprintf(__VA_ARGS__); } } while (0)
+#define LOG_ERR_RET(expr, ...) do { if (expr) { dprintf("\033[31m[wm]: ERROR: "); dprintf(__VA_ARGS__); dprintf("\033[0m"); return -1; } } while (0)
 
 static inline int max(int a, int b) {
     return (a > b) ? a : b;
@@ -576,7 +576,7 @@ void kbind_test(void) {
     spawn("/system/binaries/app", 0, NULL);
 }
 
-keybind_t keybinds[] = (keybind_t[]){
+keybind_t keybinds[] = {
     { KBD_MOD_ALT, 'm', kbind_exit },
     { KBD_MOD_ALT, '\t', kbind_cycle },
     { KBD_MOD_ALT | KBD_MOD_SHIFT, 'Q', kbind_kill },

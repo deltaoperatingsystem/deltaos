@@ -9,7 +9,7 @@ INCLUDES	= -Ilib -Iboot/uefi -Isrc
 BOOT_CFLAGS	= -Wall -Wextra -std=c11 \
 			  -ffreestanding -fno-stack-protector \
 			  -fno-stack-check -fshort-wchar \
-			  -mno-red-zone -nostdinc \
+			  -mno-red-zone -nostdinc -pedantic \
 			  $(INCLUDES)
 
 BOOT_LDFLAGS = -nostdlib -Wl,-dll -shared \
