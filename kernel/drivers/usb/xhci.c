@@ -224,8 +224,8 @@ static void xhci_free_controller_resources(xhci_ctrl_t *c) {
     }
 }
 
-static void xhci_stop_controller(xhci_ctrl_t *c) {
-    if (!c) return;
+static bool xhci_stop_controller(xhci_ctrl_t *c) {
+    if (!c) return true;
 
     //stop software polling first so no kernel thread keeps touching rings
     //while the controller is being halted for cleanup
@@ -241,9 +241,11 @@ static void xhci_stop_controller(xhci_ctrl_t *c) {
     uint32 cmd = op_read32(c, XHCI_OP_USBCMD);
     op_write32(c, XHCI_OP_USBCMD, cmd & ~(USBCMD_RUN | USBCMD_INTE | USBCMD_HSEE));
     for (uint32 elapsed = 0; elapsed < 1000; elapsed++) {
-        if (op_read32(c, XHCI_OP_USBSTS) & USBSTS_HCH) break;
+        if (op_read32(c, XHCI_OP_USBSTS) & USBSTS_HCH) return true;
         sleep(1);
     }
+
+    return (op_read32(c, XHCI_OP_USBSTS) & USBSTS_HCH) != 0;
 }
 
 static void xhci_zero_64b_regs_quirk(xhci_ctrl_t *c, uint32 max_intrs) {
@@ -2050,7 +2052,10 @@ static void xhci_init_ctrl(pci_device_t *pci) {
             printf("[xhci] event polling fallback enabled\n");
         } else {
             printf("[xhci] ERR: event polling fallback unavailable\n");
-            xhci_stop_controller(c);
+            if (!xhci_stop_controller(c)) {
+                printf("[xhci] ERR: controller failed to halt; leaving DMA rings allocated\n");
+                return;
+            }
             xhci_free_controller_resources(c);
             kfree(c);
             return;

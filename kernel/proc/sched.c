@@ -314,6 +314,7 @@ static void schedule(void) {
 
     //if current is runnable, move it back to run queue unless its process exited
     sched_requeue_or_dead(pc, current);
+    next = pc->run_queue_head ? pc->run_queue_head : pc->idle_thread;
 
     //drop any queued threads whose process is already dead
     //the scheduler may see them before wait/reap has cleaned them up
@@ -388,6 +389,7 @@ void sched_preempt(void) {
     }
 
     sched_requeue_or_dead(pc, current);
+    next = pc->run_queue_head ? pc->run_queue_head : pc->idle_thread;
 
     //skip stale runnable entries from processes already marked dead
     //preemption only updates scheduler state, so cleanup is deferred
