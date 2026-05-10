@@ -306,9 +306,9 @@ static void rtl8139_init_device(pci_device_t *pci) {
 
     //read MAC address
     rtl8139_read_mac(dev);
-    printf("[rtl8139] MAC: ");
-    net_print_mac(dev->mac);
-    printf("\n");
+    char mac_buf[18];
+    net_format_mac(dev->mac, mac_buf, sizeof(mac_buf));
+    printf("[rtl8139] MAC: %s\n", mac_buf);
 
     //setup buffers
     if (rtl8139_setup_rx(dev) != 0 || rtl8139_setup_tx(dev) != 0) {

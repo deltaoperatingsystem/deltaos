@@ -215,7 +215,7 @@
 
 //MSI-X
 #define PCI_CAP_MSIX            0x11
-#define XHCI_MSI_VECTOR         0x49    //interrupt vector for xHCI event ring (avoid NVMe 0x40-0x48)
+#define XHCI_MSI_VECTOR         0x70    //interrupt vector for xHCI event ring, outside NVMe MSI-X windows
 
 //ring sizing
 #define XHCI_CMD_RING_SIZE      32      //command ring TRBs (last = link)

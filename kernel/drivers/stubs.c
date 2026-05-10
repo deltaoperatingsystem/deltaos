@@ -59,7 +59,7 @@ WEAK void pci_enable_io(pci_device_t *dev) { (void)dev; }
 //NVmE stubs
 WEAK void nvme_init(void) {}
 WEAK void nvme_msix_handler(nvme_ctrl_t *ctrl, uint16 qid) { (void)ctrl; (void)qid; }
-WEAK void nvme_isr_callback(uint64 vector) { (void)vector; }
+WEAK bool nvme_isr_callback(uint64 vector) { (void)vector; return false; }
 
 //serial stubs
 WEAK void serial_init(void) {}

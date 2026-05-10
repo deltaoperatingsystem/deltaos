@@ -254,9 +254,9 @@ void ndp_recv(netif_t *nif, const uint8 src[NET_IPV6_ADDR_LEN],
         if (!ipv6_addr_equal(ns->target, nif->ipv6_addr)) return;
         if (ipv6_addr_is_unspecified(src)) return;
 
-        printf("[ndp] Neighbor solicitation from ");
-        net_print_ipv6(src);
-        printf(", replying\n");
+        char src_buf[40];
+        net_format_ipv6(src, src_buf, sizeof(src_buf));
+        printf("[ndp] Neighbor solicitation from %s, replying\n", src_buf);
         ndp_send_advert(nif, src);
     } else if (icmp->type == ICMPV6_TYPE_ROUTER_ADVERT) {
         if (len < sizeof(ndp_ra_t)) return;
@@ -279,9 +279,9 @@ void ndp_recv(netif_t *nif, const uint8 src[NET_IPV6_ADDR_LEN],
         if (opt) {
             ndp_cache_update(src, opt->addr);
         }
-        printf("[ndp] Router advertisement from ");
-        net_print_ipv6(src);
-        printf(", gateway learned\n");
+        char src_buf[40];
+        net_format_ipv6(src, src_buf, sizeof(src_buf));
+        printf("[ndp] Router advertisement from %s, gateway learned\n", src_buf);
     } else if (icmp->type == ICMPV6_TYPE_NEIGHBOR_ADVERT) {
         if (len < sizeof(ndp_na_t)) return;
         const ndp_na_t *na = (const ndp_na_t *)data;
@@ -291,11 +291,11 @@ void ndp_recv(netif_t *nif, const uint8 src[NET_IPV6_ADDR_LEN],
         if (!opt) return;
 
         ndp_cache_update(na->target, opt->addr);
-        printf("[ndp] Neighbor advertisement: ");
-        net_print_ipv6(na->target);
-        printf(" is ");
-        net_print_mac(opt->addr);
-        printf("\n");
+        char target_buf[40];
+        char mac_buf[18];
+        net_format_ipv6(na->target, target_buf, sizeof(target_buf));
+        net_format_mac(opt->addr, mac_buf, sizeof(mac_buf));
+        printf("[ndp] Neighbor advertisement: %s is %s\n", target_buf, mac_buf);
     }
 
     (void)dst;

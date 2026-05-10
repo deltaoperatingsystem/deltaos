@@ -80,8 +80,8 @@ static ssize fb_obj_write(object_t *obj, const void *buf, size len, size offset)
     
     memcpy(target + offset, buf, len);
     
-    //auto-flip when writing from start (full frame write)
-    if (offset == 0 && backbuffer) fb_flip();
+    //auto-flip after a complete frame write, including row-at-a-time writers
+    if (offset + len >= fb_size && backbuffer) fb_flip();
     
     return len;
 }

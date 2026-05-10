@@ -74,5 +74,8 @@ void net_print_mac(const uint8 *mac);
 void net_print_ip(uint32 ip);
 void net_print_ipv6(const uint8 *addr);
 void net_print_addr(const net_addr_t *addr);
+void net_format_mac(const uint8 *mac, char *buf, size buflen);
+void net_format_ip(uint32 ip, char *buf, size buflen);
+void net_format_ipv6(const uint8 *addr, char *buf, size buflen);
 
 #endif

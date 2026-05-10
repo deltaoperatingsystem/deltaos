@@ -287,9 +287,9 @@ void *kmalloc(size n) {
     }
 
     //when large allocation allocate pages directly with header
-    size total = n + sizeof(kheap_large_t);
-    //ensure returned pointer is aligned to KHEAP_MIN_ALIGN
-    total = (total + KHEAP_MIN_ALIGN - 1) & ~(KHEAP_MIN_ALIGN - 1);
+    //the returned pointer is aligned after the header, so include that padding in the backing size
+    size data_off = (sizeof(kheap_large_t) + KHEAP_MIN_ALIGN - 1) & ~(KHEAP_MIN_ALIGN - 1);
+    size total = data_off + n;
     size pages = (total + PAGE_SIZE - 1) / PAGE_SIZE;
 
     kheap_large_t *large = (kheap_large_t *)backing_alloc(pages);
@@ -304,8 +304,7 @@ void *kmalloc(size n) {
     current_large_used += n;
 
     //return aligned pointer after header
-    uintptr data = (uintptr)large + sizeof(kheap_large_t);
-    data = (data + KHEAP_MIN_ALIGN - 1) & ~(KHEAP_MIN_ALIGN - 1);
+    uintptr data = (uintptr)large + data_off;
     
     spinlock_irq_release(&kheap_lock, flags);
     return (void *)data;

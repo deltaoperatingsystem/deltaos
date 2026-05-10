@@ -80,12 +80,12 @@ void net_register_netif(netif_t *nif) {
     }
     spinlock_irq_release(&netif_lock, flags);
     
-    printf("[net] Interface %s registered, MAC: ", nif->name);
-    net_print_mac(nif->mac);
-    printf("\n");
-    printf("[net] Interface %s IPv6 link-local: ", nif->name);
-    net_print_ipv6(nif->ipv6_addr);
-    printf("\n");
+    char mac_buf[18];
+    char ipv6_buf[40];
+    net_format_mac(nif->mac, mac_buf, sizeof(mac_buf));
+    net_format_ipv6(nif->ipv6_addr, ipv6_buf, sizeof(ipv6_buf));
+    printf("[net] Interface %s registered, MAC: %s\n", nif->name, mac_buf);
+    printf("[net] Interface %s IPv6 link-local: %s\n", nif->name, ipv6_buf);
 }
 
 netif_t *net_get_default_netif(void) {
@@ -150,12 +150,12 @@ static void net_boot_worker(void *arg) {
             }
         }
 
-        printf("[net] %s configured: ", nif->name);
-        net_print_ip(nif->ip_addr);
-        printf("\n");
-        printf("[net] %s IPv6: ", nif->name);
-        net_print_ipv6(nif->ipv6_addr);
-        printf("/%u\n", nif->ipv6_prefix_len);
+        char ip_buf[16];
+        char ipv6_buf[40];
+        net_format_ip(nif->ip_addr, ip_buf, sizeof(ip_buf));
+        net_format_ipv6(nif->ipv6_addr, ipv6_buf, sizeof(ipv6_buf));
+        printf("[net] %s configured: %s\n", nif->name, ip_buf);
+        printf("[net] %s IPv6: %s/%u\n", nif->name, ipv6_buf, nif->ipv6_prefix_len);
 
         if (nif->up) {
             ndp_discover_router(nif);
@@ -217,20 +217,50 @@ void net_init(void) {
 }
 
 void net_print_mac(const uint8 *mac) {
-    printf("%02x:%02x:%02x:%02x:%02x:%02x",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    char buf[18];
+    net_format_mac(mac, buf, sizeof(buf));
+    printf("%s", buf);
 }
 
 void net_print_ip(uint32 ip) {
-    uint8 *b = (uint8 *)&ip;
-    printf("%u.%u.%u.%u", b[0], b[1], b[2], b[3]);
+    char buf[16];
+    net_format_ip(ip, buf, sizeof(buf));
+    printf("%s", buf);
 }
 
 void net_print_ipv6(const uint8 *addr) {
+    char buf[40];
+    net_format_ipv6(addr, buf, sizeof(buf));
+    printf("%s", buf);
+}
+
+void net_format_mac(const uint8 *mac, char *buf, size buflen) {
+    if (!buf || buflen == 0) return;
+    snprintf(buf, buflen, "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+void net_format_ip(uint32 ip, char *buf, size buflen) {
+    if (!buf || buflen == 0) return;
+    uint8 *b = (uint8 *)&ip;
+    snprintf(buf, buflen, "%u.%u.%u.%u", b[0], b[1], b[2], b[3]);
+}
+
+void net_format_ipv6(const uint8 *addr, char *buf, size buflen) {
+    if (!buf || buflen == 0) return;
+    size pos = 0;
+    buf[0] = '\0';
+
     for (int i = 0; i < NET_IPV6_ADDR_LEN; i += 2) {
         uint16 part = ((uint16)addr[i] << 8) | addr[i + 1];
-        if (i > 0) printf(":");
-        printf("%x", part);
+        if (i > 0 && pos < buflen) {
+            int n = snprintf(buf + pos, buflen - pos, ":");
+            if (n > 0) pos += (size)n;
+        }
+        if (pos < buflen) {
+            int n = snprintf(buf + pos, buflen - pos, "%x", part);
+            if (n > 0) pos += (size)n;
+        }
     }
 }
 
@@ -265,9 +295,9 @@ void net_test(void) {
         return;
     }
     
-    printf("[net] Sending ping to gateway ");
-    net_print_ip(nif->gateway);
-    printf("...\n");
+    char gateway_buf[16];
+    net_format_ip(nif->gateway, gateway_buf, sizeof(gateway_buf));
+    printf("[net] Sending ping to gateway %s...\n", gateway_buf);
     
     icmp_send_echo(nif, nif->gateway, 1, 1, "DeltaOS", 7);
 }

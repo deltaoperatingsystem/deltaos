@@ -137,6 +137,10 @@ typedef struct {
 #define PCI_CAP_ID_MSIX 0x11
 
 #define NVME_MAX_IO_QUEUES 8
+#define NVME_MAX_CONTROLLERS 4
+#define NVME_MSIX_VECTOR_BASE 0x40
+#define NVME_MSIX_VECTOR_STRIDE (1 + NVME_MAX_IO_QUEUES)
+#define NVME_MSIX_VECTOR_LIMIT (NVME_MSIX_VECTOR_BASE + NVME_MAX_CONTROLLERS * NVME_MSIX_VECTOR_STRIDE)
 
 typedef struct {
     nvme_sqe_t  *sq;
@@ -181,12 +185,14 @@ struct nvme_ctrl {
     //MSI-X 
     uint16      msix_cap_ptr;
     msix_table_entry_t *msix_table;
+    uint8       msix_vector_base;
+    uint8       msix_vector_count;
     uint64      int_count;
     uint32      ctrl_idx;
 };
 
 void nvme_init(void);
 void nvme_msix_handler(nvme_ctrl_t *ctrl, uint16 qid);
-void nvme_isr_callback(uint64 vector);
+bool nvme_isr_callback(uint64 vector);
 
 #endif

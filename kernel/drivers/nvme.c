@@ -21,7 +21,7 @@
 
 #define NVME_QUEUE_SIZE 64
 
-static nvme_ctrl_t *ctrls[4];
+static nvme_ctrl_t *ctrls[NVME_MAX_CONTROLLERS];
 static uint32 ctrl_count = 0;
 
 static ssize nvme_read_op(object_t *obj, void *buf, size len, size offset);
@@ -65,13 +65,19 @@ void nvme_msix_handler(nvme_ctrl_t *ctrl, uint16 qid) {
     }
 }
 
-void nvme_isr_callback(uint64 vector) {
-    if (vector < 0x40 || vector > 0x47) return;
-    uint16 qid = vector - 0x40;
-    
+bool nvme_isr_callback(uint64 vector) {
     for (uint32 i = 0; i < ctrl_count; i++) {
-        if (ctrls[i]) nvme_msix_handler(ctrls[i], qid);
+        nvme_ctrl_t *ctrl = ctrls[i];
+        if (!ctrl || !ctrl->msix_vector_count) continue;
+
+        uint64 base = ctrl->msix_vector_base;
+        uint64 limit = base + ctrl->msix_vector_count;
+        if (vector >= base && vector < limit) {
+            nvme_msix_handler(ctrl, (uint16)(vector - base));
+            return true;
+        }
     }
+    return false;
 }
 
 static void nvme_write32(nvme_ctrl_t *ctrl, uint32 reg, uint32 val) {
@@ -503,9 +509,13 @@ static int nvme_enable_msix(nvme_ctrl_t *ctrl) {
     vmm_kernel_map((uintptr)ctrl->msix_table, phys, 1, MMU_FLAG_WRITE | MMU_FLAG_NOCACHE);
 
     uint32 num_vectors = 1 + NVME_MAX_IO_QUEUES;
+    uint32 vector_base = NVME_MSIX_VECTOR_BASE + ctrl->ctrl_idx * NVME_MSIX_VECTOR_STRIDE;
+    ctrl->msix_vector_base = (uint8)vector_base;
+    ctrl->msix_vector_count = (uint8)num_vectors;
+
     for (uint32 i = 0; i < num_vectors; i++) {
         irq_msi_msg_t msg;
-        if (irq_compose_msi(0x40 + i, &msg) < 0) return -1;
+        if (irq_compose_msi(vector_base + i, &msg) < 0) return -1;
 
         ctrl->msix_table[i].msg_addr_low = msg.addr_lo;
         ctrl->msix_table[i].msg_addr_high = msg.addr_hi;
@@ -516,7 +526,8 @@ static int nvme_enable_msix(nvme_ctrl_t *ctrl) {
     uint16 msg_ctrl = pci_config_read(pci->bus, pci->dev, pci->func, ctrl->msix_cap_ptr + 2, 2);
     pci_config_write(pci->bus, pci->dev, pci->func, ctrl->msix_cap_ptr + 2, 2, msg_ctrl | (1 << 15));
 
-    printf("[nvme] MSI-X enabled (%u vectors starting at 0x40)\n", num_vectors);
+    printf("[nvme] MSI-X enabled (%u vectors 0x%02X-0x%02X)\n",
+           num_vectors, vector_base, vector_base + num_vectors - 1);
     return 0;
 }
 
@@ -552,7 +563,7 @@ static int nvme_blkdev_write(blkdev_t *dev, uint64 lba, uint32 count, const void
 }
 
 static void nvme_init_ctrl(pci_device_t *pci) {
-    if (ctrl_count >= 4) return;
+    if (ctrl_count >= NVME_MAX_CONTROLLERS) return;
     
     nvme_ctrl_t *ctrl = kzalloc(sizeof(nvme_ctrl_t));
     if (!ctrl) return;
