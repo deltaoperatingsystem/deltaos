@@ -10,6 +10,7 @@
 #include <drivers/vt/vt.h>
 #include <drivers/rtl8139.h>
 #include <drivers/usb/xhci.h>
+#include <drivers/sb16.h>
 
 #define WEAK __attribute__((weak))
 
@@ -114,3 +115,8 @@ WEAK void rtl8139_poll(void) {}
 //xHCI stubs
 WEAK void xhci_start(void) {}
 WEAK void xhci_irq(void) {}
+
+//SB16 stubs
+WEAK void sb16_init(void) {}
+WEAK void sb16_start(void) {}
+WEAK void sb16_tick(void) {}

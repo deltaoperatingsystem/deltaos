@@ -1,4 +1,5 @@
 #include <proc/event.h>
+#include <proc/bottom_half.h>
 #include <proc/process.h>
 #include <proc/thread.h>
 
@@ -126,6 +127,11 @@ int proc_deliver_pending(thread_t *thread) {
 
 void proc_prepare_syscall_return(thread_t *thread, intptr retval) {
     if (!thread) return;
+
+    //drain a bounded amount of deferred kernel work before rebuilding the
+    //outgoing user frame so bottom halves can post events or finish
+    //device-side follow-up without needing a kernel thread
+    bottom_half_run_budget(16);
 
     //if this syscall is proc_event_return() it already restored the saved
     //userspace context do not overwrite its original RAX with this syscalls 0

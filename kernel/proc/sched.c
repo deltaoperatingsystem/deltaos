@@ -10,6 +10,7 @@
 #include <lib/spinlock.h>
 #include <arch/percpu.h>
 #include <arch/smp.h>
+#include <proc/bottom_half.h>
 
 #define KERNEL_STACK_SIZE 16384  //16KB
 
@@ -79,6 +80,10 @@ static void idle_thread_entry(void *arg) {
     (void)arg;
     
     for (;;) {
+        //we run a small batch of deferred IRQ follow-up before halting so drivers
+        //that schedule bottom halves can still make progress even when the
+        //system is otherwise idle or only running kernel code
+        bottom_half_run_budget(32);
         arch_halt();
         sched_yield();
     }

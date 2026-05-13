@@ -19,6 +19,7 @@ QEMU_HOSTFWD_SECONDARY_IPV6="${QEMU_HOSTFWD_SECONDARY_IPV6:-off}"
 QEMU_BRIDGE="${QEMU_BRIDGE:-}"
 QEMU_TAP_IFACE="${QEMU_TAP_IFACE:-tap0}"
 QEMU_KERNEL_IRQCHIP="${QEMU_KERNEL_IRQCHIP:-}"
+QEMU_DISPLAY_BACKEND="${QEMU_DISPLAY_BACKEND:-auto}"
 
 print_step() {
     echo -e "==> $1"
@@ -51,6 +52,51 @@ detect_bridge_name() {
 
 qemu_supports_passt_netdev() {
     command -v passt >/dev/null 2>&1 && qemu-system-x86_64 -netdev help 2>/dev/null | grep -q '^passt$'
+}
+
+qemu_supports_display_backend() {
+    local backend=$1
+    qemu-system-x86_64 -display help 2>/dev/null | awk 'NR > 1 {print $1}' | grep -qx "$backend"
+}
+
+choose_display_spec() {
+    local backend="$QEMU_DISPLAY_BACKEND"
+
+    if [[ "$backend" != "auto" ]]; then
+        if qemu_supports_display_backend "$backend"; then
+            case "$backend" in
+                (gtk|sdl)
+                    echo "$backend,gl=off"
+                    ;;
+                (*)
+                    echo "$backend"
+                    ;;
+            esac
+            return 0
+        fi
+
+        echo "error: requested QEMU display backend '$backend' is unavailable."
+        exit 1
+    fi
+
+    #qemu's GTK frontend can freeze the visible window when SB16 audio is
+    #playing even while the guest itself keeps running, so we prefer SDL here
+    if qemu_supports_display_backend sdl; then
+        echo "sdl,gl=off"
+        return 0
+    fi
+
+    if qemu_supports_display_backend spice-app; then
+        echo "spice-app"
+        return 0
+    fi
+
+    if qemu_supports_display_backend gtk; then
+        echo "gtk,gl=off"
+        return 0
+    fi
+
+    echo none
 }
 
 append_rtl8139_netdev() {
@@ -237,6 +283,7 @@ create_disk_image() {
 run_qemu() {
     print_step "launching qemu"
     local machine_spec="q35"
+    local display_spec
     if [[ "$QEMU_KERNEL_IRQCHIP" == "off" ]]; then
         machine_spec="q35,kernel_irqchip=off"
         echo "    kernel IRQ chip disabled"
@@ -246,10 +293,13 @@ run_qemu() {
         accel_spec="-accel tcg"
         echo "    using TCG because KVM does not support userspace APIC here"
     fi
+    display_spec=$(choose_display_spec)
+    echo "    display backend: $display_spec"
     local QEMU_ARGS=(
         -machine "$machine_spec"
         -cpu qemu64
         -m 512M
+        -display "$display_spec"
         -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
         -drive "file=$DISK_IMG,format=raw"
         -drive "file=$NVME_IMG,format=raw,if=none,id=nvm"
@@ -259,6 +309,8 @@ run_qemu() {
         -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0 
         -no-reboot
         -no-shutdown
+        -device sb16
+        -device adlib
     )
     QEMU_ARGS+=("$accel_spec")
 
@@ -275,7 +327,11 @@ run_qemu() {
         QEMU_ARGS+=(-drive "if=pflash,format=raw,file=$ROOT_DIR/ovmf_vars.fd")
     fi
 
-    GDK_BACKEND=x11 qemu-system-x86_64 "${QEMU_ARGS[@]}"
+    if [[ "$display_spec" == gtk* ]]; then
+        GDK_BACKEND=x11 qemu-system-x86_64 "${QEMU_ARGS[@]}"
+    else
+        qemu-system-x86_64 "${QEMU_ARGS[@]}"
+    fi
 }
 
 find_ovmf() {

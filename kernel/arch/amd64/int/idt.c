@@ -4,6 +4,7 @@
 #include <arch/mmu.h>
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
+#include <drivers/sb16.h>
 #include <drivers/rtl8139.h>
 #include <drivers/vt/vt.h>
 #include <drivers/nvme.h>
@@ -20,6 +21,7 @@
 #include <proc/process.h>
 #include <proc/thread.h>
 #include <proc/event.h>
+#include <proc/bottom_half.h>
 
 struct idt_entry {
 	uint16    isr_low;      // The lower 16 bits of the ISR's address
@@ -279,6 +281,7 @@ interrupt_epilogue:
 
 interrupt_epilogue_no_eoi:
         if (from_usermode) {
+            bottom_half_run_budget(16);
             thread_t *current = thread_current();
             if (current) {
                 proc_deliver_pending(current);

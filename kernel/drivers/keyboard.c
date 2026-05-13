@@ -7,9 +7,7 @@
 #include <ipc/channel.h>
 #include <proc/process.h>
 #include <proc/event.h>
-#include <proc/wait.h>
-#include <proc/thread.h>
-#include <proc/sched.h>
+#include <proc/bottom_half.h>
 #include <mm/kheap.h>
 #include <lib/string.h>
 #include <drivers/keyboard_protocol.h>
@@ -47,9 +45,9 @@
 static uint8 mods = 0;
 static bool extended_prefix = false;
 static spinlock_irq_t ctrlc_lock = SPINLOCK_IRQ_INIT;
-static wait_queue_t ctrlc_wait;
 static uint64 ctrlc_pending_pid = 0;
-static bool ctrlc_worker_started = false;
+static bottom_half_handle_t ctrlc_bh = BOTTOM_HALF_INVALID_HANDLE;
+static void keyboard_ctrlc_bottom_half(void *arg);
 
 static const char scancodes_normal[128] = {
     0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', '\t',
@@ -165,33 +163,36 @@ void keyboard_queue_interrupt(uint64 pid) {
     flags = spinlock_irq_acquire(&ctrlc_lock);
     if (ctrlc_pending_pid == 0) {
         ctrlc_pending_pid = pid;
-        spinlock_irq_release(&ctrlc_lock, flags);
-        thread_wake_one(&ctrlc_wait);
-        return;
     }
     spinlock_irq_release(&ctrlc_lock, flags);
+
+    if (ctrlc_bh != BOTTOM_HALF_INVALID_HANDLE) {
+        bottom_half_raise(ctrlc_bh);
+    }
 }
 
 //ctrl+c posts are deferred so IRQ context never takes process/event locks
-static void keyboard_ctrlc_worker(void *arg) {
+static void keyboard_ctrlc_bottom_half(void *arg) {
+    irq_state_t flags;
+    uint64 pid;
+
     (void)arg;
 
-    for (;;) {
-        irq_state_t flags = spinlock_irq_acquire(&ctrlc_lock);
-        while (ctrlc_pending_pid == 0) {
-            thread_sleep_locked_irq(&ctrlc_wait, &ctrlc_lock, &flags);
-        }
-        uint64 pid = ctrlc_pending_pid;
-        ctrlc_pending_pid = 0;
-        spinlock_irq_release(&ctrlc_lock, flags);
+    flags = spinlock_irq_acquire(&ctrlc_lock);
+    pid = ctrlc_pending_pid;
+    ctrlc_pending_pid = 0;
+    spinlock_irq_release(&ctrlc_lock, flags);
 
-        process_t *fg = process_find_ref(pid);
-        if (fg) {
-            proc_post_event(fg, PROC_EVENT_INTERRUPT);
-            process_unref(fg);
-        } else {
-            proc_clear_console_foreground_if_owner(pid);
-        }
+    if (pid == 0) {
+        return;
+    }
+
+    process_t *fg = process_find_ref(pid);
+    if (fg) {
+        proc_post_event(fg, PROC_EVENT_INTERRUPT);
+        process_unref(fg);
+    } else {
+        proc_clear_console_foreground_if_owner(pid);
     }
 }
 
@@ -268,8 +269,6 @@ void keyboard_irq(void) {
 }
 
 void keyboard_init(void) {
-    wait_queue_init(&ctrlc_wait);
-
     irq_state_t flags = spinlock_irq_acquire(&ps2_lock);
 
     //stop the keyboard from queueing more scan codes while we reconfigure the 8042
@@ -326,23 +325,9 @@ void keyboard_init(void) {
 }
 
 void keyboard_start(void) {
-    irq_state_t flags = spinlock_irq_acquire(&ctrlc_lock);
-    if (ctrlc_worker_started) {
-        spinlock_irq_release(&ctrlc_lock, flags);
-        return;
-    }
-    ctrlc_worker_started = true;
-    spinlock_irq_release(&ctrlc_lock, flags);
-
-    process_t *kernel = process_get_kernel();
-    thread_t *thread = kernel ? thread_create(kernel, keyboard_ctrlc_worker, NULL) : NULL;
-    if (thread) {
-        sched_add(thread);
-    } else {
-        flags = spinlock_irq_acquire(&ctrlc_lock);
-        ctrlc_worker_started = false;
-        spinlock_irq_release(&ctrlc_lock, flags);
-        printf("[keyboard] failed to start Ctrl+C worker\n");
+    //ctrl+c delivery uses the shared bottom-half queue
+    if (ctrlc_bh == BOTTOM_HALF_INVALID_HANDLE) {
+        ctrlc_bh = bottom_half_register(keyboard_ctrlc_bottom_half, NULL);
     }
 }
 

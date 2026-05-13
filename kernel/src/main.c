@@ -23,6 +23,8 @@
 #include <kernel/elf64.h>
 #include <drivers/usb/xhci.h>
 #include <drivers/keyboard.h>
+#include <drivers/sb16.h>
+#include <proc/bottom_half.h>
 #include <net/net.h>
 #include <fs/initrd.h>
 
@@ -300,7 +302,13 @@ void kernel_main(const char *cmdline) {
     //initialize scheduler (creates idle thread)
     sched_init();
 
+    bottom_half_init();
+
     keyboard_start();
+
+    //bring up deferred SB16 playback only after the scheduler and bottom-half
+    //core exist so IRQ follow-up never depends on early-boot init context
+    sb16_start();
 
     //defer xHCI controller bring-up so slow hardware waits don't block boot
     xhci_start();
