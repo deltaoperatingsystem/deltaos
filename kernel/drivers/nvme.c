@@ -623,6 +623,9 @@ static void nvme_init_ctrl(pci_device_t *pci) {
     }
     
     if (nvme_identify(ctrl) != 0) return;
+
+    ctrls[ctrl_count++] = ctrl;
+
     nvme_enable_msix(ctrl);
     if (nvme_setup_io_queues(ctrl) != 0) return;
     
@@ -635,7 +638,6 @@ static void nvme_init_ctrl(pci_device_t *pci) {
 
     if (nvme_discover_namespaces(ctrl) != 0) return;
 
-    ctrls[ctrl_count++] = ctrl;
     printf("[nvme] Controller %u initialized successfully\n", ctrl->ctrl_idx);
 }
 

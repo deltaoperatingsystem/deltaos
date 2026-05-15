@@ -72,7 +72,8 @@ static ssize fb_obj_write(object_t *obj, const void *buf, size len, size offset)
     
     //bounds check
     if (offset >= fb_size) return 0;
-    if (offset + len > fb_size) len = fb_size - offset;
+    if (len > fb_size - offset) len = fb_size - offset;
+    size end = offset + len;
 
     //write to backbuffer/frontbuffer
     uint8 *target = backbuffer ? (uint8*)backbuffer : (uint8*)framebuffer;
@@ -80,7 +81,7 @@ static ssize fb_obj_write(object_t *obj, const void *buf, size len, size offset)
     memcpy(target + offset, buf, len);
     
     //auto-flip after a complete frame write, including row-at-a-time writers
-    if (offset + len >= fb_size && backbuffer) fb_flip();
+    if (end >= fb_size && backbuffer) fb_flip();
     
     return len;
 }

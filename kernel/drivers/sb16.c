@@ -48,6 +48,7 @@ static uint8  sb16_dma8 = 0;
 #define DSP_DMA16_EXIT        0xD9   //exit auto-init mode
 #define DSP_DMA16_AUTOINIT    0xB6   //start 16-bit auto-init playback
 #define DSP_MODE_SIGNED_MONO  0x10   //mode byte for the B6 command
+#define DSP_IO_TIMEOUT        1000000
 
 //OPL ports
 #define OPL_REG_PORT      0x388
@@ -121,18 +122,30 @@ static uint32 sb16_queue_write = 0;
 static uint32 sb16_queue_count = 0;
 
 
-static void dsp_write(uint8 value) {
-    while (inb(DSP_WRITE) & 0x80) {
+static bool dsp_write(uint8 value) {
+    for (uint32 i = 0; i < DSP_IO_TIMEOUT; ++i) {
+        if (!(inb(DSP_WRITE) & 0x80)) {
+            outb(DSP_WRITE, value);
+            return true;
+        }
         arch_pause();
     }
-    outb(DSP_WRITE, value);
+
+    return false;
 }
 
-static uint8 dsp_read(void) {
-    while (!(inb(DSP_READ_STAT) & 0x80)) {
+static bool dsp_read(uint8 *value) {
+    if (!value) return false;
+
+    for (uint32 i = 0; i < DSP_IO_TIMEOUT; ++i) {
+        if (inb(DSP_READ_STAT) & 0x80) {
+            *value = inb(DSP_READ);
+            return true;
+        }
         arch_pause();
     }
-    return inb(DSP_READ);
+
+    return false;
 }
 
 static void mixer_write(uint8 reg, uint8 value) {
@@ -364,16 +377,19 @@ static bool sb16_start_stream(void) {
 
 //stop current auto-init transfer and reset bookkeeping
 //must be called with sb16_lock held
-static void sb16_stop_stream_locked(void) {
+static bool sb16_stop_stream_locked(void) {
+    bool ok = true;
+
     if (!sb16_stream_running) {
-        return;
+        return true;
     }
 
-    dsp_write(DSP_DMA16_PAUSE);
-    dsp_write(DSP_DMA16_EXIT);
+    ok = dsp_write(DSP_DMA16_PAUSE);
+    ok = dsp_write(DSP_DMA16_EXIT) && ok;
     sb16_stream_running = false;
     sb16_pending_halves = 0;
     sb16_next_refill_half = 0;
+    return ok;
 }
 
 //copy samples from ring to DMA buffer half (pads with silence if empty)
@@ -415,18 +431,22 @@ static bool sb16_start_stream_locked(void) {
     block_words = DMA16_HALF_SAMPLES - 1;
 
     //program the sample rate (big-endian: high byte first)
-    dsp_write(DSP_SET_OUTPUT_RATE);
-    dsp_write((current_format.sample_rate >> 8) & 0xFF);
-    dsp_write(current_format.sample_rate & 0xFF);
+    if (!dsp_write(DSP_SET_OUTPUT_RATE)
+     || !dsp_write((current_format.sample_rate >> 8) & 0xFF)
+     || !dsp_write(current_format.sample_rate & 0xFF)) {
+        return false;
+    }
 
     //point the ISA DMA controller at our buffer
     dma16_program(sb16_dma_phys, DMA16_BUFFER_BYTES);
 
     //tell the DSP to begin auto-init 16-bit signed mono playback
-    dsp_write(DSP_DMA16_AUTOINIT);
-    dsp_write(DSP_MODE_SIGNED_MONO);
-    dsp_write(block_words & 0xFF);
-    dsp_write((block_words >> 8) & 0xFF);
+    if (!dsp_write(DSP_DMA16_AUTOINIT)
+     || !dsp_write(DSP_MODE_SIGNED_MONO)
+     || !dsp_write(block_words & 0xFF)
+     || !dsp_write((block_words >> 8) & 0xFF)) {
+        return false;
+    }
 
     sb16_stream_running = true;
     sb16_pending_halves = 0;
@@ -555,7 +575,10 @@ static ssize sb16_write(object_t *obj, const void *buf, size len, size offset) {
 
     //format changed via ioctl, tear down the old stream and drop stale samples
     if (sb16_reconfigure_pending) {
-        sb16_stop_stream_locked();
+        if (!sb16_stop_stream_locked()) {
+            spinlock_irq_release(&sb16_lock, flags);
+            return -1;
+        }
         sb16_queue_read = 0;
         sb16_queue_write = 0;
         sb16_queue_count = 0;
@@ -795,9 +818,12 @@ void sb16_init(void) {
     printf("[sb16] DSP responded at base 0x%x\n", sb16_base);
 
     //check if the DSP is modern enough for 16-bit auto-init
-    dsp_write(0xE1);
-    uint8 major = dsp_read();
-    uint8 minor = dsp_read();
+    uint8 major;
+    uint8 minor;
+    if (!dsp_write(0xE1) || !dsp_read(&major) || !dsp_read(&minor)) {
+        printf("[sb16] DSP version query timed out\n");
+        return;
+    }
     printf("[sb16] Found Sound Blaster DSP v%u.%u\n", major, minor);
 
     if (major < 4) {
@@ -856,7 +882,10 @@ void sb16_init(void) {
     }
 
     //turn on the speaker output
-    dsp_write(DSP_SPEAKER_ON);
+    if (!dsp_write(DSP_SPEAKER_ON)) {
+        printf("[sb16] failed to enable DSP speaker output\n");
+        return;
+    }
 
     //register the interrupt but leave it masked until the scheduler is up
     if (interrupt_register(sb16_irq_num, sb16_irq) == 0) {
@@ -900,12 +929,20 @@ void sb16_start(void) {
         spinlock_irq_release(&sb16_lock, flags);
         return;
     }
-    sb16_runtime_enabled = true;
     spinlock_irq_release(&sb16_lock, flags);
 
     if (sb16_bh == BOTTOM_HALF_INVALID_HANDLE) {
         sb16_bh = bottom_half_register(sb16_bottom_half, NULL);
     }
+    if (sb16_bh == BOTTOM_HALF_INVALID_HANDLE) {
+        printf("[sb16] failed to register playback bottom half\n");
+        return;
+    }
+
+    flags = spinlock_irq_acquire(&sb16_lock);
+    sb16_runtime_enabled = true;
+    spinlock_irq_release(&sb16_lock, flags);
+
     if (sb16_irq_registered) {
         interrupt_unmask(sb16_irq_num);
     }
