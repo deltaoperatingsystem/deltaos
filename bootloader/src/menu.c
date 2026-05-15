@@ -3,6 +3,7 @@
 #include "console.h"
 #include "efi.h"
 #include "stdio.h"
+#include "editor.h"
 
 static MenuEntry entries[MENU_MAX_ENTRIES];
 static int entry_count = 0;
@@ -27,6 +28,10 @@ int menu_add_entry(const char *name, const char *path) {
 MenuEntry *menu_get_entry(int index) {
     if (index < 0 || index >= entry_count) return 0;
     return &entries[index];
+}
+
+int menu_get_selected(void) {
+    return selected;
 }
 
 static void draw_menu(void) {
@@ -65,11 +70,12 @@ static void draw_menu(void) {
         }
     }
     
-    uint32_t bottom_y = fb->height - char_h * 4;
+    uint32_t bottom_y = fb->height - char_h * 5;
     con_set_color(COLOR_GRAY, 0);
     con_print_at(char_w * 2, bottom_y, "Use the arrow keys to select which entry is highlighted.");
     con_print_at(char_w * 2, bottom_y + char_h, "Press enter to boot the selected entry");
-    con_print_at(char_w * 2, bottom_y + char_h * 2, "Press 'g' to change graphics resolution");
+    con_print_at(char_w * 2, bottom_y + char_h * 2, "Press 'e' to edit the selected entry");
+    con_print_at(char_w * 2, bottom_y + char_h * 3, "Press 'g' to change graphics resolution");
 }
 
 int menu_run(int timeout, int default_index) {
@@ -93,8 +99,8 @@ int menu_run(int timeout, int default_index) {
             uint32_t char_h = con_get_char_height();
             uint32_t char_w = con_get_char_width();
             Framebuffer *fb = gfx_get_fb();
-            uint32_t y = fb->height - char_h * 5;
-            
+            uint32_t y = fb->height - char_h * 7;
+
             char msg[64];
             uint32_t remaining = (timeout_ms - elapsed_ms + 999) / 1000;
             
@@ -119,7 +125,7 @@ int menu_run(int timeout, int default_index) {
                 uint32_t char_h = con_get_char_height();
                 uint32_t char_w = con_get_char_width();
                 Framebuffer *fb = gfx_get_fb();
-                uint32_t y = fb->height - char_h * 5;
+                uint32_t y = fb->height - char_h * 7;
                 con_print_at(char_w * 2, y, "                                        ");
             }
 
@@ -138,6 +144,8 @@ int menu_run(int timeout, int default_index) {
                 return selected;
             } else if (key.UnicodeChar == 'g' || key.UnicodeChar == 'G') {
                 return MENU_GOP_REQUEST;
+            } else if (key.UnicodeChar == 'e' || key.UnicodeChar == 'E') {
+                return MENU_EDIT_REQUEST;
             }
         } else {
             //no key, wait a bit

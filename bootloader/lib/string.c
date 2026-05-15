@@ -21,10 +21,38 @@ size_t strlen(const char *s) {
     return len;
 }
 
+char *strcpy(char *dest, const char *src) {
+    char *d = dest;
+    while ((*d++ = *src++));
+    return dest;
+}
+
+char *strncpy(char *dest, const char *src, size_t n) {
+    char *d = dest;
+    while (n && (*d++ = *src++)) n--;
+    while (n--) *d++ = '\0';
+    return dest;
+}
+
 void *memcpy(void *dest, const void *src, size_t n) {
     uint8_t *d = dest;
     const uint8_t *s = src;
     while (n--) *d++ = *s++;
+    return dest;
+}
+
+void *memmove(void *dest, const void *src, size_t n) {
+    uint8_t *d = dest;
+    const uint8_t *s = src;
+    if (d < s) {
+        //copy forwards
+        while (n--) *d++ = *s++;
+    } else if (d > s) {
+        //copy backwards to handle overlapping regions
+        d += n;
+        s += n;
+        while (n--) *--d = *--s;
+    }
     return dest;
 }
 

@@ -5,6 +5,7 @@
 
 #define MENU_MAX_ENTRIES 16
 #define MENU_GOP_REQUEST -2
+#define MENU_EDIT_REQUEST -3
 
 typedef struct {
     const char *name;
@@ -15,5 +16,6 @@ void menu_init(void);
 int menu_add_entry(const char *name, const char *path);
 int menu_run(int timeout, int default_index);
 MenuEntry *menu_get_entry(int index);
+int menu_get_selected(void);
 
 #endif

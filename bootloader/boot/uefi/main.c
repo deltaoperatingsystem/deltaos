@@ -11,10 +11,11 @@
 #include "../src/elf.h"
 #include "../src/paging.h"
 #include "../src/graphics_menu.h"
+#include "../src/editor.h"
 #include <crc32.h>
 #include <stdio.h>
 
-#define DELBOOT_NAME    "DelBoot 0.6"
+#define DELBOOT_NAME    "DelBoot 0.7"
 #define KERNEL_SCAN_SIZE (32 * 1024)
 #define CONFIG_PATH     L"\\EFI\\BOOT\\delboot.cfg"
 
@@ -479,7 +480,23 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
         if (selection == MENU_GOP_REQUEST) {
             gfx_menu_run(gop);
             //reset have_config timeout so it doesn't auto-boot while we are adjusting settings
-            if (have_config) boot_config.timeout = 0; 
+            if (have_config) boot_config.timeout = 0;
+            continue;
+        }
+        if (selection == MENU_EDIT_REQUEST) {
+            //get the currently selected entry index
+            int edit_index = menu_get_selected();
+
+            //launch editor for the selected entry
+            if (have_config && (uint32_t)edit_index < boot_config.entry_count) {
+                int editor_result = editor_run(&boot_config.entries[edit_index]);
+                if (editor_result == EDITOR_BOOT) {
+                    //user wants to boot with edited values
+                    selection = edit_index;
+                    break;
+                }
+                //if EDITOR_CANCEL, just return to menu
+            }
             continue;
         }
         break;
