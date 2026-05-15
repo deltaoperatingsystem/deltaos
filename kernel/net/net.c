@@ -235,7 +235,7 @@ void net_print_ipv6(const uint8 *addr) {
 }
 
 void net_format_mac(const uint8 *mac, char *buf, size buflen) {
-    if (!buf || buflen == 0) return;
+    if (!mac || !buf || buflen == 0) return;
     snprintf(buf, buflen, "%02x:%02x:%02x:%02x:%02x:%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
@@ -247,7 +247,7 @@ void net_format_ip(uint32 ip, char *buf, size buflen) {
 }
 
 void net_format_ipv6(const uint8 *addr, char *buf, size buflen) {
-    if (!buf || buflen == 0) return;
+    if (!addr || !buf || buflen == 0) return;
     size pos = 0;
     buf[0] = '\0';
 

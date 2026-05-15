@@ -6,6 +6,7 @@
 //long locks, or do significant work
 
 #include <proc/bottom_half.h>
+#include <arch/cpu.h>
 #include <lib/spinlock.h>
 #include <mm/kheap.h>
 
@@ -22,7 +23,8 @@ typedef struct bottom_half_entry {
     bottom_half_handle_t handle;
     bottom_half_fn_t fn;
     void *arg;
-    uint8 queued;       //1 if currently on the pending list
+    uint8 queued;       //1 if queued or currently running
+    uint32 in_flight;   //callbacks that have dropped the lock and are running
     struct bottom_half_entry *next_all;
     struct bottom_half_entry *next_pending;
 } bottom_half_entry_t;
@@ -83,6 +85,7 @@ bottom_half_handle_t bottom_half_register(bottom_half_fn_t fn, void *arg) {
     entry->fn = fn;
     entry->arg = arg;
     entry->queued = 0;
+    entry->in_flight = 0;
     entry->next_all = bottom_half_entries;     //push onto the master list
     entry->next_pending = NULL;
     bottom_half_entries = entry;
@@ -147,6 +150,12 @@ int bottom_half_unregister(bottom_half_handle_t handle) {
         bottom_half_entries = entry->next_all;
     }
 
+    while (__atomic_load_n(&entry->in_flight, __ATOMIC_ACQUIRE) != 0) {
+        spinlock_irq_release(&bottom_half_lock, flags);
+        arch_pause();
+        flags = spinlock_irq_acquire(&bottom_half_lock);
+    }
+
     spinlock_irq_release(&bottom_half_lock, flags);
     kfree(entry);
     return 0;
@@ -205,14 +214,14 @@ uint32 bottom_half_run_budget(uint32 budget) {
             break;
         }
 
-        //pop from the head of the FIFO and clear the queued flag so the
-        //handler is free to re-raise itself during execution
+        //pop from the head of the FIFO, but keep queued set while fn runs
+        //so another CPU cannot schedule and run the same bottom half in parallel
         bottom_half_pending_head = entry->next_pending;
         if (bottom_half_pending_head == NULL) {
             bottom_half_pending_tail = NULL;
         }
-        entry->queued = 0;
         entry->next_pending = NULL;
+        __atomic_add_fetch(&entry->in_flight, 1, __ATOMIC_ACQ_REL);
         fn = entry->fn;
         arg = entry->arg;
         spinlock_irq_release(&bottom_half_lock, flags);
@@ -220,11 +229,20 @@ uint32 bottom_half_run_budget(uint32 budget) {
         //fn could be NULL if the entry was being unregistered concurrently
         //skip without counting it against the budget
         if (!fn) {
+            flags = spinlock_irq_acquire(&bottom_half_lock);
+            entry->queued = 0;
+            __atomic_sub_fetch(&entry->in_flight, 1, __ATOMIC_ACQ_REL);
+            spinlock_irq_release(&bottom_half_lock, flags);
             continue;
         }
 
         fn(arg);
         ++ran;
+
+        flags = spinlock_irq_acquire(&bottom_half_lock);
+        entry->queued = 0;
+        __atomic_sub_fetch(&entry->in_flight, 1, __ATOMIC_ACQ_REL);
+        spinlock_irq_release(&bottom_half_lock, flags);
     }
 
     return ran;
