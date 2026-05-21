@@ -44,7 +44,7 @@ static void draw_menu(void) {
     
     //title
     con_set_color(COLOR_WHITE, 0);
-    con_print_at(char_w * 2, char_h, "DelBoot v0.6");
+    con_print_at(char_w * 2, char_h, "DelBoot v0.7");
     
     //seperator
     con_set_color(COLOR_GRAY, 0);

@@ -12,4 +12,7 @@ uint32 crc32(const void *data, size len);
 //0xFFFFFFFF yourself, or just call crc32() which does both for you
 uint32 crc32_update(uint32 prev, const void *data, size len);
 
+#define CRC32_INIT  0xFFFFFFFFu
+#define CRC32_FINAL 0xFFFFFFFFu
+
 #endif

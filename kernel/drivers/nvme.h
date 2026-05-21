@@ -156,13 +156,15 @@ typedef struct {
 
 typedef struct nvme_ctrl nvme_ctrl_t;
 
+struct blkdev;
+
 typedef struct {
     nvme_ctrl_t *ctrl;
     uint32      nsid;
     uint64      sector_count;
     uint32      sector_size;
     void        *obj; // object_t*
-    void        *blkdev; //blkdev_t*
+    struct blkdev *blkdev; //blkdev_t*
 } nvme_ns_t;
 
 struct nvme_ctrl {
