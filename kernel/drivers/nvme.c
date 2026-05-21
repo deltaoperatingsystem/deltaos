@@ -487,7 +487,7 @@ static intptr nvme_get_info(object_t *obj, uint32 topic, void *buf, size len) {
     }
     if (topic == OBJ_INFO_BLOCK_RESCAN) {
         if (!ns->blkdev) return -1;
-        return gpt_rescan((blkdev_t *)ns->blkdev);
+        return gpt_rescan(ns->blkdev);
     }
     return -1;
 }

@@ -26,5 +26,5 @@ uint32 crc32_update(uint32 prev, const void *data, size len) {
 }
 
 uint32 crc32(const void *data, size len) {
-    return crc32_update(0xFFFFFFFFu, data, len) ^ 0xFFFFFFFFu;
+    return crc32_update(CRC32_INIT, data, len) ^ CRC32_FINAL;
 }

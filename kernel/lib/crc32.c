@@ -8,14 +8,14 @@ static uint32 crc32_table[256];
 static int    crc32_ready = 0;
 
 static void crc32_build_table(void) {
-    if (crc32_ready) return;
+    if (__atomic_load_n(&crc32_ready, __ATOMIC_ACQUIRE)) return;
     for (uint32 i = 0; i < 256; i++) {
         uint32 c = i;
         for (int j = 0; j < 8; j++)
             c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
         crc32_table[i] = c;
     }
-    crc32_ready = 1;
+    __atomic_store_n(&crc32_ready, 1, __ATOMIC_RELEASE);
 }
 
 uint32 crc32_update(uint32 prev, const void *data, size len) {

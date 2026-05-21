@@ -514,8 +514,8 @@ void curses_flush(void) {
     if (!buf) return;
 
     size pos = 0;
-    uint32 fg = CURSES_RGB(255, 255, 255);
-    uint32 bg = CURSES_RGB(0, 0, 0);
+    uint32 fg = 0xFFFFFFFF;
+    uint32 bg = 0xFFFFFFFF;
 
     for (uint32 row = 0; row < curses_rows; row++) {
         uint32 col = 0;

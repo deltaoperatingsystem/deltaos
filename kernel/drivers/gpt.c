@@ -186,6 +186,13 @@ int gpt_scan(blkdev_t *dev) {
         return 0;
     }
 
+    if (dev->sector_size == 0 || entry_size > dev->sector_size) {
+        printf("[gpt] ERR: %s has invalid partition_entry_size=%u, ignoring\n",
+               dev->name, entry_size);
+        pmm_free(buf_phys, 1);
+        return 0;
+    }
+
     //clamp entry count to spec maximum of 128
     uint32 num_entries = hdr->num_partition_entries;
     if (num_entries > 128) {
@@ -202,31 +209,47 @@ int gpt_scan(blkdev_t *dev) {
         pmm_free(buf_phys, 1);
         return 0;
     }
-    
+
+    //allocate and read contiguous buffer for partition entries table CRC check
+    uint32 table_size = num_entries * entry_size;
+    uint32 table_pages = (table_size + 4095) / 4096;
+    void *table_buf_phys = pmm_alloc(table_pages);
+    if (!table_buf_phys) {
+        pmm_free(buf_phys, 1);
+        return -1;
+    }
+    void *table_buf = P2V(table_buf_phys);
+
+    uint32 table_sectors_to_read = (table_size + dev->sector_size - 1) / dev->sector_size;
+    if (dev->ops->read(dev, hdr->partition_entry_lba, table_sectors_to_read, table_buf) != 0) {
+        printf("[gpt] ERR: %s failed to read partition entry table\n", dev->name);
+        pmm_free(table_buf_phys, table_pages);
+        pmm_free(buf_phys, 1);
+        return 0;
+    }
+
+    //verify CRC32 over the entries buffer
+    uint32 computed_table_crc = crc32(table_buf, table_size);
+    if (computed_table_crc != hdr->partition_entries_crc32) {
+        printf("[gpt] ERR: %s partition entry table CRC mismatch (stored=0x%08x computed=0x%08x), ignoring\n",
+               dev->name, hdr->partition_entries_crc32, computed_table_crc);
+        pmm_free(table_buf_phys, table_pages);
+        pmm_free(buf_phys, 1);
+        return 0;
+    }
+
     printf("[gpt] Found GPT on %s: header LBA %llu, table LBA %llu, entry count %u\n", 
            dev->name, hdr->my_lba, hdr->partition_entry_lba, num_entries);
-    
+
     uint32 partitions_found = 0;
-    
+
     //scan partition entries
     for (uint32 i = 0; i < num_entries; i++) {
-        uint32 sector_offset   = i / entries_per_sector;
-        uint32 entry_in_sector = i % entries_per_sector;
-        uint64 lba = hdr->partition_entry_lba + sector_offset;
-        
-        //read sector if we moved to a new one or it's the first
-        if (i == 0 || entry_in_sector == 0) {
-            if (dev->ops->read(dev, lba, 1, buf) != 0) {
-                printf("[gpt] ERR: Failed to read sector %llu\n", lba);
-                break;
-            }
-        }
-        
-        gpt_entry_t *entry = (gpt_entry_t *)((uint8 *)buf + (entry_in_sector * entry_size));
-        
+        gpt_entry_t *entry = (gpt_entry_t *)((uint8 *)table_buf + (i * entry_size));
+
         //skip empty slots
         if (guid_is_null(entry->type_guid)) continue;
-        
+
         uint64 start   = entry->starting_lba;
         uint64 end     = entry->ending_lba;
 
@@ -235,19 +258,19 @@ int gpt_scan(blkdev_t *dev) {
             printf("[gpt]   entry %u: invalid LBA range %llu..%llu, skipping\n", i, start, end);
             continue;
         }
-        
+
         uint64 sectors = end - start + 1;
-        
+
         blkdev_t *part = kzalloc(sizeof(blkdev_t));
         if (!part) continue;
-        
+
         char *name = kzalloc(32);
         if (!name) {
             kfree(part);
             continue;
         }
         snprintf(name, 32, "%sp%u", dev->name, partitions_found + 1);
-        
+
         part->name = name;
         part->sector_size = dev->sector_size;
         part->sector_count = sectors;
@@ -255,20 +278,23 @@ int gpt_scan(blkdev_t *dev) {
         part->data = part; //self-pointer: part_read/write_op receive the partition blkdev
         part->parent = dev;
         part->start_lba = start;
-        
+
         object_t *obj = object_create(OBJECT_DEVICE, &partition_object_ops, part);
         if (obj) {
             char ns_name[64];
             snprintf(ns_name, sizeof(ns_name), "$devices/disks/%s", name);
             ns_register(ns_name, obj);
             printf("[gpt]   %s: LBA %llu - %llu (%llu sectors)\n", name, start, end, sectors);
+            partitions_found++;
+        } else {
+            kfree(name);
+            kfree(part);
         }
-        
-        partitions_found++;
     }
-    
+
     printf("[gpt] Scan complete, found %u partitions on %s\n", partitions_found, dev->name);
-    
+
+    pmm_free(table_buf_phys, table_pages);
     pmm_free(buf_phys, 1);
     return partitions_found;
 }
