@@ -330,19 +330,38 @@ void pmm_free(void *ptr, size pages) {
 
     irq_state_t flags = spinlock_irq_acquire(&pmm_lock);
     uintptr addr = (uintptr)ptr;
-    size start_bit = addr / PAGE_SIZE;
 
-    for (size i = 0; i < pages; i++) {
-        if (start_bit + i < max_pages) {
-            if (!BITMAP_TEST(start_bit + i)) continue;
-            BITMAP_CLEAR(start_bit + i);
-            free_pages++;
-        }
+    //check page alignment and range overflow to avoid OOB bitmap access
+    if (addr % PAGE_SIZE != 0) {
+        spinlock_irq_release(&pmm_lock, flags);
+        return; //unaligned
+    }
+    size start_bit = addr / PAGE_SIZE;
+    //check for wrapping
+    if (pages == 0 || start_bit + pages < start_bit) {
+        spinlock_irq_release(&pmm_lock, flags);
+        return;
+    }
+    //verify range lies within physical memory limits
+    if (start_bit >= max_pages || start_bit + pages > max_pages) {
+        spinlock_irq_release(&pmm_lock, flags);
+        return;
     }
 
-    if (start_bit < last_free_page) last_free_page = start_bit;
-    if (start_bit < last_zone_free_page && start_bit >= (ARCH_PMM_ZONE_MIN_ADDR / PAGE_SIZE)) {
-        last_zone_free_page = start_bit;
+    bool freed_any = false;
+    for (size i = 0; i < pages; i++) {
+        if (!BITMAP_TEST(start_bit + i)) continue;
+        BITMAP_CLEAR(start_bit + i);
+        free_pages++;
+        freed_any = true;
+    }
+
+    if (freed_any) {
+        if (start_bit < last_free_page) last_free_page = start_bit;
+        if (start_bit < last_zone_free_page &&
+            start_bit >= (ARCH_PMM_ZONE_MIN_ADDR / PAGE_SIZE)) {
+            last_zone_free_page = start_bit;
+        }
     }
 
     spinlock_irq_release(&pmm_lock, flags);

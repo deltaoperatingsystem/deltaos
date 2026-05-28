@@ -903,7 +903,7 @@ void sb16_init(void) {
         return;
     }
 
-    ns_register("$devices/dsp", dsp_obj);
+    ns_register("$devices/dsp", dsp_obj, HANDLE_RIGHTS_ALL);
     object_deref(dsp_obj);
 
     if (sb16_opl_chip != OPL_CHIP_NONE) {
@@ -911,7 +911,7 @@ void sb16_init(void) {
         if (!opl_obj) {
             printf("[sb16] Failed to create OPL object\n");
         } else {
-            ns_register("$devices/opl", opl_obj);
+            ns_register("$devices/opl", opl_obj, HANDLE_RIGHTS_ALL);
             object_deref(opl_obj);
         }
     }

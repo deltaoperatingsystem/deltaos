@@ -123,7 +123,8 @@ intptr sys_process_start(handle_t proc_h, uintptr entry, uintptr stack);
 intptr sys_get_obj(handle_t parent, const char *path, handle_rights_t rights);
 intptr sys_handle_close(handle_t h);
 intptr sys_handle_dup(handle_t h, handle_rights_t new_rights);
-intptr sys_ns_register(const char *path, handle_t h);
+intptr sys_ns_register(const char *path, handle_t h, handle_rights_t max_rights);
+
 intptr sys_channel_create(int32 *ep0_out, int32 *ep1_out);
 intptr sys_channel_send(handle_t ep, const void *data, size len);
 intptr sys_channel_recv(handle_t ep, void *buf, size buflen);

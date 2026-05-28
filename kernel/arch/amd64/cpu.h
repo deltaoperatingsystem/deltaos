@@ -64,4 +64,6 @@ static inline void arch_irq_restore(irq_state_t flags) {
     __asm__ volatile ("push %0; popfq" :: "r"(flags) : "memory");
 }
 
+void arch_string_init(void);
+
 #endif

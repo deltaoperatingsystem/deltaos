@@ -25,6 +25,9 @@ typedef struct stat {
     uint64_t ctime;
     uint64_t mtime;
     uint64_t atime;
+    uint32_t width;
+    uint32_t height;
+    uint32_t pitch;
 } stat_t;
 
 //aux vector types

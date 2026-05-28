@@ -98,7 +98,7 @@ static object_ops_t klog_ops = {
 void klog_init(void) {
     object_t *obj = object_create(OBJECT_INFO, &klog_ops, NULL);
     if (obj) {
-        ns_register("$devices/klog", obj);
+        ns_register("$devices/klog", obj, HANDLE_RIGHTS_ALL);
         object_deref(obj);
     }
 }

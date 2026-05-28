@@ -500,6 +500,11 @@ uintptr process_vma_find_free(process_t *proc, size length) {
 int process_vma_add(process_t *proc, uintptr start, size length, 
                     uint32 flags, object_t *backing_obj, size obj_offset) {
     if (!proc) return -1;
+    if (length == 0) return -1;
+
+    //keep VMA bookkeeping page aligned so overlap checks match the page tables
+    start &= ~0xFFFULL;
+    length = (length + 0xFFF) & ~0xFFFULL;
     
     proc_vma_t *vma = kzalloc(sizeof(proc_vma_t));
     if (!vma) return -1;
@@ -513,6 +518,18 @@ int process_vma_add(process_t *proc, uintptr start, size length,
     if (backing_obj) object_ref(backing_obj);
     
     spinlock_acquire(&proc->lock);
+    //reject overlapping VMAs
+    uintptr end = start + length;
+    for (proc_vma_t *cur = proc->vma_list; cur; cur = cur->next) {
+        uintptr cur_end = cur->start + cur->length;
+        if (start < cur_end && end > cur->start) {
+            spinlock_release(&proc->lock);
+            if (backing_obj) object_deref(backing_obj);
+            kfree(vma);
+            return -1;
+        }
+    }
+
     //insert at head of list
     vma->next = proc->vma_list;
     proc->vma_list = vma;

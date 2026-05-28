@@ -268,6 +268,16 @@ static void vmo_update_mapping_cb(process_t *proc, void *data) {
                 }
             }
 
+            //if the VMO shrank clamp the VMA length so bookkeeping matches the remapped pages
+            if (vma->obj_offset >= ud->new_vmo_size) {
+                vma->length = 0;
+            } else {
+                size max_len = ud->new_vmo_size - vma->obj_offset;
+                if (vma->length > max_len) {
+                    vma->length = max_len;
+                }
+            }
+
             //unmap all previously mapped pages for this VMA
             mmu_unmap_range(proc->pagemap, vma->start, old_map_pages);
 
@@ -346,14 +356,14 @@ int vmo_resize(process_t *proc, int32 handle, size new_size) {
     };
     process_iterate(vmo_update_mapping_cb, &ud);
 
+    kheap_free_pages(old_pages_addr, old_pages);
+
     if (ud.status != 0) {
         //one or more VMAs could not be grown buttttt we've already moved the data
         //this is a kinda serious fucking problem for the process that failed but we must continue
         //later just rollback (try atleast) but rn it's a TODO
         return ud.status;
     }
-
-    kheap_free_pages(old_pages_addr, old_pages);
     
     return 0;
 }

@@ -1,3 +1,4 @@
+.DEFAULT_GOAL := all
 .PHONY: all clean ld coreutils libraries
 
 CC := gcc
@@ -11,7 +12,7 @@ LIB_INCLUDES := $(patsubst %,-I%,$(LIB_INC_DIRS))
 
 CFLAGS := -ffreestanding -fno-builtin -fno-stack-protector -m64 -pedantic -c -O2 -Ilibc/include -Ilibc/include/isoc -I../include -std=c11 -fPIC $(LIB_INCLUDES)
 ASFLAGS := -m64 -c
-LDFLAGS := -nostdlib
+LDFLAGS := -nostdlib -rpath-link ../initrd/system/libraries
 
 CRT0 := libc/src/crt0.o
 
@@ -47,9 +48,9 @@ $(foreach t,$(TOPS),$(eval $(call LOAD_PROJECT_CONFIG,$t)))
 
 # per-lib-project config loader
 define LOAD_LIB_PROJECT_CONFIG
-CFLAGS_$(1) 	:=
-LDFLAGS_$(1) 	:=
-LDLIBS_$(1) 	:=
+LIB_CFLAGS_$(1) 	:=
+LIB_LDFLAGS_$(1) 	:=
+LIB_LDLIBS_$(1) 	:=
 
 -include lib/$(1)/.config
 endef
@@ -98,7 +99,7 @@ $(foreach t,$(TOPS),$(eval $(call LINK_USER,$t)))
 
 # compile lib C files with per-project CFLAGS_<project>
 lib/%.o: lib/%.c
-	$(CC) $(CFLAGS) $(CFLAGS_$(firstword $(subst /, ,$(patsubst lib/%,%,$(dir $<))))) -o $@ $<
+	$(CC) $(CFLAGS) $(LIB_CFLAGS_$(firstword $(subst /, ,$(patsubst lib/%,%,$(dir $<))))) -o $@ $<
 
 # libraries target collects all lib shared objects
 
@@ -106,8 +107,8 @@ lib/%.o: lib/%.c
 define LINK_LIB
 ../initrd/system/libraries/lib$(1).so: $(filter lib/$(1)/%,$(LIB_OBJS)) libc.so
 	mkdir -p ../initrd/system/libraries
-	$(LD) -nostdlib -shared $(LDFLAGS) $(LDFLAGS_$(1)) -o $$@ \
-		$(filter lib/$(1)/%,$(LIB_OBJS)) $(LDLIBS_$(1))
+	$(LD) -nostdlib -shared $(LDFLAGS) $(LIB_LDFLAGS_$(1)) -o $$@ \
+		$(filter lib/$(1)/%,$(LIB_OBJS)) $(LIB_LDLIBS_$(1))
 
 endef
 

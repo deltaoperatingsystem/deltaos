@@ -129,7 +129,7 @@ void fb_init(void) {
                   MMU_FLAG_WRITE | MMU_FLAG_WC);
 
     fb_object = object_create(OBJECT_DEVICE, &fb_object_ops, NULL);
-    if (fb_object) ns_register("$devices/fb0", fb_object);
+    if (fb_object) ns_register("$devices/fb0", fb_object, HANDLE_RIGHTS_ALL);
     
     printf("[fb] initialised: %dx%d@0x%X (WC mapped)\n", fb_w, fb_h, fb->address);
 }

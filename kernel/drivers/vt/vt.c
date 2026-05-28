@@ -65,7 +65,7 @@ static void vt_scroll(vt_t *vt) {
     if (vt->vt_num == active_vt && vt->dirty_start <= vt->dirty_end) {
         vt_render_to_console_locked(vt);
     }
-    
+
     //move VT buffer rows up by one
     size row_size = vt->cols * sizeof(vt_cell_t);
     memmove(vt->cells, vt->cells + vt->cols, row_size * (vt->rows - 1));
@@ -77,12 +77,12 @@ static void vt_scroll(vt_t *vt) {
         last_row[i].fg = vt->fg_color;
         last_row[i].bg = vt->bg_color;
     }
-    
+
     //scroll the framebuffer (if this VT is active)
     if (vt->vt_num == active_vt && fb_available()) {
         fb_scroll(FONT_HEIGHT, vt->bg_color);
     }
-    
+
     //reset dirty tracking
     vt->dirty_start = vt->rows - 1;
     vt->dirty_end = vt->rows - 1;
@@ -164,13 +164,13 @@ static void vt_sync_cursor_locked(vt_t *vt, bool flip) {
 
 static void vt_render_to_console_locked(vt_t *vt) {
     if (!fb_available()) return;
-    
+
     //only render rows that have been touched since last flush
     uint32 start_row = vt->dirty_start;
     uint32 end_row = vt->dirty_end;
-    
+
     if (start_row > end_row) return;  //nothing dirty
-    
+
     for (uint32 row = start_row; row <= end_row && row < vt->rows; row++) {
         for (uint32 col = 0; col < vt->cols; col++) {
             vt_cell_t *cell = &vt->cells[row * vt->cols + col];
@@ -178,7 +178,7 @@ static void vt_render_to_console_locked(vt_t *vt) {
             con_draw_char_at(col, row, (char)cell->codepoint, cell->fg, cell->bg);
         }
     }
-    
+
     //reset dirty tracking
     vt->dirty_start = vt->rows;
     vt->dirty_end = 0;
@@ -269,7 +269,7 @@ vt_t *vt_create(void) {
     }
     spinlock_irq_release(&vt_lock, flags);
     if (num < 0) return NULL;
-    
+
     vt_t *vt = kzalloc(sizeof(vt_t));
     if (!vt) {
         flags = spinlock_irq_acquire(&vt_lock);
@@ -277,7 +277,7 @@ vt_t *vt_create(void) {
         spinlock_irq_release(&vt_lock, flags);
         return NULL;
     }
-    
+
     vt->cols = con_cols();
     vt->rows = con_rows();
     vt->cells = kzalloc(vt->cols * vt->rows * sizeof(vt_cell_t));
@@ -288,7 +288,7 @@ vt_t *vt_create(void) {
         kfree(vt);
         return NULL;
     }
-    
+
     //init cells
     vt->fg_color = DEFAULT_FG;
     vt->bg_color = DEFAULT_BG;
@@ -297,7 +297,7 @@ vt_t *vt_create(void) {
         vt->cells[i].fg = DEFAULT_FG;
         vt->cells[i].bg = DEFAULT_BG;
     }
-    
+
     vt->cursor_col = 0;
     vt->cursor_row = 0;
     vt->cursor_enabled = true;
@@ -307,7 +307,7 @@ vt_t *vt_create(void) {
     vt->event_head = 0;
     vt->event_tail = 0;
     vt->vt_num = num;
-    
+
     //start with nothing dirty (blank screen)
     vt->dirty_start = vt->rows;
     vt->dirty_end = 0;
@@ -331,7 +331,7 @@ vt_t *vt_create(void) {
 
     char path[32];
     snprintf(path, sizeof(path), "$devices/vt%d", num);
-    if (ns_register(path, vt->obj) < 0) {
+    if (ns_register(path, vt->obj, HANDLE_RIGHTS_ALL) < 0) {
         object_deref(vt->obj);
         vt->obj = NULL;
         vt_destroy(vt);
@@ -352,7 +352,7 @@ void vt_destroy(vt_t *vt) {
         active_vt = 0;
     }
     spinlock_irq_release(&vt_lock, flags);
-    
+
     if (vt->cells) kfree(vt->cells);
     kfree(vt);
 }
@@ -444,7 +444,7 @@ void vt_set_attr(vt_t *vt, int attr, uint32 value) {
 
 static void vt_putc_locked(vt_t *vt, char c) {
     if (!vt) return;
-    
+
     if (c == '\n') {
         mark_dirty(vt, vt->cursor_row);
         vt_newline(vt);
@@ -474,7 +474,7 @@ static void vt_putc_locked(vt_t *vt, char c) {
         cell->fg = vt->fg_color;
         cell->bg = vt->bg_color;
         mark_dirty(vt, vt->cursor_row);
-        
+
         vt_hide_cursor_locked(vt);
         vt->cursor_col++;
         if (vt->cursor_col >= vt->cols) {
@@ -522,6 +522,32 @@ static void vt_write_locked(vt_t *vt, const char *s, size len) {
                 char state = s[++i];
                 if (state == '0') vt_set_cursor_visible_locked(vt, false);
                 else if (state == '1') vt_set_cursor_visible_locked(vt, true);
+                continue;
+            }
+
+            if (mode == 'L') {
+                if (vt->cursor_col > 0) {
+                    uint32 old_col = vt->cursor_col;
+                    uint32 old_row = vt->cursor_row;
+                    vt_hide_cursor_locked(vt);
+                    vt->cursor_col--;
+                    fb_flip_rect(old_col * FONT_WIDTH,
+                                 old_row * FONT_HEIGHT,
+                                 FONT_WIDTH, FONT_HEIGHT);
+                }
+                continue;
+            }
+
+            if (mode == 'R') {
+                if (vt->cursor_col < vt->cols - 1) {
+                    uint32 old_col = vt->cursor_col;
+                    uint32 old_row = vt->cursor_row;
+                    vt_hide_cursor_locked(vt);
+                    vt->cursor_col++;
+                    fb_flip_rect(old_col * FONT_WIDTH,
+                                 old_row * FONT_HEIGHT,
+                                 FONT_WIDTH, FONT_HEIGHT);
+                }
                 continue;
             }
 
@@ -575,7 +601,7 @@ static void vt_clear_locked(vt_t *vt) {
     }
     vt->cursor_col = 0;
     vt->cursor_row = 0;
-    
+
     //entire screen dirty
     vt->dirty_start = 0;
     vt->dirty_end = vt->rows - 1;
@@ -674,7 +700,8 @@ void vt_write_cells(vt_t *vt, uint32 col, uint32 row, const vt_cell_t *cells, si
 void vt_tick(void) {
     irq_state_t flags = spinlock_irq_acquire(&vt_lock);
     vt_t *vt = vt_get_active_locked();
-    if (!vt || !fb_available()) {
+    //skip if no VT, no framebuffer, or the cursor has been hidden
+    if (!vt || !fb_available() || !vt->cursor_enabled) {
         spinlock_irq_release(&vt_lock, flags);
         return;
     }

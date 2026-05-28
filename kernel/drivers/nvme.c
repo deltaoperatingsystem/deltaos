@@ -242,7 +242,7 @@ static int nvme_discover_namespaces(nvme_ctrl_t *ctrl) {
         if (obj) {
             char name[64];
             snprintf(name, sizeof(name), "$devices/disks/nvme%un%u", ctrl->ctrl_idx, i);
-            ns_register(name, obj);
+            ns_register(name, obj, HANDLE_RIGHTS_ALL);
             printf("[nvme] Registered %s\n", name);
         }
 
@@ -637,13 +637,6 @@ static void nvme_init_ctrl(pci_device_t *pci) {
     nvme_enable_msix(ctrl);
     if (nvme_setup_io_queues(ctrl) != 0) return;
     
-    object_t *disks_dir = ns_lookup("$devices/disks");
-    if (!disks_dir) {
-        ns_register("$devices/disks", ns_create_dir("$devices/disks/"));
-    } else {
-        object_deref(disks_dir);
-    }
-
     if (nvme_discover_namespaces(ctrl) != 0) return;
 
     printf("[nvme] Controller %u initialized successfully\n", ctrl->ctrl_idx);

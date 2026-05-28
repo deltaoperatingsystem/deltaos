@@ -37,7 +37,7 @@ void pcspeaker_init(void) {
             
             object_t *client_obj = process_get_handle(kproc, client_ep);
             if (client_obj) {
-                ns_register("$devices/speaker/channel", client_obj);
+                ns_register("$devices/speaker/channel", client_obj, HANDLE_RIGHTS_ALL);
             }
         }
     }

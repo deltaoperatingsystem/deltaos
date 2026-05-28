@@ -81,6 +81,7 @@ typedef struct thread {
     
     //wait queue link (for blocking)
     struct thread *wait_next;
+    struct wait_queue *blocked_on;
 } thread_t;
 
 //create a thread in a process

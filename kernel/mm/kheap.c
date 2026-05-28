@@ -345,6 +345,13 @@ void kfree(void *p) {
         slab_t *slab = meta;
         slab_cache_t *cache = slab->cache;
 
+        //validate cache ptr is within our known bucket array
+        if (!cache || cache < &buckets[0] || cache > &buckets[BUCKET_COUNT - 1]) {
+            printf("[kheap] ERR: kfree corrupt cache ptr %P\n", p);
+            spinlock_irq_release(&kheap_lock, flags);
+            return;
+        }
+
         slab_obj_t *obj = (slab_obj_t *)p;
         obj->next = slab->free_list;
         slab->free_list = obj;

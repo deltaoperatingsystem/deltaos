@@ -107,13 +107,13 @@ void tcp_init(void) {
 
 static uint16 tcp_get_free_port(void) {
     static uint16 next_port = 0;
-    
+
     irq_state_t flags = spinlock_irq_acquire(&tcp_lock);
-    
+
     if (next_port == 0) {
         next_port = TCP_EPHEMERAL_START + (arch_timer_get_ticks() % (TCP_EPHEMERAL_END - TCP_EPHEMERAL_START + 1));
     }
-    
+
     for (int i = 0; i < (TCP_EPHEMERAL_END - TCP_EPHEMERAL_START + 1); i++) {
         uint16 port = next_port;
         if (next_port >= TCP_EPHEMERAL_END) {
@@ -121,7 +121,7 @@ static uint16 tcp_get_free_port(void) {
         } else {
             next_port++;
         }
-        
+
         //check if port is in use
         bool in_use = false;
         for (int j = 0; j < TCP_MAX_CONNECTIONS; j++) {
@@ -130,7 +130,7 @@ static uint16 tcp_get_free_port(void) {
                 break;
             }
         }
-        
+
         if (!in_use) {
             spinlock_irq_release(&tcp_lock, flags);
             return port;
@@ -207,34 +207,34 @@ static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
     size header_len = sizeof(tcp_header_t);
     size total = header_len + payload_len;
     if (total > ETH_MTU) return -1;
-    
+
     irq_state_t lock_flags = spinlock_irq_acquire(&tcp_lock);
     memset(packet, 0, header_len);
     tcp_write_u16(packet + 0, conn->local_port);
     tcp_write_u16(packet + 2, conn->remote_port);
     tcp_write_u32(packet + 4, conn->snd_nxt);
     tcp_write_u32(packet + 8, conn->rcv_nxt);
-    
+
     size opts_len = 0;
     if (flags & TCP_SYN) {
         uint8 *opts = packet + sizeof(tcp_header_t);
         uint16 mss = (conn->remote_addr.family == NET_ADDR_FAMILY_IPV6) ?
                      TCP_MSS_IPV6 : TCP_MSS_IPV4;
-        
+
         //MSS option (kind=2, len=4, value=mss)
         opts[0] = 2;
         opts[1] = 4;
         opts[2] = (uint8)(mss >> 8);
         opts[3] = (uint8)(mss & 0xFF);
-        
+
         //SACK permitted (kind=4, len=2)
         opts[4] = 4;
         opts[5] = 2;
-        
+
         //NOP padding to 4-byte boundary (8 bytes total)
         opts[6] = 1;
         opts[7] = 1;
-        
+
         opts_len = 8;
         header_len += opts_len;
         total += opts_len;
@@ -246,7 +246,7 @@ static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
     tcp_write_u16(packet + 14, conn->rcv_wnd > 0 ? conn->rcv_wnd : TCP_DEFAULT_WINDOW);
     tcp_write_u16(packet + 16, 0);
     tcp_write_u16(packet + 18, 0);
-    
+
     if (payload_len > 0 && payload) {
         memcpy(packet + header_len, payload, payload_len);
     }
@@ -260,22 +260,35 @@ static int tcp_send_segment(tcp_conn_t *conn, uint8 flags,
     if (checksum == 0) checksum = 0xFFFF;
     tcp_write_u16(packet + 16, checksum);
 
-    //advance sequence number
-    if (flags & TCP_SYN) conn->snd_nxt++;
-    if (flags & TCP_FIN) conn->snd_nxt++;
-    conn->snd_nxt += payload_len;
-    
+    //compute delta under lock, advance speculatively
+    uint32 snd_delta = payload_len;
+    if (flags & TCP_SYN) snd_delta++;
+    if (flags & TCP_FIN) snd_delta++;
+    conn->snd_nxt += snd_delta;
+    uint32 snd_after = conn->snd_nxt;
+
     netif_t *nif = conn->nif;
     net_addr_t remote_addr = conn->remote_addr;
     spinlock_irq_release(&tcp_lock, lock_flags);
-    
+
+    int send_ret;
     if (remote_addr.family == NET_ADDR_FAMILY_IPV4) {
-        return ipv4_send(nif, remote_addr.addr.ipv4, IPPROTO_TCP, packet, total);
+        send_ret = ipv4_send(nif, remote_addr.addr.ipv4, IPPROTO_TCP, packet, total);
+    } else if (remote_addr.family == NET_ADDR_FAMILY_IPV6) {
+        send_ret = ipv6_send(nif, remote_addr.addr.ipv6, IPPROTO_TCP, packet, total);
+    } else {
+        send_ret = -1;
     }
-    if (remote_addr.family == NET_ADDR_FAMILY_IPV6) {
-        return ipv6_send(nif, remote_addr.addr.ipv6, IPPROTO_TCP, packet, total);
+
+    if (send_ret != 0) {
+        //send failed; roll back sequence number
+        lock_flags = spinlock_irq_acquire(&tcp_lock);
+        if (conn->snd_nxt == snd_after)
+            conn->snd_nxt -= snd_delta;
+        spinlock_irq_release(&tcp_lock, lock_flags);
     }
-    return -1;
+
+    return send_ret;
 }
 
 static void tcp_send_rst(netif_t *nif, const net_addr_t *src_addr,
@@ -289,7 +302,7 @@ static void tcp_send_rst(netif_t *nif, const net_addr_t *src_addr,
     tcp_write_u32(packet + 8, ack);
     packet[12] = (5 << 4);
     packet[13] = TCP_RST | TCP_ACK;
-    
+
     tcp_write_u16(packet + 14, 0);
     tcp_write_u16(packet + 16, 0);
     tcp_write_u16(packet + 18, 0);
@@ -319,7 +332,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
         printf("[tcp] Dropped packet: bad checksum 0x%04x\n", sum);
         return;
     }
-    
+
     const uint8 *tcp = (const uint8 *)data;
     uint16 src_port = tcp_read_u16(tcp + 0);
     uint16 dst_port = tcp_read_u16(tcp + 2);
@@ -328,17 +341,17 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
     uint8 data_off_raw = tcp[12] >> 4;
     uint8 flags = tcp[13];
     uint8 data_off = data_off_raw * 4;
-    
+
     if (data_off < sizeof(tcp_header_t) || data_off > len) {
         return;
     }
-    
+
     void *payload = (uint8 *)data + data_off;
     size payload_len = len - data_off;
 
     irq_state_t lock_flags = spinlock_irq_acquire(&tcp_lock);
     tcp_conn_t *conn = tcp_find_conn(dst_addr, dst_port, src_addr, src_port);
-    
+
     if (!conn) {
         //check for listening sockets on this port
         for (int i = 0; i < TCP_MAX_CONNECTIONS; i++) {
@@ -351,7 +364,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                         spinlock_irq_release(&tcp_lock, lock_flags);
                         return;
                     }
-                    
+
                     newconn->nif = nif;
                     newconn->local_addr = *dst_addr;
                     newconn->local_port = dst_port;
@@ -373,7 +386,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                 return;
             }
         }
-        
+
         spinlock_irq_release(&tcp_lock, lock_flags);
 
         //no connection and no listener send RST
@@ -389,7 +402,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
         }
         return;
     }
-    
+
     switch (conn->state) {
         case TCP_STATE_SYN_RECEIVED:
             if ((flags & TCP_ACK) && ack == conn->snd_nxt) {
@@ -399,7 +412,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                 return;
             }
             break;
-            
+
         case TCP_STATE_SYN_SENT:
             if ((flags & (TCP_SYN | TCP_ACK)) == (TCP_SYN | TCP_ACK)) {
                 if (ack == conn->snd_nxt) {
@@ -413,7 +426,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                 }
             }
             break;
-            
+
         case TCP_STATE_ESTABLISHED:
             if (flags & TCP_RST) {
                 conn->state = TCP_STATE_CLOSED;
@@ -426,7 +439,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
             if (flags & TCP_ACK) {
                 conn->snd_una = ack;
             }
-            
+
             //handle incoming data
             if (payload_len > 0 && seq == conn->rcv_nxt) {
                 size space = TCP_RX_BUF_SIZE - conn->rx_len;
@@ -435,7 +448,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                     memcpy(conn->rx_buf + conn->rx_len, payload, copy);
                     conn->rx_len += copy;
                     conn->rcv_nxt += copy; //only advance by what was actually buffered
-                    
+
                     spinlock_irq_release(&tcp_lock, lock_flags);
                     //send ACK for the newly buffered data
                     tcp_send_segment(conn, TCP_ACK, NULL, 0);
@@ -446,7 +459,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                     return;
                 }
             }
-            
+
             //handle FIN
             if (flags & TCP_FIN) {
                 conn->rcv_nxt = seq + payload_len + 1;
@@ -456,7 +469,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                 return;
             }
             break;
-            
+
         case TCP_STATE_FIN_WAIT_1:
             if ((flags & TCP_ACK) && ack == conn->snd_nxt) {
                 if (flags & TCP_FIN) {
@@ -471,7 +484,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                 }
             }
             break;
-            
+
         case TCP_STATE_FIN_WAIT_2:
             if (flags & TCP_FIN) {
                 conn->rcv_nxt = seq + 1;
@@ -482,7 +495,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
                 return;
             }
             break;
-            
+
         case TCP_STATE_LAST_ACK:
             if ((flags & TCP_ACK) && ack == conn->snd_nxt) {
                 conn->state = TCP_STATE_CLOSED;
@@ -519,14 +532,14 @@ tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
         src_port = tcp_get_free_port();
         if (src_port == 0) return NULL;
     }
-    
+
     irq_state_t lock_flags = spinlock_irq_acquire(&tcp_lock);
     tcp_conn_t *conn = tcp_alloc_conn_locked();
     if (!conn) {
         spinlock_irq_release(&tcp_lock, lock_flags);
         return NULL;
     }
-    
+
     conn->nif = nif;
     if (dst_addr->family == NET_ADDR_FAMILY_IPV4) {
         if (nif->ip_addr == 0) {
@@ -556,18 +569,18 @@ tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
     conn->rcv_wnd = TCP_DEFAULT_WINDOW;
     conn->rx_len = 0;
     spinlock_irq_release(&tcp_lock, lock_flags);
-    
+
     //send SYN
     tcp_send_segment(conn, TCP_SYN, NULL, 0);
-    
+
     //wait for SYN-ACK with retransmission (3 attempts 2 sec each)
     uint32 freq = arch_timer_getfreq();
     if (freq == 0) freq = 1000;
-    
+
     for (int attempt = 0; attempt < 3; attempt++) {
         uint64 start = arch_timer_get_ticks();
         uint64 timeout = (uint64)freq * 2;
-        
+
         while (arch_timer_get_ticks() - start < timeout) {
             if (proc_current_should_abort_blocking()) {
                 //Do not send RST on local async abort; the peer will retransmit until timeout.
@@ -581,7 +594,7 @@ tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
             net_poll();
             sched_yield();
         }
-        
+
         //retransmit SYN
         if (attempt < 2) {
             lock_flags = spinlock_irq_acquire(&tcp_lock);
@@ -590,7 +603,7 @@ tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
             tcp_send_segment(conn, TCP_SYN, NULL, 0);
         }
     }
-    
+
     lock_flags = spinlock_irq_acquire(&tcp_lock);
     if (conn->state == TCP_STATE_ESTABLISHED) {
         spinlock_irq_release(&tcp_lock, lock_flags);
@@ -606,12 +619,12 @@ tcp_conn_t *tcp_connect_addr(netif_t *nif, const net_addr_t *dst_addr,
 
 int tcp_send(tcp_conn_t *conn, const void *data, size len) {
     if (!conn || conn->state != TCP_STATE_ESTABLISHED) return -1;
-    
+
     const uint8 *ptr = (const uint8 *)data;
     size remaining = len;
     size mss = (conn->remote_addr.family == NET_ADDR_FAMILY_IPV6) ?
                TCP_MSS_IPV6 : TCP_MSS_IPV4;
-    
+
     while (remaining > 0) {
         size chunk = (remaining < mss) ? remaining : mss;
         int res = tcp_send_segment(conn, TCP_ACK | TCP_PSH, ptr, chunk);
@@ -619,25 +632,25 @@ int tcp_send(tcp_conn_t *conn, const void *data, size len) {
         ptr += chunk;
         remaining -= chunk;
     }
-    
+
     return 0;
 }
 
 int tcp_read(tcp_conn_t *conn, void *buf, size len) {
     if (!conn) return -1;
-    
+
     uint32 freq = arch_timer_getfreq();
     if (freq == 0) freq = 1000;
     uint64 start = arch_timer_get_ticks();
     uint64 timeout = (uint64)freq * 10; //10 seconds
-    
+
     irq_state_t flags = spinlock_irq_acquire(&tcp_lock);
     while (conn->rx_len == 0) {
         if (proc_current_should_abort_blocking()) {
             spinlock_irq_release(&tcp_lock, flags);
             return -1;
         }
-        if (conn->state != TCP_STATE_ESTABLISHED && 
+        if (conn->state != TCP_STATE_ESTABLISHED &&
             conn->state != TCP_STATE_SYN_SENT &&
             conn->state != TCP_STATE_SYN_RECEIVED &&
             conn->state != TCP_STATE_CLOSE_WAIT &&
@@ -646,66 +659,81 @@ int tcp_read(tcp_conn_t *conn, void *buf, size len) {
             spinlock_irq_release(&tcp_lock, flags);
             return 0; //connection closed/closing and no data
         }
-        
+
         if (arch_timer_get_ticks() - start > timeout) {
             spinlock_irq_release(&tcp_lock, flags);
             return -1; //timeout
         }
-        
+
         spinlock_irq_release(&tcp_lock, flags);
         net_poll();
         sched_yield();
         flags = spinlock_irq_acquire(&tcp_lock);
     }
-    
+
     size copy = (conn->rx_len < len) ? conn->rx_len : len;
     memcpy(buf, conn->rx_buf, copy);
-    
+
     //shift remaining data
     if (copy < conn->rx_len) {
         memmove(conn->rx_buf, conn->rx_buf + copy, conn->rx_len - copy);
     }
     conn->rx_len -= copy;
-    
+
     spinlock_irq_release(&tcp_lock, flags);
     return (int)copy;
 }
 
 int tcp_close(tcp_conn_t *conn) {
     if (!conn) return -1;
-    
+
+    irq_state_t flags = spinlock_irq_acquire(&tcp_lock);
+
+    if (conn->state == TCP_STATE_LISTEN) {
+        //deactivate listener slot immediately so incoming SYNs are ignored
+        conn->listening = false;
+        conn->active    = false;
+        conn->state     = TCP_STATE_CLOSED;
+        spinlock_irq_release(&tcp_lock, flags);
+        return 0;
+    }
+
     if (conn->state == TCP_STATE_ESTABLISHED) {
         conn->state = TCP_STATE_FIN_WAIT_1;
+        spinlock_irq_release(&tcp_lock, flags);
         tcp_send_segment(conn, TCP_FIN | TCP_ACK, NULL, 0);
     } else if (conn->state == TCP_STATE_CLOSE_WAIT) {
         conn->state = TCP_STATE_LAST_ACK;
+        spinlock_irq_release(&tcp_lock, flags);
         tcp_send_segment(conn, TCP_FIN | TCP_ACK, NULL, 0);
+    } else {
+        spinlock_irq_release(&tcp_lock, flags);
     }
-    
+
     return 0;
 }
 
 tcp_conn_t *tcp_listen_addr(netif_t *nif, const net_addr_t *local_addr, uint16 port) {
     tcp_conn_t *conn = tcp_alloc_conn();
     if (!conn) return NULL;
-    
+
     conn->nif = nif;
     conn->local_addr = *local_addr;
     conn->local_port = port;
     conn->state = TCP_STATE_LISTEN;
     conn->listening = true;
-    
+
     return conn;
 }
 
 tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
     if (!listener || !listener->listening) return NULL;
-    
+
     uint32 freq = arch_timer_getfreq();
     if (freq == 0) freq = 1000;
     uint64 timeout = (uint64)freq * 30; //30 second accept timeout
     uint64 start = arch_timer_get_ticks();
-    
+
     while (arch_timer_get_ticks() - start < timeout) {
         if (proc_current_should_abort_blocking()) {
             return NULL;
@@ -722,13 +750,13 @@ tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
                 c->state == TCP_STATE_ESTABLISHED) {
                 c->accepted = true;
                 spinlock_irq_release(&tcp_lock, scan_flags);
-                return c;   
+                return c;
             }
         }
         spinlock_irq_release(&tcp_lock, scan_flags);
         net_poll();
         sched_yield();
     }
-    
+
     return NULL; //timeout
 }

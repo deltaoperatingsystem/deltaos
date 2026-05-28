@@ -172,7 +172,7 @@ static void irq0_handler(int from_usermode) {
     if (percpu_get()->cpu_index == 0) {
         vt_tick();
     }
-    
+
     if (apic_is_enabled() && ioapic_is_enabled()) {
         apic_send_eoi();
     } else {
@@ -198,31 +198,35 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
             }
         }
 
-        // TODO: this is a basic impl
-        // we should probably have our own POSIX signal equivalent
-        process_t *p = process_current();
-        if (p) {
-            if (vector == PAGE_FAULT_VECTOR) {
-                pf_log_user_fault(frame, error_code);
-            } else {
-                char buf[192];
-                int n = snprintf(buf, sizeof(buf),
-                                 "\n*** USER EXCEPTION *** vector=0x%lX err=0x%lX rip=0x%lX pid=%u name=%s\n",
-                                 vector, error_code, rip, p->pid, p->name);
-                debug_write(buf, n);
+        //use CS.RPL to check if exception came from user mode
+        //process_current() is non-null during syscall execution in kernel mode
+        int from_usermode = ((frame->cs & 3) == 3);
+
+        if (from_usermode) {
+            process_t *p = process_current();
+            if (p) {
+                if (vector == PAGE_FAULT_VECTOR) {
+                    pf_log_user_fault(frame, error_code);
+                } else {
+                    char buf[192];
+                    int n = snprintf(buf, sizeof(buf),
+                                     "\n*** USER EXCEPTION *** vector=0x%lX err=0x%lX rip=0x%lX pid=%u name=%s\n",
+                                     vector, error_code, rip, p->pid, p->name);
+                    debug_write(buf, n);
+                }
+                p->exit_code = 127 + vector;
+                thread_exit();
+                return;
             }
-            p->exit_code = 127 + vector;
-            thread_exit();
-            return;
-        } else {
-            kpanic(frame, "CPU EXCEPTION (vector 0x%lX, err 0x%lX) at RIP=0x%lX", vector, error_code, rip);
+            //no process current despite usermode cs, fall through to panic
         }
+        kpanic(frame, "CPU EXCEPTION (vector 0x%lX, err 0x%lX) at RIP=0x%lX", vector, error_code, rip);
     } else {
         uint8 irq = vector - 32;
 
         //check if we were interrupted from usermode using CS.RPL (authoritative)
         int from_usermode = ((frame->cs & 3) == 3) ? 1 : 0;
-        
+
         if (vector == IPI_RESCHEDULE) {
             if (apic_is_enabled() && ioapic_is_enabled()) {
                 apic_send_eoi();
@@ -280,12 +284,13 @@ interrupt_epilogue:
         }
 
 interrupt_epilogue_no_eoi:
-        if (from_usermode) {
-            bottom_half_run_budget(16);
-            thread_t *current = thread_current();
-            if (current) {
-                proc_deliver_pending(current);
-            }
+        //always drain bottom halves so ctrl+c / events can be posted
+        //even when the interrupted context is kernel-mode (e.x blocked
+        //in channel_recv / sys_wait)
+        bottom_half_run_budget(16);
+        thread_t *current = thread_current();
+        if (current && from_usermode) {
+            proc_deliver_pending(current);
         }
 
         return;

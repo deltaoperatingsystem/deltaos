@@ -1,9 +1,11 @@
 int iabs(int x) {
-    return (x < 0) ? -x : x;
+    unsigned int u = (unsigned int)x;
+    return (int)(x < 0 ? -u : u);
 }
 
 long labs(long x) {
-    return (x < 0) ? -x : x;
+    unsigned long u = (unsigned long)x;
+    return (long)(x < 0 ? -u : u);
 }
 
 int imin(int a, int b) {

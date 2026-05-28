@@ -34,4 +34,6 @@ void thread_sleep_locked(wait_queue_t *wq, spinlock_t *lock);
 //reacquires the lock and updates *flags before returning
 void thread_sleep_locked_irq(wait_queue_t *wq, spinlock_irq_t *lock, irq_state_t *flags);
 
+void thread_wake_thread(struct thread *thread);
+
 #endif

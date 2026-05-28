@@ -77,7 +77,7 @@ static object_t *serial_object = NULL;
 void serial_init_object(void) {
     serial_object = object_create(OBJECT_DEVICE, &serial_object_ops, NULL);
     if (serial_object) {
-        ns_register("$devices/serial", serial_object);
+        ns_register("$devices/serial", serial_object, HANDLE_RIGHTS_ALL);
     }
 }
 

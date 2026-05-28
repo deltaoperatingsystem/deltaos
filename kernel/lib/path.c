@@ -33,21 +33,27 @@ int path_normalize(char *path) {
         tokstart = temp + 1;  //skip leading /
     }
     
-    //tokenize the path part
-    char *token = strtok(tokstart, "/");
-    while (token && count < 64) {
-        if (strcmp(token, ".") == 0) {
-            //ignore current dir
-        } else if (strcmp(token, "..") == 0) {
-            //go up one level
-            if (count > 0) {
-                count--;
-            }
-            //if count == 0 and absolute stay at root (ignore the ..)
-        } else if (token[0] != '\0') {
-            components[count++] = token;
+    //tokenize the path part without strtok (non-reentrant)
+    char *p = tokstart;
+    while (*p && count < 64) {
+        //skip consecutive slashes
+        while (*p == '/') p++;
+        if (!*p) break;
+        //find end of token
+        char *end = p;
+        while (*end && *end != '/') end++;
+        //null-terminate in-place; remember whether there was a separator
+        char sep = *end;
+        *end = '\0';
+        size tlen = (size)(end - p);
+        if (tlen == 1 && p[0] == '.') {
+            //ignore .
+        } else if (tlen == 2 && p[0] == '.' && p[1] == '.') {
+            if (count > 0) count--;
+        } else if (tlen > 0) {
+            components[count++] = p;
         }
-        token = strtok(NULL, "/");
+        p = sep ? end + 1 : end;
     }
     
     //reconstruct into original path buffer
@@ -74,7 +80,7 @@ int path_normalize(char *path) {
     *write = '\0';
     
     //special case: absolute path with no components = "/"
-    if ((absolute || is_namespace) && count == 0 && !is_namespace) {
+    if (absolute && count == 0) {
         path[0] = '/';
         path[1] = '\0';
     }

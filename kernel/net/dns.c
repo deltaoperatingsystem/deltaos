@@ -51,6 +51,8 @@ static const uint8 *dns_skip_name(const uint8 *name, const uint8 *end) {
     while (name < end) {
         uint8 len = *name;
         if ((len & 0xC0) == 0xC0) {
+            //compression pointer: 2 bytes total; guard against truncated pointer at last byte
+            if (name + 1 >= end) return end;
             return name + 2;
         }
         if (len == 0) return name + 1;
@@ -236,7 +238,7 @@ static int dns_send_query(netif_t *nif, dns_ctx_t *ctx, const uint8 *buf, size p
         udp_send(nif, nif->dns_server, src_port, DNS_SERVER_PORT, buf, pkt_len);
 
         uint64 start = arch_timer_get_ticks();
-        uint32 timeout_ticks = freq * 2;
+        uint64 timeout_ticks = (uint64)freq * 2;
 
         while (arch_timer_get_ticks() - start < timeout_ticks) {
             if (proc_current_should_abort_blocking()) {

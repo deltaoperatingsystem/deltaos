@@ -1,6 +1,7 @@
 #include <syscall/syscall.h>
 #include <proc/process.h>
 #include <proc/event.h>
+#include <proc/bottom_half.h>
 #include <proc/thread.h>
 #include <proc/sched.h>
 #include <kernel/elf64.h>
@@ -285,17 +286,78 @@ static intptr sys_spawn_impl(const char *path, int argc, char **argv,
     process_vma_add(proc, user_stack_base - stack_size, stack_size,
                     MMU_FLAG_WRITE | MMU_FLAG_USER, NULL, 0);
 
+    //copy argv into kernel buffer to avoid direct dereference of user pointers
+    #define SPAWN_MAX_ARGS   256
+    #define SPAWN_MAX_ARGLEN 4096
+    char **k_argv = NULL;
+    char  *k_argv_store = NULL;  //single flat backing allocation
+    int    k_argc = 0;
+
+    if (argc > 0 && argv) {
+        if (argc > SPAWN_MAX_ARGS) {
+            process_destroy(proc);
+            kfree(buf);
+            return -1;
+        }
+        k_argv = kzalloc((size)argc * sizeof(char *));
+        if (!k_argv) {
+            process_destroy(proc);
+            kfree(buf);
+            return -1;
+        }
+        //allocate worst-case flat store: argc * SPAWN_MAX_ARGLEN bytes
+        k_argv_store = kmalloc((size)argc * SPAWN_MAX_ARGLEN);
+        if (!k_argv_store) {
+            kfree(k_argv);
+            process_destroy(proc);
+            kfree(buf);
+            return -1;
+        }
+        char *slot = k_argv_store;
+        for (int i = 0; i < argc; i++) {
+            //copy the pointer itself from user space
+            const char *user_arg = NULL;
+            if (copy_user_bytes(&argv[i], &user_arg, sizeof(user_arg)) != 0) {
+                kfree(k_argv_store);
+                kfree(k_argv);
+                process_destroy(proc);
+                kfree(buf);
+                return -1;
+            }
+            if (!user_arg) {
+                kfree(k_argv_store);
+                kfree(k_argv);
+                process_destroy(proc);
+                kfree(buf);
+                return -1;
+            }
+            //copy the string from user space
+            if (copy_user_cstr(user_arg, slot, SPAWN_MAX_ARGLEN) != 0) {
+                kfree(k_argv_store);
+                kfree(k_argv);
+                process_destroy(proc);
+                kfree(buf);
+                return -1;
+            }
+            k_argv[i] = slot;
+            slot += SPAWN_MAX_ARGLEN;
+        }
+        k_argc = argc;
+    }
+
     uintptr user_stack_top;
     if (info.interp_path[0]) {
         user_stack_top = process_setup_user_stack_dynamic(
-            stack_phys, user_stack_base, stack_size, argc, argv,
+            stack_phys, user_stack_base, stack_size, k_argc, k_argv,
             info.phdr_addr, info.phdr_count, info.phdr_size,
             info.entry, interp_base
         );
     } else {
         user_stack_top = process_setup_user_stack(stack_phys, user_stack_base,
-                                                  stack_size, argc, argv);
+                                                  stack_size, k_argc, k_argv);
     }
+    if (k_argv_store) kfree(k_argv_store);
+    if (k_argv) kfree(k_argv);
 
     thread_t *thread = thread_create_user(proc, (void*)real_entry, (void*)user_stack_top);
     if (!thread) {
@@ -342,6 +404,15 @@ intptr sys_wait(uintptr pid) {
 
     spinlock_acquire(&proc->lock);
     while (proc->state != PROC_STATE_ZOMBIE) {
+        //run bottom halves and check for pending process events
+        //so ctrl+c can interrupt a stuck wait() even when the
+        //foreground child is not the waited process
+        bottom_half_run_budget(16);
+        if (proc_current_should_abort_blocking()) {
+            spinlock_release(&proc->lock);
+            process_unref(proc);
+            return -1;
+        }
         thread_sleep_locked(&proc->exit_wait, &proc->lock);
         spinlock_release(&proc->lock);
 
@@ -419,6 +490,75 @@ intptr sys_process_start(handle_t proc_h, uintptr entry, uintptr stack) {
     return (intptr)target->pid;
 }
 
+//check if caller has permission to signal target process
+static int check_signal_permission(process_t *caller, process_t *target) {
+    //a process can always send signals/events to itself
+    if (caller->pid == target->pid) {
+        return 1;
+    }
+    //A parent process can always send signals/events to its direct children
+    if (target->parent_pid == caller->pid) {
+        return 1;
+    }
+    //check if the caller has an explicit handle to the target with signaling or destruction rights
+    int has_handle = 0;
+    spinlock_acquire(&caller->lock);
+    for (uint32 i = 0; i < caller->handle_capacity; i++) {
+        if (caller->handles[i].obj &&
+            caller->handles[i].obj->type == OBJECT_PROCESS &&
+            caller->handles[i].obj->data == target &&
+            (rights_has(caller->handles[i].rights, HANDLE_RIGHT_SIGNAL) ||
+             rights_has(caller->handles[i].rights, HANDLE_RIGHT_DESTROY))) {
+            has_handle = 1;
+            break;
+        }
+    }
+    spinlock_release(&caller->lock);
+    if (has_handle) {
+        return 1;
+    }
+    //etrieve and compare the user contexts of both processes
+    char *c_user = NULL;
+    char *t_user = NULL;
+    size len = 0;
+    uint32 flags = 0;
+    int r_c = proc_context_get_string_dup(&caller->context, "sys.user", &c_user, &len, &flags);
+    int r_t = proc_context_get_string_dup(&target->context, "sys.user", &t_user, &len, &flags);
+    //root user can signal any process (???? TODO? do we wanna name the user root)
+    if (r_c == 0 && c_user && strcmp(c_user, "root") == 0) {
+        kfree(c_user);
+        if (t_user) kfree(t_user);
+        return 1;
+    }
+    int allowed = 0;
+    if (r_c == 0 && r_t == 0 && c_user && t_user) {
+        //processes owned by the same non-root user can signal each other
+        if (strcmp(c_user, t_user) == 0) {
+            allowed = 1;
+        }
+    } else if (r_c != 0 && r_t != 0) {
+        //if neither has sys.user set, fall back to checking sys.session
+        char *c_sess = NULL;
+        char *t_sess = NULL;
+        int s_c = proc_context_get_string_dup(&caller->context, "sys.session", &c_sess, &len, &flags);
+        int s_t = proc_context_get_string_dup(&target->context, "sys.session", &t_sess, &len, &flags);
+        if (s_c == 0 && s_t == 0 && c_sess && t_sess) {
+            //orocesses in the same session can signal each other
+            if (strcmp(c_sess, t_sess) == 0) {
+                allowed = 1;
+            }
+        } else if (s_c != 0 && s_t != 0) {
+            //if neither sys.user nor sys.session is set (boot default), allow signaling
+            allowed = 1;
+        }
+        if (c_sess) kfree(c_sess);
+        if (t_sess) kfree(t_sess);
+    }
+    if (c_user) kfree(c_user);
+    if (t_user) kfree(t_user);
+    return allowed;
+}
+
 intptr sys_proc_send_event(uintptr pid, uint32 event) {
     process_t *caller = process_current();
     process_t *target;
@@ -428,9 +568,7 @@ intptr sys_proc_send_event(uintptr pid, uint32 event) {
     target = process_find_ref(pid);
     if (!target) return -1;
 
-    if (target->pid != caller->pid &&
-        target->parent_pid != caller->pid &&
-        caller->parent_pid != target->pid) {
+    if (!check_signal_permission(caller, target)) {
         process_unref(target);
         return -1;
     }

@@ -2,6 +2,7 @@
 #include <proc/bottom_half.h>
 #include <proc/process.h>
 #include <proc/thread.h>
+#include <proc/wait.h>
 
 static spinlock_irq_t console_fg_lock = SPINLOCK_IRQ_INIT;
 static uint64 console_foreground_pid = 0;
@@ -37,6 +38,19 @@ int proc_post_event(process_t *proc, uint32 event) {
     irq_state_t flags = spinlock_irq_acquire(&proc->event_lock);
     proc->pending_events |= PROC_EVENT_BIT(event);
     spinlock_irq_release(&proc->event_lock, flags);
+
+    if (event == PROC_EVENT_TERMINATE || event == PROC_EVENT_INTERRUPT) {
+        irq_state_t proc_flags = arch_irq_save();
+        spinlock_acquire(&proc->lock);
+        thread_t *t = proc->threads;
+        while (t) {
+            thread_wake_thread(t);
+            t = t->next;
+        }
+        spinlock_release(&proc->lock);
+        arch_irq_restore(proc_flags);
+    }
+
     return 0;
 }
 

@@ -2,6 +2,8 @@
 #define __MATH_H
 
 #define PI 3.14159265358979323846
+#define max(a, b) ((a) > (b) ? (a) : (b))
+#define min(a, b) ((a) < (b) ? (a) : (b))
 #define INFINITY ((float)(1.0 / 0.0))
 
 double mod(double a, double b);

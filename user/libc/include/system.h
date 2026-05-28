@@ -147,7 +147,7 @@ int vmo_unmap(void *vaddr, uint64 len);
 int vmo_resize(handle_t h, uint64 new_size);
 
 //namespace operations
-int ns_register(const char *path, handle_t h);
+int ns_register(const char *path, handle_t h, uint32 max_rights);
 
 //metadata
 int stat(const char *path, stat_t *st);

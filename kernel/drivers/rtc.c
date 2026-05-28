@@ -35,7 +35,7 @@ static uint8 bcd2bin(uint8 bcd) {
 
 void rtc_get_time(rtc_time_t *time) {
     irq_state_t flags = spinlock_irq_acquire(&rtc_lock);
-    
+
     while (rtc_is_updating());
 
     time->second = rtc_read_reg(RTC_REG_SECOND);
@@ -58,12 +58,18 @@ void rtc_get_time(rtc_time_t *time) {
     }
 
     //convert 12h to 24h if necessary
-    if (!(registerB & 0x02) && (time->hour & 0x80)) {
-        time->hour = ((time->hour & 0x7F) + 12) % 24;
+    if (!(registerB & 0x02)) {
+        bool pm = (time->hour & 0x80) != 0;
+        uint8 h = time->hour & 0x7F;
+        if (pm) {
+            time->hour = (h == 12) ? 12 : h + 12; //noon stays 12, else add 12
+        } else {
+            time->hour = (h == 12) ? 0 : h;       //midnight = 0, else keep
+        }
     }
 
     time->year += 2000;
-    
+
     spinlock_irq_release(&rtc_lock, flags);
 }
 
@@ -72,7 +78,7 @@ static ssize rtc_obj_read(object_t *obj, void *buf, size len, size offset) {
     (void)obj;
     (void)offset;
     if (len < sizeof(rtc_time_t)) return -1;
-    
+
     rtc_get_time((rtc_time_t *)buf);
     return sizeof(rtc_time_t);
 }
@@ -88,7 +94,7 @@ static object_t *rtc_object = NULL;
 void rtc_init() {
     rtc_object = object_create(OBJECT_DEVICE, &rtc_object_ops, NULL);
     if (rtc_object) {
-        ns_register("$devices/rtc", rtc_object);
+        ns_register("$devices/rtc", rtc_object, HANDLE_RIGHTS_ALL);
     }
     puts("[rtc] initialized\n");
 }
