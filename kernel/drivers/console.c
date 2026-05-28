@@ -48,7 +48,7 @@ void con_init(void) {
     //create console object and register in namespace
     console_object = object_create(OBJECT_DEVICE, &console_object_ops, NULL);
     if (console_object) {
-        ns_register("$devices/console", console_object);
+        ns_register("$devices/console", console_object, HANDLE_RIGHTS_ALL);
     }
 }
 
@@ -109,8 +109,13 @@ void con_putc(char c) {
         cursor_col = (cursor_col + 4) & ~3;
         if (cursor_col >= cols) newline();
     } else if (c == '\b') {
-        if (cursor_col == 0) { cursor_row--; cursor_col = cols; }
-        else cursor_col--;
+        if (cursor_col == 0) {
+            if (cursor_row == 0) return;
+            cursor_row--;
+            cursor_col = cols - 1;
+        } else {
+            cursor_col--;
+        }
         draw_char(cursor_col, cursor_row, ' ');
     } else {
         draw_char(cursor_col, cursor_row, c);

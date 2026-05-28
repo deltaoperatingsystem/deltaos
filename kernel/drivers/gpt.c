@@ -193,16 +193,11 @@ int gpt_scan(blkdev_t *dev) {
         return 0;
     }
 
-    //clamp entry count to spec maximum of 128
-    uint32 num_entries = hdr->num_partition_entries;
-    if (num_entries > 128) {
-        printf("[gpt] WARN: %s claims %u entries, clamping to 128\n", dev->name, num_entries);
-        num_entries = 128;
-    }
+    uint32 orig_num_entries = hdr->num_partition_entries;
 
     //validate the entry table fits within the disk
     uint32 entries_per_sector = dev->sector_size / entry_size;
-    uint32 table_sectors      = (num_entries + entries_per_sector - 1) / entries_per_sector;
+    uint32 table_sectors      = (orig_num_entries + entries_per_sector - 1) / entries_per_sector;
     if (hdr->partition_entry_lba < 2 ||
         hdr->partition_entry_lba + table_sectors > dev->sector_count) {
         printf("[gpt] ERR: %s partition entry table is out of disk bounds, ignoring\n", dev->name);
@@ -211,8 +206,10 @@ int gpt_scan(blkdev_t *dev) {
     }
 
     //allocate and read contiguous buffer for partition entries table CRC check
-    uint32 table_size = num_entries * entry_size;
-    uint32 table_pages = (table_size + 4095) / 4096;
+    uint32 table_size = orig_num_entries * entry_size;
+    uint32 table_sectors_to_read = (table_size + dev->sector_size - 1) / dev->sector_size;
+    uint32 alloc_size = table_sectors_to_read * dev->sector_size;
+    uint32 table_pages = (alloc_size + 4095) / 4096;
     void *table_buf_phys = pmm_alloc(table_pages);
     if (!table_buf_phys) {
         pmm_free(buf_phys, 1);
@@ -220,7 +217,6 @@ int gpt_scan(blkdev_t *dev) {
     }
     void *table_buf = P2V(table_buf_phys);
 
-    uint32 table_sectors_to_read = (table_size + dev->sector_size - 1) / dev->sector_size;
     if (dev->ops->read(dev, hdr->partition_entry_lba, table_sectors_to_read, table_buf) != 0) {
         printf("[gpt] ERR: %s failed to read partition entry table\n", dev->name);
         pmm_free(table_buf_phys, table_pages);
@@ -236,6 +232,13 @@ int gpt_scan(blkdev_t *dev) {
         pmm_free(table_buf_phys, table_pages);
         pmm_free(buf_phys, 1);
         return 0;
+    }
+
+    //clamp entry count to spec maximum of 128
+    uint32 num_entries = orig_num_entries;
+    if (num_entries > 128) {
+        printf("[gpt] WARN: %s claims %u entries, clamping to 128\n", dev->name, num_entries);
+        num_entries = 128;
     }
 
     printf("[gpt] Found GPT on %s: header LBA %llu, table LBA %llu, entry count %u\n", 
@@ -283,7 +286,7 @@ int gpt_scan(blkdev_t *dev) {
         if (obj) {
             char ns_name[64];
             snprintf(ns_name, sizeof(ns_name), "$devices/disks/%s", name);
-            ns_register(ns_name, obj);
+            ns_register(ns_name, obj, HANDLE_RIGHTS_ALL);
             printf("[gpt]   %s: LBA %llu - %llu (%llu sectors)\n", name, start, end, sectors);
             partitions_found++;
         } else {

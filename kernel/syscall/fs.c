@@ -82,69 +82,118 @@ intptr sys_handle_seek(handle_t h, size offset, int mode) {
 }
 
 intptr sys_stat(const char *path, stat_t *st) {
-    return handle_stat(path, st);
+    //copy path and stat result through kernel buffers
+    if (!path || !st) return -1;
+    char k_path[512];
+    if (copy_user_cstr(path, k_path, sizeof(k_path)) != 0) return -1;
+    stat_t k_st;
+    int ret = handle_stat(k_path, &k_st);
+    if (ret != 0) return ret;
+    if (copy_to_user_bytes(st, &k_st, sizeof(k_st)) != 0) return -1;
+    return 0;
 }
 
 intptr sys_fstat(handle_t h, stat_t *st) {
-    return handle_fstat(h, st);
+    //copy stat result through kernel buffer
+    if (!st) return -1;
+    stat_t k_st;
+    int ret = handle_fstat(h, &k_st);
+    if (ret != 0) return ret;
+    if (copy_to_user_bytes(st, &k_st, sizeof(k_st)) != 0) return -1;
+    return 0;
 }
 
 intptr sys_readdir(handle_t h, dirent_t *entries, uint32 count, uint32 *index) {
+    //copy entries and index through kernel buffers
     if (!entries || !index || count == 0) return -1;
-    
-    process_t *proc = process_current();
-    if (!proc) return -1;
 
+    uint32 k_index = 0;
+    if (copy_user_bytes(index, &k_index, sizeof(k_index)) != 0) return -1;
+
+    //cap to avoid a huge kernel allocation
+    if (count > 256) count = 256;
+    dirent_t *k_entries = kzalloc(count * sizeof(dirent_t));
+    if (!k_entries) return -1;
+
+    process_t *proc = process_current();
+    if (!proc) {
+        kfree(k_entries);
+        return -1;
+    }
+
+    spinlock_acquire(&proc->lock);
     proc_handle_t *entry = process_get_handle_entry(proc, h);
-    if (!entry) return -2;
-    if (!rights_has(entry->rights, HANDLE_RIGHT_READ)) return -4;
-    
-    object_t *obj = entry->obj;
-    if (!obj) return -3;
-    
-    if (!obj->ops || !obj->ops->readdir) return -3;
-    
-    return obj->ops->readdir(obj, entries, count, index);
+    if (entry) entry->offset = k_index;
+    spinlock_release(&proc->lock);
+
+    int result = handle_readdir(h, k_entries, count);
+    if (result < 0) {
+        kfree(k_entries);
+        return result;
+    }
+
+    //handle_readdir updates the handle's internal offset; read it back
+    spinlock_acquire(&proc->lock);
+    entry = process_get_handle_entry(proc, h);
+    if (entry) k_index = (uint32)entry->offset;
+    spinlock_release(&proc->lock);
+
+    if (copy_to_user_bytes(entries, k_entries, (size)result * sizeof(dirent_t)) != 0) {
+        kfree(k_entries);
+        return -1;
+    }
+    if (copy_to_user_bytes(index, &k_index, sizeof(k_index)) != 0) {
+        kfree(k_entries);
+        return -1;
+    }
+    kfree(k_entries);
+    return result;
 }
 
 intptr sys_chdir(const char *path) {
+    //copy path via kernel buffer
     if (!path) return -1;
-    
+
+    char k_path[512];
+    if (copy_user_cstr(path, k_path, sizeof(k_path)) != 0) return -1;
+
     process_t *proc = process_current();
     if (!proc) return -1;
-    
-    if (path[0] == '$') return -4;
-    
+
+    if (k_path[0] == '$') return -4;
+
     stat_t st;
-    if (handle_stat(path, &st) != 0) return -2;
+    if (handle_stat(k_path, &st) != 0) return -2;
     if (st.type != FS_TYPE_DIR) return -3;
-    
+
     char full_path[256];
-    if (path[0] == '/') {
-        strncpy(full_path, path, sizeof(full_path) - 1);
+    if (k_path[0] == '/') {
+        strncpy(full_path, k_path, sizeof(full_path) - 1);
+        full_path[sizeof(full_path) - 1] = '\0';
     } else {
-        snprintf(full_path, sizeof(full_path), "%s/%s", proc->cwd, path);
+        snprintf(full_path, sizeof(full_path), "%s/%s", proc->cwd, k_path);
     }
-    
+
     path_normalize(full_path);
-    
+
     size final_len = strlen(full_path);
     if (final_len >= sizeof(proc->cwd)) return -1;
-    
+
     memcpy(proc->cwd, full_path, final_len + 1);
     return 0;
 }
 
 intptr sys_getcwd(char *buf, size bufsize) {
+    //copy cwd through copy_to_user_bytes
     if (!buf || bufsize == 0) return -1;
-    
+
     process_t *proc = process_current();
     if (!proc) return -1;
-    
+
     size cwd_len = strlen(proc->cwd);
     if (cwd_len >= bufsize) return -1;
-    
-    memcpy(buf, proc->cwd, cwd_len + 1);
+
+    if (copy_to_user_bytes(buf, proc->cwd, cwd_len + 1) != 0) return -1;
     return (intptr)cwd_len;
 }
 

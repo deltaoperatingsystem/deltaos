@@ -91,18 +91,52 @@ static uint32       cached_num_entries = 0;
 #define NP_FIELD_NAME   3
 #define NP_FIELD_COUNT  4
 
-static const uint8 esp_guid[16] = {
-    0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11,
-    0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B
+typedef struct {
+    uint8 guid[16];
+    const char *name;
+} guid_map_t;
+
+static const guid_map_t type_guid_map[] = {
+    { { 0xAF, 0x3D, 0xC6, 0x0F, 0x83, 0x84, 0x72, 0x47,
+        0x8E, 0x79, 0x3D, 0x69, 0xD8, 0x47, 0x7D, 0xE4 }, "Linux filesystem" },
+    { { 0x6D, 0xFD, 0x57, 0x06, 0xAB, 0xA4, 0xC4, 0x43,
+        0x84, 0xE5, 0x09, 0x33, 0xC8, 0x4B, 0x4F, 0x4F }, "Linux swap" },
+    { { 0x79, 0xD3, 0xD6, 0xE6, 0x07, 0xF5, 0xC2, 0x44,
+        0xA2, 0x3C, 0x23, 0x8F, 0x2A, 0x3D, 0xF9, 0x28 }, "Linux LVM" },
+    { { 0x0F, 0x88, 0x9D, 0xA1, 0xFC, 0x05, 0x3B, 0x4D,
+        0xA0, 0x06, 0x74, 0x3F, 0x0F, 0x84, 0x91, 0x1E }, "Linux RAID" },
+    { { 0xE1, 0xC7, 0x3A, 0x93, 0xB4, 0x2E, 0x13, 0x4F,
+        0xB8, 0x44, 0x0E, 0x14, 0xE2, 0xAE, 0xF9, 0x15 }, "Linux /home" },
+    { { 0xE3, 0xBC, 0x68, 0x4F, 0xCD, 0xE8, 0xB1, 0x4D,
+        0x96, 0xE7, 0xFB, 0xCA, 0xF9, 0x84, 0xB7, 0x09 }, "Linux x86-64 root" },
+    { { 0x45, 0xB0, 0x21, 0xB9, 0xF0, 0x1D, 0xC3, 0x41,
+        0xAF, 0x44, 0x4C, 0x6F, 0x28, 0x0D, 0x3F, 0xAE }, "Linux ARM64 root" },
+    { { 0xCB, 0x7C, 0x7D, 0xCA, 0xED, 0x63, 0x53, 0x4C,
+        0x86, 0x1C, 0x17, 0x42, 0x53, 0x60, 0x59, 0xCC }, "Linux dm-crypt" },
+    { { 0xFF, 0xC2, 0x13, 0xBC, 0xE6, 0x59, 0x62, 0x42,
+        0xA3, 0x52, 0xB2, 0x75, 0xFD, 0x6F, 0x71, 0x72 }, "Linux extended boot" },
+    { { 0x48, 0x61, 0x68, 0x21, 0x49, 0x64, 0x6F, 0x6E,
+        0x74, 0x4E, 0x65, 0x65, 0x64, 0x45, 0x46, 0x49 }, "BIOS boot" },
+    { { 0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11,
+        0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B }, "EFI System" },
+    { { 0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44,
+        0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7 }, "Microsoft Basic Data" },
+    { { 0x16, 0xE3, 0xC9, 0xE3, 0x5C, 0x0B, 0xB8, 0x4D,
+        0x81, 0x7D, 0xF9, 0x2D, 0xF0, 0x02, 0x15, 0xAE }, "Microsoft Reserved" },
+    { { 0xA4, 0xBB, 0x94, 0xDE, 0xD1, 0x06, 0x40, 0x4D,
+        0xA1, 0x6A, 0xBF, 0xD5, 0x01, 0x79, 0xD6, 0xAC }, "Windows Recovery" },
+    { { 0xEF, 0x57, 0x34, 0x7C, 0x00, 0x00, 0xAA, 0x11,
+        0xAA, 0x11, 0x00, 0x30, 0x65, 0x43, 0xEC, 0xAC }, "Apple APFS" },
+    { { 0x00, 0x53, 0x46, 0x48, 0x00, 0x00, 0xAA, 0x11,
+        0xAA, 0x11, 0x00, 0x30, 0x65, 0x43, 0xEC, 0xAC }, "Apple HFS+ / Mac" },
+    { { 0xB4, 0x7C, 0x6E, 0x51, 0xCF, 0x6E, 0xD6, 0x11,
+        0x8F, 0xF8, 0x00, 0x02, 0x2D, 0x09, 0x71, 0x2B }, "FreeBSD UFS" },
+    { { 0xB5, 0x7C, 0x6E, 0x51, 0xCF, 0x6E, 0xD6, 0x11,
+        0x8F, 0xF8, 0x00, 0x02, 0x2D, 0x09, 0x71, 0x2B }, "FreeBSD ZFS" },
+    { { 0xB6, 0x7C, 0x6E, 0x51, 0xCF, 0x6E, 0xD6, 0x11,
+        0x8F, 0xF8, 0x00, 0x02, 0x2D, 0x09, 0x71, 0x2B }, "FreeBSD swap" },
 };
-static const uint8 basic_guid[16] = {
-    0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44,
-    0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7
-};
-static const uint8 linux_guid[16] = {
-    0xAF, 0x3D, 0xC6, 0x0F, 0x83, 0x84, 0x72, 0x47,
-    0x8E, 0x79, 0x3D, 0x69, 0xD8, 0x47, 0x7D, 0xE4
-};
+static const int type_guid_count = (int)(sizeof(type_guid_map) / sizeof(type_guid_map[0]));
 
 //all zero guid means unused entry
 static bool guid_is_zero(const uint8 *guid) {
@@ -123,9 +157,10 @@ static void guid_to_string(const uint8 *guid, char *buf, size bufsz) {
 }
 
 static const char *type_guid_name(const uint8 *guid) {
-    if (memcmp(guid, esp_guid, 16) == 0) return "EFI system";
-    if (memcmp(guid, basic_guid, 16) == 0) return "Basic data";
-    if (memcmp(guid, linux_guid, 16) == 0) return "Linux fs";
+    for (int i = 0; i < type_guid_count; i++) {
+        if (memcmp(guid, type_guid_map[i].guid, 16) == 0)
+            return type_guid_map[i].name;
+    }
     return "Unknown";
 }
 
@@ -367,7 +402,7 @@ static int wipe_gpt(handle_t dev, block_device_info_t *info) {
 
     //zero the header and some entries
     for (uint64 lba = 0; lba < 64; lba++) {
-        if (write_lba(dev, info->sector_size, lba, zero) == -2) {
+        if (write_lba(dev, info->sector_size, lba, zero) < 0) {
             free(zero);
             clear_partition_state("disk wipe verification failed");
             return -1;
@@ -376,7 +411,7 @@ static int wipe_gpt(handle_t dev, block_device_info_t *info) {
     //zero the backup at the end
     if (info->sector_count > 64) {
         for (uint64 lba = info->sector_count - 64; lba < info->sector_count; lba++) {
-            if (write_lba(dev, info->sector_size, lba, zero) == -2) {
+            if (write_lba(dev, info->sector_size, lba, zero) < 0) {
                 free(zero);
                 clear_partition_state("disk wipe verification failed (backup)");
                 return -1;
@@ -633,8 +668,8 @@ static void np_draw_field(uint32 bx, uint32 by, uint32 bw,
     curses_set_bg(CURSES_RGB(20, 20, 40));
 }
 
-static void do_new_partition(void) {
-    if (!selected_is_gpt) return;
+static bool do_new_partition(void) {
+    if (!selected_is_gpt) return false;
 
     //find first empty slot (type GUID is null)
     int slot = -1;
@@ -646,7 +681,7 @@ static void do_new_partition(void) {
     }
     if (slot == -1) {
         strncpy(detail_status, "error: GPT table is full", sizeof(detail_status) - 1);
-        return;
+        return false;
     }
 
     uint32 scr_rows = curses_get_rows();
@@ -696,7 +731,6 @@ static void do_new_partition(void) {
     }
     uint64 size_mib  = 1;
     uint32 type_sel  = 0;
-    const char *type_names[3] = {"Linux fs", "Basic data", "EFI system"};
 
     snprintf(start_buf, sizeof(start_buf), "%lu", (unsigned long)start_lba);
     snprintf(size_buf,  sizeof(size_buf),  "%lu", (unsigned long)size_mib);
@@ -734,7 +768,7 @@ static void do_new_partition(void) {
         //draw the four fields
         //type field value string
         char type_val[32];
-        snprintf(type_val, sizeof(type_val), "%s", type_names[type_sel]);
+        snprintf(type_val, sizeof(type_val), "%s", type_guid_map[type_sel].name);
 
         np_draw_field(bx, by, bw, field_rows[NP_FIELD_START], labels[NP_FIELD_START],
                       LABEL_COL, start_buf, VALUE_COL, VALUE_W,
@@ -773,7 +807,7 @@ static void do_new_partition(void) {
             if (curses_event_is_printable(&ev)) {
                 char c = curses_event_char(&ev);
                 if (c == 't' || c == 'T')
-                    type_sel = (type_sel + 1) % 3;
+                    type_sel = (type_sel + 1) % type_guid_count;
             }
             continue;
         }
@@ -836,14 +870,30 @@ static void do_new_partition(void) {
         break;
     }
 
-    if (!done_ok) return;
+    if (!done_ok) return false;
+
+    //guard size-to-LBA overflow
+    if (size_mib > UINT64_MAX / (1024ULL * 1024ULL)) {
+        strncpy(detail_status, "error: partition size is too large (overflow)", sizeof(detail_status) - 1);
+        return false;
+    }
 
     //compute LBA range
     uint64 sectors_needed = (size_mib * 1024ULL * 1024ULL + sector_size - 1) / sector_size;
+    if (sectors_needed == 0) {
+        strncpy(detail_status, "error: partition size results in 0 sectors", sizeof(detail_status) - 1);
+        return false;
+    }
+
+    if (start_lba > UINT64_MAX - (sectors_needed - 1)) {
+        strncpy(detail_status, "error: partition address overflow", sizeof(detail_status) - 1);
+        return false;
+    }
+
     uint64 end_lba = start_lba + sectors_needed - 1;
     if (end_lba > cached_gpt_hdr.last_usable_lba) {
         strncpy(detail_status, "error: partition extends beyond usable space", sizeof(detail_status) - 1);
-        return;
+        return false;
     }
 
     //check for range overlaps with existing partitions
@@ -854,16 +904,14 @@ static void do_new_partition(void) {
         }
         if (start_lba <= entry->ending_lba && entry->starting_lba <= end_lba) {
             strncpy(detail_status, "error: partition overlaps with existing partition", sizeof(detail_status) - 1);
-            return;
+            return false;
         }
     }
 
     //fill the entry
     gpt_entry_t *e = &cached_entries[slot];
     memset(e, 0, sizeof(*e));
-    const uint8 *tguid = (type_sel == 0) ? linux_guid
-                       : (type_sel == 1) ? basic_guid : esp_guid;
-    memcpy(e->type_guid, tguid, 16);
+    memcpy(e->type_guid, type_guid_map[type_sel].guid, 16);
 
     //generate a unique partition GUID using get_ticks(), RTC time, slot, and a local counter
     static uint32 pguid_counter = 0;
@@ -893,7 +941,7 @@ static void do_new_partition(void) {
     if (h == INVALID_HANDLE) {
         strncpy(detail_status, "error: cannot open device for writing", sizeof(detail_status) - 1);
         memset(e, 0, sizeof(*e));
-        return;
+        return false;
     }
     int err = commit_gpt(h, sector_size, &cached_gpt_hdr, cached_entries, cached_num_entries);
     if (err == 0) {
@@ -903,9 +951,10 @@ static void do_new_partition(void) {
     if (err < 0) {
         strncpy(detail_status, "error: failed to write GPT", sizeof(detail_status) - 1);
         memset(e, 0, sizeof(*e));
-        return;
+        return false;
     }
     inspect_selected_device();
+    return true;
 }
 
 //rescan $devices/disks and rebuild the left pane
@@ -1187,10 +1236,10 @@ int main(void) {
             redraw();
             continue;
         }
-        //new partition - available from either pane if disk is GPT
         if ((ch == 'n' || ch == 'N') && selected_is_gpt) {
-            do_new_partition();
-            reload_devices();
+            if (do_new_partition()) {
+                reload_devices();
+            }
             redraw();
             continue;
         }

@@ -182,11 +182,18 @@ static ssize tmpfs_file_write(object_t *obj, const void *buf, size len, size off
     
     spinlock_acquire(&tmpfs_lock);
     
+    if (len > SIZE_MAX - offset) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
     size end = offset + len;
     
     if (end > node->file.capacity) {
-        size new_cap = node->file.capacity ? node->file.capacity * 2 : TMPFS_INITIAL_BUF;
-        while (new_cap < end) new_cap *= 2;
+        size new_cap = node->file.capacity ? node->file.capacity : TMPFS_INITIAL_BUF;
+        while (new_cap < end) {
+            if (new_cap > SIZE_MAX / 2) { new_cap = SIZE_MAX; break; }
+            new_cap *= 2;
+        }
         
         uint8 *new_data = krealloc(node->file.data, new_cap);
         if (!new_data) {
@@ -348,9 +355,14 @@ static int tmpfs_fs_create(fs_t *fs, const char *path, uint32 type) {
         node->file.capacity = 0;
     }
     
-    int result = add_child(parent, node);
+    if (add_child(parent, node) != 0) {
+        if (type == FS_TYPE_DIR) kfree(node->dir.children);
+        kfree(node);
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
     spinlock_release(&tmpfs_lock);
-    return result;
+    return 0;
 }
 
 static int tmpfs_fs_remove(fs_t *fs, const char *path) {
@@ -446,8 +458,8 @@ static int tmpfs_root_readdir(object_t *obj, void *buf, uint32 count, uint32 *in
             strncpy(entries[found].name, child->name, DIRENT_NAME_MAX - 1);
             entries[found].name[DIRENT_NAME_MAX - 1] = '\0';
             found++;
-            *index = i + 1;
         }
+        *index = i + 1;
     }
     
     return found;
@@ -500,7 +512,7 @@ void tmpfs_init(void) {
     
     tmpfs_root_obj = object_create(OBJECT_DIR, &tmpfs_root_ops, &tmpfs_instance);
     if (tmpfs_root_obj) {
-        ns_register("$files", tmpfs_root_obj);
+        ns_register("$files", tmpfs_root_obj, HANDLE_RIGHTS_ALL);
     }
     
     puts("[tmpfs] initialized\n");

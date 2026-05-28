@@ -33,7 +33,8 @@ intptr syscall_dispatch(uintptr num, uintptr arg1, uintptr arg2, uintptr arg3,
                                                                 (channel_recv_result_t *)arg6);
         case SYS_VMO_MAP: return sys_vmo_map((handle_t)arg1, (uintptr)arg2, (size)arg3, (size)arg4, (uint32)arg5);
         case SYS_VMO_UNMAP: return sys_vmo_unmap((uintptr)arg1, (size)arg2);
-        case SYS_NS_REGISTER: return sys_ns_register((const char *)arg1, (handle_t)arg2);
+        case SYS_NS_REGISTER: return sys_ns_register((const char *)arg1, (handle_t)arg2, (handle_rights_t)arg3);
+
         case SYS_STAT: return sys_stat((const char *)arg1, (stat_t *)arg2);
         case SYS_WAIT: return sys_wait((uintptr)arg1);
         

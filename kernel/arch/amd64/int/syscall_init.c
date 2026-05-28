@@ -24,7 +24,7 @@ void syscall_init(void) {
     
     wrmsr(IA32_LSTAR, (uint64)&syscall_entry_simple);
     
-    uint64 fmask = (1ULL << 9) | (1ULL << 8) | (1ULL << 10);
+    uint64 fmask = (1ULL << 9) | (1ULL << 8) | (1ULL << 10) | (3ULL << 12);
     wrmsr(IA32_FMASK, fmask);
     
     uint64 efer = rdmsr(IA32_EFER);

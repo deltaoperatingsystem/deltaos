@@ -143,7 +143,7 @@ object_t *system_object_create(void) {
 void kernel_info_init(void) {
     object_t *sys = system_object_create();
     if (sys) {
-        ns_register("$devices/system", sys);
+        ns_register("$devices/system", sys, HANDLE_RIGHTS_ALL);
         object_deref(sys);
     }
 }

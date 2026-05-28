@@ -848,6 +848,9 @@ static int fat32_lfn_fill_entry(fat32_lfn_dirent_t *out, uint8 order, uint8 chec
                 for (size remp = p + 1; remp < 3; remp++) {
                     for (size rem = 0; rem < counts[remp]; rem++) parts[remp][rem] = 0xFFFF;
                 }
+                memcpy(out->name1, name1, sizeof(name1));
+                memcpy(out->name2, name2, sizeof(name2));
+                memcpy(out->name3, name3, sizeof(name3));
                 return 0;
             }
         }

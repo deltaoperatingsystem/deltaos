@@ -5,11 +5,18 @@ static handle_t kbd_channel = INVALID_HANDLE;
 
 int kbd_init(void) {
     if (kbd_channel != INVALID_HANDLE) return 0;  //already initialized
-    
-    kbd_channel = get_obj(INVALID_HANDLE, "$devices/keyboard/channel", RIGHT_READ | RIGHT_WRITE);
+
+    //check if the parent passed us the keyboard handle via spawn_ctx context
+    handle_t inherited = INVALID_HANDLE;
+    if (context_get_handle("keyboard", &inherited, NULL) == 0 && inherited != INVALID_HANDLE) {
+        kbd_channel = inherited;
+        return 0;
+    }
+
+    //fall back to opening from the namespace (login, shell, etc.)
+    kbd_channel = get_obj(INVALID_HANDLE, "$devices/keyboard/channel", RIGHT_READ | RIGHT_WRITE | RIGHT_DUPLICATE);
     if (kbd_channel == INVALID_HANDLE) return -1;
-    
-    //flush stale events from boot
+
     kbd_flush();
     return 0;
 }
@@ -46,6 +53,10 @@ void kbd_close(void) {
         handle_close(kbd_channel);
         kbd_channel = INVALID_HANDLE;
     }
+}
+
+handle_t kbd_handle(void) {
+    return kbd_channel;
 }
 
 char kbd_getchar(void) {

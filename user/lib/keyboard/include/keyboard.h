@@ -2,6 +2,7 @@
 #define _KEYBOARD_H
 
 #include <types.h>
+#include <system.h>
 
 //keyboard event structure (matches kernel kbd_event_t)
 typedef struct {
@@ -34,6 +35,10 @@ void kbd_flush(void);
 
 //close keyboard channel
 void kbd_close(void);
+
+//return the raw keyboard channel handle (for passing to spawn_ctx as an inherited handle)
+//returns INVALID_HANDLE if kbd_init() has not been called yet
+handle_t kbd_handle(void);
 
 //convenience: read a character (blocking, printable only)
 //returns character or 0 on error

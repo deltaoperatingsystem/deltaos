@@ -236,18 +236,18 @@ create_disk_image() {
     fi
 
     if [[ ! -f "$FAT32_IMG" ]]; then
-        print_step "creating sample FAT32 image"
+        print_step "creating sample FAT32 image with GPT partition table"
         dd if=/dev/zero of="$FAT32_IMG" bs=1M count=$FAT32_SIZE_MB status=none
-        if command -v mkfs.vfat >/dev/null 2>&1; then
-            mkfs.vfat -F 32 -n DELTAOS "$FAT32_IMG"
-        elif command -v mformat >/dev/null 2>&1; then
-            mformat -F -i "$FAT32_IMG" ::
-            if command -v mlabel >/dev/null 2>&1; then
-                mlabel -i "$FAT32_IMG" ::DELTAOS
-            fi
-        else
-            echo "error: need mkfs.vfat or mtools to prepare $FAT32_IMG"
-            exit 1
+
+        local PART_START=2048
+        local PART_END=$((FAT32_SIZE_MB * 1024 * 1024 / 512 - 34))
+
+        sgdisk --clear --new=1:$PART_START:$PART_END --typecode=1:8300 --change-name=1:"DATA" "$FAT32_IMG"
+
+        local PART_OFFSET=$((PART_START * 512))
+        mformat -F -i "$FAT32_IMG"@@${PART_OFFSET} ::
+        if command -v mlabel >/dev/null 2>&1; then
+            mlabel -i "$FAT32_IMG"@@${PART_OFFSET} ::DELTAOS
         fi
     fi
 
@@ -293,12 +293,16 @@ run_qemu() {
         accel_spec="-accel tcg"
         echo "    using TCG because KVM does not support userspace APIC here"
     fi
+    local cpu_spec="qemu64"
+    if [[ "$accel_spec" == "-accel tcg" ]]; then
+        cpu_spec="qemu64"
+    fi
     display_spec=$(choose_display_spec)
     echo "    display backend: $display_spec"
     local QEMU_ARGS=(
         -machine "$machine_spec"
-        -cpu qemu64
-        -m 512M
+        -cpu "$cpu_spec"
+        -m 2048M
         -display "$display_spec"
         -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
         -drive "file=$DISK_IMG,format=raw"

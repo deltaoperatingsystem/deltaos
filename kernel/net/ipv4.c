@@ -71,6 +71,7 @@ void ipv4_recv(netif_t *nif, void *data, size len) {
         return;
     }
     
+    if (total_len < header_len) return;
     void *payload = (uint8 *)data + header_len;
     size payload_len = total_len - header_len;
     

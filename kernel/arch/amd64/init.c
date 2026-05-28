@@ -18,6 +18,7 @@
 #include <arch/amd64/smp/smp.h>
 #include <arch/percpu.h>
 #include <arch/fpu.h>
+#include <arch/amd64/cpu.h>
 
 extern void kernel_main(const char *cmdline);
 extern void enable_sse(void);
@@ -27,6 +28,8 @@ void arch_init(struct db_boot_info *boot_info) {
     serial_init();
     io_enable_serial();
     set_outmode(SERIAL);
+
+    arch_string_init();
 
     puts("\x1b[2J\x1b[H");
     puts("[amd64] initializing...\n");

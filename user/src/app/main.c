@@ -7,12 +7,37 @@ int main(void) {
     if (!px_init()) exit(1);
     px_window_t *w = px_create_window("Test Window", 500, 500); if (!w) exit(1);
     px_surface_t *surface = px_get_surface(w); if (!surface) exit(1);
-    // px_image_t *image = px_load_image("$files/wallpaper.dm");
 
-    px_rect_t rect = px_create_rect(0, 0, 10, 10, 0xFFFFFFFF);
+    px_set_title(w, "Hello DeltaOS");
+
+    uint16 sw = px_get_surface_w(surface);
+    uint16 sh = px_get_surface_h(surface);
+
+    int mx = 0, my = 0;
+    bool pressed = false;
+
     while (1) {
-        // px_draw_image(surface, image, 0, 0);
-        px_draw_rect(surface, rect);
+        px_event_t ev;
+        while (px_poll_event(w, &ev)) {
+            if (ev.type == PX_EVENT_MOUSE) {
+                mx = ev.mouse.x;
+                my = ev.mouse.y;
+                pressed = ev.mouse.buttons & PX_MOUSE_BTN_LEFT;
+            } else if (ev.type == PX_EVENT_RESIZE) {
+                sw = ev.resize.w;
+                sh = ev.resize.h;
+                if (mx >= (int)sw) mx = sw ? (int)sw - 1 : 0;
+                if (my >= (int)sh) my = sh ? (int)sh - 1 : 0;
+            }
+        }
+
+        px_draw_rect(surface, px_create_rect(0, 0, sw, sh, PX_RGB(10, 10, 20)));
+
+        px_draw_rect(surface, px_create_rect(20, 20, sw - 40, sh - 40, PX_RGB(30, 35, 60)));
+
+        px_draw_rect(surface, px_create_rect(mx - 5, my - 5, 10, 10,
+            pressed ? PX_RGB(255, 80, 80) : PX_RGB(80, 200, 255)));
+
         px_update_window(w);
 
         yield();

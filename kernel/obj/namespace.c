@@ -5,64 +5,88 @@
 #include <lib/spinlock.h>
 #include <fs/fs.h>
 
-#define NS_INITIAL_BUCKETS 32
-#define NS_LOAD_FACTOR_NUM 3
-#define NS_LOAD_FACTOR_DEN 4  //rehash when 75% full
+//namespace tree node
+//each node holds a single path component like "keyboard"
+typedef struct ns_node {
+    char            *name; //component name (heap-allocated, NUL-terminated)
+    object_t        *obj; //registered object; NULL for auto-created intermediates
+    handle_rights_t  max_rights; //rights ceiling applied when the node is opened
+    struct ns_node  *parent;
+    struct ns_node  *first_child; //head of singly-linked children list
+    struct ns_node  *next_sibling; //next node at the same level
+} ns_node_t;
 
-typedef struct ns_entry {
-    char *name;
-    object_t *obj;
-    struct ns_entry *next;  //chaining for collisions
-} ns_entry_t;
-
-static ns_entry_t **buckets = NULL;
-static uint32 bucket_count = 0;
-static uint32 entry_count = 0;
+//hidden root sentinel - has no name or object, its children are the top-level entries
+static ns_node_t  ns_root = {0};
 static spinlock_t ns_lock = {0};
 
-//FNV-1a hash - fast and good distribution
-static uint32 hash_string(const char *s) {
-    uint32 hash = 2166136261u;
-    while (*s) {
-        hash ^= (uint8)*s++;
-        hash *= 16777619u;
-    }
-    return hash;
-}
-
-static void ns_rehash(void) {
-    uint32 new_count = bucket_count * 2;
-    ns_entry_t **new_buckets = kzalloc(new_count * sizeof(ns_entry_t *));
-    if (!new_buckets) return;  //keep old table if alloc fails
-    
-    //rehash all entries
-    for (uint32 i = 0; i < bucket_count; i++) {
-        ns_entry_t *entry = buckets[i];
-        while (entry) {
-            ns_entry_t *next = entry->next;
-            uint32 new_idx = hash_string(entry->name) % new_count;
-            entry->next = new_buckets[new_idx];
-            new_buckets[new_idx] = entry;
-            entry = next;
-        }
-    }
-    
-    kfree(buckets);
-    buckets = new_buckets;
-    bucket_count = new_count;
-}
-
 void ns_init(void) {
-    buckets = kzalloc(NS_INITIAL_BUCKETS * sizeof(ns_entry_t *));
-    if (!buckets) {
-        printf("[namespace] ERR: failed to allocate hash table\n");
-        return;
-    }
-    bucket_count = NS_INITIAL_BUCKETS;
-    entry_count = 0;
+    //root is statically allocated; nothing to initialise
 }
 
-static int ns_dir_stat(object_t *obj, stat_t *st) {
+//find a direct child of parent matching the first len bytes of name
+static ns_node_t *ns_find_child(ns_node_t *parent, const char *name, size len) {
+    for (ns_node_t *c = parent->first_child; c; c = c->next_sibling) {
+        if (strlen(c->name) == len && memcmp(c->name, name, len) == 0)
+            return c;
+    }
+    return NULL;
+}
+
+//allocate and prepend a new child node under parent with the given name component
+static ns_node_t *ns_create_child(ns_node_t *parent, const char *name, size len) {
+    ns_node_t *node = kzalloc(sizeof(ns_node_t));
+    if (!node) return NULL;
+
+    node->name = kmalloc(len + 1);
+    if (!node->name) { kfree(node); return NULL; }
+    memcpy(node->name, name, len);
+    node->name[len] = '\0';
+
+    node->max_rights = HANDLE_RIGHTS_ALL;
+    node->parent     = parent;
+
+    //prepend to sibling list (order does not affect correctness)
+    node->next_sibling = parent->first_child;
+    parent->first_child = node;
+    return node;
+}
+
+//walk path components split by '/' and optionally creating missing intermediate nodes
+//returns the leaf node, or NULL if a component is missing (create=false) or OOM (create=true)
+//must be called with ns_lock held
+static ns_node_t *ns_walk(const char *path, bool create) {
+    ns_node_t  *cur = &ns_root;
+    const char *p   = path;
+
+    while (*p) {
+        //skip slashes
+        if (*p == '/') { p++; continue; }
+
+        //find end of this component
+        const char *end = p;
+        while (*end && *end != '/') end++;
+        size len = (size)(end - p);
+        if (!len) break;
+
+        ns_node_t *child = ns_find_child(cur, p, len);
+        if (!child) {
+            if (!create) return NULL;
+            child = ns_create_child(cur, p, len);
+            if (!child) return NULL;
+        }
+        cur = child;
+        p   = end;
+    }
+
+    //the root itself is not a valid return value (empty path)
+    return (cur == &ns_root) ? NULL : cur;
+}
+
+//synthetic directory object for intermediate nodes
+//created on demand when something opens a path like "$devices" or "$devices/disks"
+//that has children but no explicitly registered object
+static int ns_tree_dir_stat(object_t *obj, stat_t *st) {
     (void)obj;
     if (!st) return -1;
     memset(st, 0, sizeof(stat_t));
@@ -70,224 +94,178 @@ static int ns_dir_stat(object_t *obj, stat_t *st) {
     return 0;
 }
 
-static object_t *ns_dir_lookup(object_t *obj, const char *name) {
-    const char *prefix = (const char *)obj->data;
-    size prefix_len = strlen(prefix);
-    size name_len = strlen(name);
-    
-    if (prefix_len + name_len >= 128) return NULL;
-    
-    char full_path[128];
-    snprintf(full_path, sizeof(full_path), "%s%s", prefix, name);
-    return ns_lookup(full_path);
-}
+static int ns_tree_dir_readdir(object_t *obj, void *entries_ptr, uint32 count, uint32 *index) {
+    ns_node_t *node    = (ns_node_t *)obj->data;
+    dirent_t  *entries = (dirent_t  *)entries_ptr;
+    uint32     filled  = 0;
+    uint32     skip    = *index;
+    uint32     seen    = 0;
 
-static int ns_dir_readdir(object_t *obj, void *entries_ptr, uint32 count, uint32 *index) {
-    const char *prefix = (const char *)obj->data;
-    size prefix_len = strlen(prefix);
-    dirent_t *entries = (dirent_t *)entries_ptr;
-    
-    uint32 filled = 0;
-    uint32 current_idx = 0;
-    uint32 skip = *index;
-    
     spinlock_acquire(&ns_lock);
-    
-    //iterate all buckets
-    for (uint32 b = 0; b < bucket_count && filled < count; b++) {
-        for (ns_entry_t *e = buckets[b]; e && filled < count; e = e->next) {
-            //check if name starts with prefix
-            if (strncmp(e->name, prefix, prefix_len) == 0) {
-                //exclude the prefix itself if it was registered
-                if (strlen(e->name) == prefix_len) {
-                    current_idx++;
-                    continue;
-                }
-
-                if (current_idx >= skip) {
-                    const char *subname = e->name + prefix_len;
-                    //handle nested directories by only returning the next component
-                    const char *slash = strchr(subname, '/');
-                    if (slash) {
-                        //it's a "directory" in the flat namespace
-                        size entry_len = slash - subname;
-                        if (entry_len >= sizeof(entries[filled].name)) 
-                            entry_len = sizeof(entries[filled].name) - 1;
-                        
-                        memcpy(entries[filled].name, subname, entry_len);
-                        entries[filled].name[entry_len] = '\0';
-                        entries[filled].type = OBJECT_DIR;
-                    } else {
-                        //it's a leaf node
-                        strncpy(entries[filled].name, subname, sizeof(entries[filled].name) - 1);
-                        entries[filled].name[sizeof(entries[filled].name) - 1] = '\0';
-                        entries[filled].type = e->obj->type;
-                    }
-                    
-                    //de-duplicate (if e.g. disks/nvme0n1 and disks/nvme0n2 both result in "disks")
-                    bool duplicate = false;
-                    for (uint32 j = 0; j < filled; j++) {
-                        if (strcmp(entries[j].name, entries[filled].name) == 0) {
-                            duplicate = true;
-                            break;
-                        }
-                    }
-                    
-                    if (!duplicate) {
-                        filled++;
-                    }
-                }
-                current_idx++;
-            }
+    for (ns_node_t *c = node->first_child; c && filled < count; c = c->next_sibling) {
+        if (seen >= skip) {
+            strncpy(entries[filled].name, c->name, sizeof(entries[filled].name) - 1);
+            entries[filled].name[sizeof(entries[filled].name) - 1] = '\0';
+            entries[filled].type = c->obj ? c->obj->type : OBJECT_DIR;
+            filled++;
         }
+        seen++;
     }
-    
     spinlock_release(&ns_lock);
-    
-    *index = skip + current_idx;
-    return filled;
+
+    *index = seen;
+    return (int)filled;
 }
 
-static int ns_dir_close(object_t *obj) {
-    if (obj->data) kfree(obj->data);
-    return 0;
-}
-
-static object_ops_t ns_dir_ops = {
-    .readdir = ns_dir_readdir,
-    .lookup = ns_dir_lookup,
-    .read = NULL,
-    .write = NULL,
-    .stat = ns_dir_stat,
-    .close = ns_dir_close
+static object_ops_t ns_tree_dir_ops = {
+    .stat    = ns_tree_dir_stat,
+    .readdir = ns_tree_dir_readdir,
 };
 
-object_t *ns_create_dir(const char *prefix) {
-    size len = strlen(prefix) + 1;
-    char *copy = kmalloc(len);
-    if (!copy) return NULL;
-    memcpy(copy, prefix, len);
-
-    object_t *obj = object_create(OBJECT_NS_DIR, &ns_dir_ops, copy);
-    if (!obj) kfree(copy);
-    return obj;
+//create a synthetic directory object pointing at the given ns_node_t
+//must be called WITHOUT ns_lock held (object_create may allocate)
+static object_t *ns_make_dir_obj(ns_node_t *node) {
+    return object_create(OBJECT_NS_DIR, &ns_tree_dir_ops, node);
 }
 
-int ns_register(const char *name, object_t *obj) {
-    if (!name || !obj || !buckets) return -1;
-    
+int ns_register(const char *name, object_t *obj, handle_rights_t max_rights) {
+    if (!name || !obj) return -1;
+
     spinlock_acquire(&ns_lock);
-    
-    //check load factor and rehash if needed
-    if (entry_count * NS_LOAD_FACTOR_DEN >= bucket_count * NS_LOAD_FACTOR_NUM) {
-        ns_rehash();
-    }
-    
-    uint32 idx = hash_string(name) % bucket_count;
-    
-    //check if already exists
-    for (ns_entry_t *e = buckets[idx]; e; e = e->next) {
-        if (strcmp(e->name, name) == 0) {
-            spinlock_release(&ns_lock);
-            return -1;  //already exists
-        }
-    }
-    
-    //create new entry
-    ns_entry_t *entry = kmalloc(sizeof(ns_entry_t));
-    if (!entry) {
+
+    ns_node_t *node = ns_walk(name, /*create=*/true);
+    if (!node) { spinlock_release(&ns_lock); return -1; }
+
+    if (node->obj) {
+        //already registered - refuse to overwrite silently
         spinlock_release(&ns_lock);
         return -1;
     }
-    
-    size name_len = strlen(name) + 1;
-    entry->name = kmalloc(name_len);
-    if (!entry->name) {
-        kfree(entry);
-        spinlock_release(&ns_lock);
-        return -1;
-    }
-    
-    memcpy(entry->name, name, name_len);
-    entry->obj = obj;
+
+    node->obj        = obj;
+    node->max_rights = max_rights;
     object_ref(obj);
-    
-    //insert at head of chain
-    entry->next = buckets[idx];
-    buckets[idx] = entry;
-    entry_count++;
-    
+
     spinlock_release(&ns_lock);
     return 0;
 }
 
 int ns_unregister(const char *name) {
-    if (!name || !buckets) return -1;
-    
+    if (!name) return -1;
+
     spinlock_acquire(&ns_lock);
-    
-    uint32 idx = hash_string(name) % bucket_count;
-    ns_entry_t **prev = &buckets[idx];
-    
-    for (ns_entry_t *e = buckets[idx]; e; prev = &e->next, e = e->next) {
-        if (strcmp(e->name, name) == 0) {
-            *prev = e->next;
-            object_deref(e->obj);
-            kfree(e->name);
-            kfree(e);
-            entry_count--;
-            spinlock_release(&ns_lock);
-            return 0;
-        }
+
+    ns_node_t *node = ns_walk(name, /*create=*/false);
+    if (!node || !node->obj) {
+        spinlock_release(&ns_lock);
+        return -1;
     }
+
+    object_deref(node->obj);
+    node->obj        = NULL;
+    node->max_rights = HANDLE_RIGHTS_ALL;
+
     spinlock_release(&ns_lock);
-    return -1;  //not found
+    return 0;
 }
 
-object_t *ns_lookup(const char *name) {
-    if (!name || !buckets) return NULL;
-    
+object_t *ns_lookup_ex(const char *name, handle_rights_t *max_rights_out) {
+    if (!name) return NULL;
+
     spinlock_acquire(&ns_lock);
-    
-    uint32 idx = hash_string(name) % bucket_count;
-    
-    for (ns_entry_t *e = buckets[idx]; e; e = e->next) {
-        if (strcmp(e->name, name) == 0) {
-            object_ref(e->obj);
+
+    ns_node_t  *cur = &ns_root;
+    const char *p   = name;
+
+    while (*p) {
+        if (*p == '/') { p++; continue; }
+
+        const char *end = p;
+        while (*end && *end != '/') end++;
+        size len = (size)(end - p);
+        if (!len) break;
+
+        ns_node_t *child = ns_find_child(cur, p, len);
+        if (!child) {
             spinlock_release(&ns_lock);
-            return e->obj;
+            return NULL;
+        }
+
+        cur = child;
+        p   = end;
+
+        //skip any trailing slashes to find the true remaining path
+        const char *remaining = p;
+        while (*remaining == '/') remaining++;
+
+        //if there is more path AND this node has a factory object with a lookup op
+        //delegate the rest of the path to it (e.x $devices/keyboard -> "channel")
+        //must release the lock before calling into factory code (may kmalloc/sleep)
+        if (*remaining != '\0' && cur->obj && cur->obj->ops && cur->obj->ops->lookup) {
+            object_t       *factory   = cur->obj;
+            handle_rights_t ceiling   = cur->max_rights;
+            object_ref(factory);
+            spinlock_release(&ns_lock);
+
+            object_t *result = factory->ops->lookup(factory, remaining);
+            object_deref(factory);
+
+            if (result && max_rights_out) *max_rights_out = ceiling;
+            return result;
         }
     }
+
+    //guard against the empty-path case (ns_walk would return NULL but we loop differently here)
+    if (cur == &ns_root) {
+        spinlock_release(&ns_lock);
+        return NULL;
+    }
+
+    //reached the target node
+    if (cur->obj) {
+        object_t       *obj    = cur->obj;
+        handle_rights_t rights = cur->max_rights;
+        object_ref(obj);
+        spinlock_release(&ns_lock);
+        if (max_rights_out) *max_rights_out = rights;
+        return obj;
+    }
+
+    //intermediate node with no registered object:
+    //if it has children synthesise a directory object so callers can list it
+    if (cur->first_child) {
+        ns_node_t *node = cur;
+        spinlock_release(&ns_lock);
+        //allocate outside the lock (kzalloc not allowed under spinlock)
+        object_t *dir_obj = ns_make_dir_obj(node);
+        if (dir_obj && max_rights_out) *max_rights_out = HANDLE_RIGHTS_ALL;
+        return dir_obj;
+    }
+
     spinlock_release(&ns_lock);
     return NULL;
 }
 
 int ns_list(void *entries_ptr, uint32 count, uint32 *index) {
-    if (!buckets || !entries_ptr || !index) return -1;
-    
+    if (!entries_ptr || !index) return -1;
+
     dirent_t *entries = (dirent_t *)entries_ptr;
-    uint32 filled = 0;
-    uint32 skip = *index;
-    uint32 seen = 0;
-    
+    uint32    filled  = 0;
+    uint32    skip    = *index;
+    uint32    seen    = 0;
+
     spinlock_acquire(&ns_lock);
-    
-    //iterate all buckets and chains
-    for (uint32 b = 0; b < bucket_count && filled < count; b++) {
-        for (ns_entry_t *e = buckets[b]; e && filled < count; e = e->next) {
-            if (seen >= skip) {
-                //copy name into buffer
-                strncpy(entries[filled].name, e->name, sizeof(entries[filled].name) - 1);
-                entries[filled].name[sizeof(entries[filled].name) - 1] = '\0';
-                entries[filled].type = e->obj->type;
-                filled++;
-            }
-            seen++;
+    for (ns_node_t *c = ns_root.first_child; c && filled < count; c = c->next_sibling) {
+        if (seen >= skip) {
+            strncpy(entries[filled].name, c->name, sizeof(entries[filled].name) - 1);
+            entries[filled].name[sizeof(entries[filled].name) - 1] = '\0';
+            entries[filled].type = c->obj ? c->obj->type : OBJECT_DIR;
+            filled++;
         }
+        seen++;
     }
-    
     spinlock_release(&ns_lock);
-    
-    *index = skip + filled;  //update index for next call
-    return filled;
+
+    *index = seen;
+    return (int)filled;
 }

@@ -74,8 +74,8 @@ typedef struct {
 
 static void ctx_putc(print_ctx_t *ctx, char c) {
     if (ctx->buf) {
-        //buffer output
-        if (ctx->pos < ctx->max - 1) {
+        //buffer output: write only when space exists (max>1 reserves room for null terminator)
+        if (ctx->max > 1 && ctx->pos < ctx->max - 1) {
             ctx->buf[ctx->pos] = c;
         }
         ctx->pos++;
@@ -319,14 +319,11 @@ void printf(const char *format, ...) {
 }
 
 int vsnprintf(char *buf, size n, const char *format, va_list args) {
-    if (n == 0) return 0;
     print_ctx_t ctx = { .buf = buf, .pos = 0, .max = n };
     int ret = do_printf(&ctx, format, args);
-    //null terminate
-    if (ctx.pos < n) {
-        buf[ctx.pos] = '\0';
-    } else {
-        buf[n - 1] = '\0';
+    if (n > 0) {
+        if (ctx.pos < n) buf[ctx.pos] = '\0';
+        else buf[n - 1] = '\0';
     }
     return ret;
 }

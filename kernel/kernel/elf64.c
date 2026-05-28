@@ -6,6 +6,16 @@
 #include <drivers/serial.h>
 #include <proc/process.h>
 
+//verify address range is in user space
+static int elf_vaddr_is_user(uint64 vaddr, uint64 memsz) {
+    if (memsz == 0) return 0;
+    //check bounds
+    if (vaddr < 0x1000 || vaddr > USER_SPACE_END) return 0;
+    //check for overflow
+    if (memsz - 1 > USER_SPACE_END - vaddr) return 0;
+    return 1;
+}
+
 static int elf_phdr_bounds_ok(const Elf64_Phdr *phdr, size len) {
     if (phdr->p_memsz < phdr->p_filesz) return 0;
     if (phdr->p_offset > len) return 0;
@@ -39,6 +49,11 @@ int elf_validate(const void *data, size len) {
         return 0;
     }
     
+    //must be ELF version 1
+    if (ehdr->e_ident[EI_VERSION] != EV_CURRENT || ehdr->e_version != EV_CURRENT) {
+        return 0;
+    }
+
     //must be executable or shared object (PIE)
     if (ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN) {
         return 0;
@@ -217,7 +232,12 @@ int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *
         if (!elf_phdr_bounds_ok(phdr, len)) {
             return ELF_ERR_INVALID;
         }
-        
+
+        //reject segment outside user space
+        if (!elf_vaddr_is_user(phdr->p_vaddr, phdr->p_memsz)) {
+            return ELF_ERR_INVALID;
+        }
+
         load_count++;
         if (phdr->p_vaddr < min_vaddr) min_vaddr = phdr->p_vaddr;
         if (phdr->p_vaddr + phdr->p_memsz > max_vaddr) max_vaddr = phdr->p_vaddr + phdr->p_memsz;
@@ -228,6 +248,11 @@ int elf_load_user(const void *data, size len, process_t *proc, elf_load_info_t *
     }
 
     if (ehdr->e_entry != 0) {
+        //verify entry point is in user space
+        if (ehdr->e_entry < 0x1000 || ehdr->e_entry > USER_SPACE_END) {
+            return ELF_ERR_INVALID;
+        }
+
         int valid_entry = 0;
         for (uint16 i = 0; i < ehdr->e_phnum; i++) {
             const Elf64_Phdr *phdr = (const Elf64_Phdr *)(base + ehdr->e_phoff + (i * ehdr->e_phentsize));

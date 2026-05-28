@@ -284,12 +284,6 @@ void kernel_main(const char *cmdline) {
 
     printf("kernel_main started\n");
 
-    object_t *devs = ns_create_dir("$devices/");
-    if (devs) {
-        ns_register("$devices", devs);
-        object_deref(devs);
-    }
-
     //initialize filesystems before drivers so firmware blobs in initrd are
     //available to early device bring-up paths
     tmpfs_init();

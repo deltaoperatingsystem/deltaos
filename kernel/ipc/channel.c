@@ -1,5 +1,7 @@
 #include <ipc/channel.h>
 #include <proc/process.h>
+#include <proc/event.h>
+#include <proc/bottom_half.h>
 #include <mm/kheap.h>
 #include <lib/string.h>
 #include <lib/io.h>
@@ -9,15 +11,15 @@
 static int channel_endpoint_close(object_t *obj) {
     channel_endpoint_t *ep = (channel_endpoint_t *)obj;
     if (!ep || !ep->channel) return -1;
-    
+
     channel_t *ch = ep->channel;
     int id = ep->endpoint_id;
-    
+
     irq_state_t flags = spinlock_irq_acquire(&ch->lock);
-    
+
     //mark this endpoint as closed
     ch->closed[id] = 1;
-    
+
     //wake any threads waiting on either end - their wait state is now invalid
     thread_wake_all(&ch->waiters[id]);
     thread_wake_all(&ch->waiters[1 - id]);
@@ -39,15 +41,15 @@ static int channel_endpoint_close(object_t *obj) {
     ch->queue[id] = NULL;
     ch->queue_tail[id] = NULL;
     ch->queue_len[id] = 0;
-    
+
     //if both endpoints closed just free the channel
     int both_closed = ch->closed[0] && ch->closed[1];
     spinlock_irq_release(&ch->lock, flags);
-    
+
     if (both_closed) {
         kfree(ch);
     }
-    
+
     return 0;
 }
 
@@ -59,14 +61,14 @@ static object_ops_t channel_endpoint_ops = {
     .lookup = NULL
 };
 
-int channel_create(process_t *proc, handle_rights_t rights, 
+int channel_create(process_t *proc, handle_rights_t rights,
                    int32 *out_endpoint0, int32 *out_endpoint1) {
     if (!proc || !out_endpoint0 || !out_endpoint1) return -1;
-    
+
     //allocate channel
     channel_t *ch = kzalloc(sizeof(channel_t));
     if (!ch) return -1;
-    
+
     //initialize endpoints (embedded objects)
     for (int i = 0; i < 2; i++) {
         ch->endpoints[i].obj.type = OBJECT_CHANNEL;
@@ -84,33 +86,38 @@ int channel_create(process_t *proc, handle_rights_t rights,
         wait_queue_init(&ch->waiters[i]);
     }
     spinlock_irq_init(&ch->lock);
-    
+
     //grant handles to process
+    //process_grant_handle refs the object; deref the construction ref so handle close frees the endpoint
     int h0 = process_grant_handle(proc, &ch->endpoints[0].obj, rights);
     if (h0 < 0) {
         kfree(ch);
         return -1;
     }
-    
+    //surrender construction ref for ep0 - handle now owns the only ref
+    object_deref(&ch->endpoints[0].obj);
+
     int h1 = process_grant_handle(proc, &ch->endpoints[1].obj, rights);
     if (h1 < 0) {
+        //closing h0 will deref to 0 -> channel_endpoint_close -> channel freed
         process_close_handle(proc, h0);
-        kfree(ch);
         return -1;
     }
-    
+    //surrender construction ref for ep1
+    object_deref(&ch->endpoints[1].obj);
+
     *out_endpoint0 = h0;
     *out_endpoint1 = h1;
-    
+
     return 0;
 }
 
 channel_endpoint_t *channel_get_endpoint(process_t *proc, int32 handle) {
     if (!proc) return NULL;
-    
+
     object_t *obj = process_get_handle(proc, handle);
     if (!obj || obj->type != OBJECT_CHANNEL) return NULL;
-    
+
     return (channel_endpoint_t *)obj;
 }
 
@@ -119,13 +126,13 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     if (!process_handle_has_rights(proc, endpoint_handle, HANDLE_RIGHT_WRITE)) {
         return -8;
     }
-    
+
     channel_endpoint_t *ep = channel_get_endpoint(proc, endpoint_handle);
     if (!ep) return -1;
-    
+
     channel_t *ch = ep->channel;
     int peer_id = 1 - ep->endpoint_id;
-    
+
     //check message size (immutable limits, no lock needed)
     if (msg->data_len > CHANNEL_MAX_MSG_SIZE) {
         return -4;  //message too large
@@ -133,11 +140,11 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     if (msg->handle_count > CHANNEL_MAX_MSG_HANDLES) {
         return -5;  //too many handles
     }
-    
+
     //allocate queue entry outside the lock
     channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
     if (!entry) return -1;
-    
+
     //copy data
     if (msg->data_len > 0 && msg->data) {
         entry->data = kmalloc(msg->data_len);
@@ -148,10 +155,10 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
         memcpy(entry->data, msg->data, msg->data_len);
         entry->data_len = msg->data_len;
     }
-    
+
     //record sender PID
     entry->sender_pid = proc->pid;
-    
+
     //transfer handles (MOVE semantics)
     if (msg->handle_count > 0 && msg->handles) {
         entry->objects = kzalloc(msg->handle_count * sizeof(object_t *));
@@ -163,9 +170,9 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
             kfree(entry);
             return -1;
         }
-        
+
         entry->object_count = msg->handle_count;
-        
+
         for (uint32 i = 0; i < msg->handle_count; i++) {
             proc_handle_t *he = process_get_handle_entry(proc, msg->handles[i]);
             if (!he) {
@@ -179,7 +186,7 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
                 kfree(entry);
                 return -6;  //invalid handle
             }
-            
+
             //check TRANSFER right
             if (!rights_has(he->rights, HANDLE_RIGHT_TRANSFER)) {
                 //rollback
@@ -192,20 +199,20 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
                 kfree(entry);
                 return -7;  //no transfer right
             }
-            
+
             //grab object ref and rights
             entry->objects[i] = he->obj;
             entry->rights[i] = he->rights;
             object_ref(he->obj);
-            
+
             //remove from sender (MOVE)
             process_close_handle(proc, msg->handles[i]);
         }
     }
-    
+
     //lock for queue manipulation
     irq_state_t flags = spinlock_irq_acquire(&ch->lock);
-    
+
     //check if peer is closed
     if (ch->closed[peer_id]) {
         spinlock_irq_release(&ch->lock, flags);
@@ -221,7 +228,7 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
         kfree(entry);
         return -2;  //peer closed
     }
-    
+
     //check queue limit
     if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
         spinlock_irq_release(&ch->lock, flags);
@@ -236,7 +243,7 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
         kfree(entry);
         return -3;  //queue full
     }
-    
+
     //enqueue message to peer's queue
     entry->next = NULL;
     if (ch->queue_tail[peer_id]) {
@@ -246,10 +253,10 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     }
     ch->queue_tail[peer_id] = entry;
     ch->queue_len[peer_id]++;
-    
+
     //wake any thread waiting for a message on this endpoint
     thread_wake_one(&ch->waiters[peer_id]);
-    
+
     //if peer has a handler registered, call it immediately (synchronous dispatch)
     channel_endpoint_t *peer_ep = &ch->endpoints[peer_id];
     if (peer_ep->handler) {
@@ -261,31 +268,31 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
             ch->queue[peer_id] = e->next;
             if (!ch->queue[peer_id]) ch->queue_tail[peer_id] = NULL;
             ch->queue_len[peer_id]--;
-            
+
             handler_msg.data = e->data;
             handler_msg.data_len = e->data_len;
             handler_msg.sender_pid = e->sender_pid;
             handler_msg.handles = NULL;  //not used for kernel handlers
             handler_msg.handle_count = 0;
-            
+
             //pass objects to kernel handler (handler takes ownership)
             handler_msg.objects = e->objects;
             handler_msg.rights = e->rights;
             handler_msg.object_count = e->object_count;
-            
+
             e->data = NULL;     //handler takes ownership
             e->objects = NULL;  //don't free - handler owns them now
             e->rights = NULL;
             kfree(e);
-            
+
             spinlock_irq_release(&ch->lock, flags);
-            
+
             //call handler outside the lock (handler may do its own locking)
             peer_ep->handler(peer_ep, &handler_msg, peer_ep->handler_ctx);
             return 0;
         }
     }
-    
+
     spinlock_irq_release(&ch->lock, flags);
     return 0;
 }
@@ -295,13 +302,13 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     if (!process_handle_has_rights(proc, endpoint_handle, HANDLE_RIGHT_READ)) {
         return -4;
     }
-    
+
     channel_endpoint_t *ep = channel_get_endpoint(proc, endpoint_handle);
     if (!ep) return -1;
-    
+
     channel_t *ch = ep->channel;
     int my_id = ep->endpoint_id;
-    
+
     //wait for a message (blocking)
     irq_state_t flags = spinlock_irq_acquire(&ch->lock);
     while (!ch->queue[my_id]) {
@@ -310,16 +317,24 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
             spinlock_irq_release(&ch->lock, flags);
             return -2;  //peer closed, no more messages
         }
+        //check for pending process events (like ctrl+c interrupt)
+        //this runs bottom halves which may post events, then checks
+        //whether the current thread should abort the blocking wait
+        bottom_half_run_budget(16);
+        if (proc_current_should_abort_blocking()) {
+            spinlock_irq_release(&ch->lock, flags);
+            return -3;  //interrupted by process event
+        }
         //atomically release channel lock + sleep to avoid missed wakeups
         thread_sleep_locked_irq(&ch->waiters[my_id], &ch->lock, &flags);
-        
+
         //if peer closed while we were sleeping, return error
         if (ch->closed[1 - my_id] && !ch->queue[my_id]) {
             spinlock_irq_release(&ch->lock, flags);
             return -2;
         }
     }
-    
+
     //dequeue message
     channel_msg_entry_t *entry = ch->queue[my_id];
     ch->queue[my_id] = entry->next;
@@ -328,13 +343,13 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     }
     ch->queue_len[my_id]--;
     spinlock_irq_release(&ch->lock, flags);
-    
+
     //copy data to caller (outside lock - entry is ours now)
     msg->data = entry->data;  //caller takes ownership
     msg->data_len = entry->data_len;
     msg->sender_pid = entry->sender_pid;
     entry->data = NULL;  //don't free it
-    
+
     //grant handles to receiver
     if (entry->object_count > 0) {
         msg->handles = kzalloc(entry->object_count * sizeof(int32));
@@ -349,7 +364,7 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
             return -1;
         }
         msg->handle_count = entry->object_count;
-        
+
         for (uint32 i = 0; i < entry->object_count; i++) {
             int h = process_grant_handle(proc, entry->objects[i], entry->rights[i]);
             if (h < 0) {
@@ -372,14 +387,14 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
             msg->handles[i] = h;
             object_deref(entry->objects[i]);  //grant added ref sp we remove ours
         }
-        
+
         kfree(entry->objects);
         kfree(entry->rights);
     } else {
         msg->handles = NULL;
         msg->handle_count = 0;
     }
-    
+
     kfree(entry);
     return 0;
 }
@@ -389,15 +404,15 @@ int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg)
     if (!process_handle_has_rights(proc, endpoint_handle, HANDLE_RIGHT_READ)) {
         return -4;
     }
-    
+
     channel_endpoint_t *ep = channel_get_endpoint(proc, endpoint_handle);
     if (!ep) return -1;
-    
+
     channel_t *ch = ep->channel;
     int my_id = ep->endpoint_id;
-    
+
     irq_state_t flags = spinlock_irq_acquire(&ch->lock);
-    
+
     //check if queue is empty
     if (!ch->queue[my_id]) {
         //check if peer closed
@@ -408,7 +423,7 @@ int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg)
         spinlock_irq_release(&ch->lock, flags);
         return -3;  //queue empty (non-blocking)
     }
-    
+
     //dequeue message
     channel_msg_entry_t *entry = ch->queue[my_id];
     ch->queue[my_id] = entry->next;
@@ -417,13 +432,13 @@ int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg)
     }
     ch->queue_len[my_id]--;
     spinlock_irq_release(&ch->lock, flags);
-    
+
     //copy data to caller (outside lock - entry is ours now)
     msg->data = entry->data;  //caller takes ownership
     msg->data_len = entry->data_len;
     msg->sender_pid = entry->sender_pid;
     entry->data = NULL;  //don't free it
-    
+
     //grant handles to receiver
     if (entry->object_count > 0) {
         msg->handles = kzalloc(entry->object_count * sizeof(int32));
@@ -438,7 +453,7 @@ int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg)
             return -1;
         }
         msg->handle_count = entry->object_count;
-        
+
         for (uint32 i = 0; i < entry->object_count; i++) {
             int h = process_grant_handle(proc, entry->objects[i], entry->rights[i]);
             if (h < 0) {
@@ -461,14 +476,14 @@ int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg)
             msg->handles[i] = h;
             object_deref(entry->objects[i]);  //grant added ref sp we remove ours
         }
-        
+
         kfree(entry->objects);
         kfree(entry->rights);
     } else {
         msg->handles = NULL;
         msg->handle_count = 0;
     }
-    
+
     kfree(entry);
     return 0;
 }
@@ -481,15 +496,15 @@ int channel_close(process_t *proc, int32 endpoint_handle) {
 int channel_peer_closed(process_t *proc, int32 endpoint_handle) {
     channel_endpoint_t *ep = channel_get_endpoint(proc, endpoint_handle);
     if (!ep) return -1;
-    
+
     channel_t *ch = ep->channel;
     int peer_id = 1 - ep->endpoint_id;
-    
+
     return ch->closed[peer_id];
 }
 
 //channel server functions (for kernel-side handlers)
-void channel_set_handler(channel_endpoint_t *ep, 
+void channel_set_handler(channel_endpoint_t *ep,
                          void (*handler)(channel_endpoint_t *, channel_msg_t *, void *),
                          void *ctx) {
     if (!ep) return;
@@ -505,14 +520,14 @@ void channel_clear_handler(channel_endpoint_t *ep) {
 
 int channel_reply(channel_endpoint_t *ep, channel_msg_t *msg) {
     if (!ep || !msg) return -1;
-    
+
     channel_t *ch = ep->channel;
     int peer_id = 1 - ep->endpoint_id;
-    
+
     //allocate queue entry outside the lock
     channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
     if (!entry) return -1;
-    
+
     //copy data
     if (msg->data_len > 0 && msg->data) {
         entry->data = kmalloc(msg->data_len);
@@ -523,7 +538,7 @@ int channel_reply(channel_endpoint_t *ep, channel_msg_t *msg) {
         memcpy(entry->data, msg->data, msg->data_len);
         entry->data_len = msg->data_len;
     }
-    
+
     //handle transfer: copy objects from kernel-side fields
     if (msg->object_count > 0 && msg->objects && msg->rights) {
         entry->objects = kzalloc(msg->object_count * sizeof(object_t *));
@@ -535,7 +550,7 @@ int channel_reply(channel_endpoint_t *ep, channel_msg_t *msg) {
             kfree(entry);
             return -1;
         }
-        
+
         entry->object_count = msg->object_count;
         for (uint32 i = 0; i < msg->object_count; i++) {
             entry->objects[i] = msg->objects[i];
@@ -547,10 +562,10 @@ int channel_reply(channel_endpoint_t *ep, channel_msg_t *msg) {
         entry->rights = NULL;
         entry->object_count = 0;
     }
-    
+
     //--- lock for queue manipulation ---
     irq_state_t flags = spinlock_irq_acquire(&ch->lock);
-    
+
     //check if peer is closed
     if (ch->closed[peer_id]) {
         spinlock_irq_release(&ch->lock, flags);
@@ -566,7 +581,7 @@ int channel_reply(channel_endpoint_t *ep, channel_msg_t *msg) {
         kfree(entry);
         return -2;
     }
-    
+
     //enqueue to peer
     entry->next = NULL;
     if (ch->queue_tail[peer_id]) {
@@ -576,8 +591,8 @@ int channel_reply(channel_endpoint_t *ep, channel_msg_t *msg) {
     }
     ch->queue_tail[peer_id] = entry;
     ch->queue_len[peer_id]++;
-    
+
     spinlock_irq_release(&ch->lock, flags);
-    
+
     return 0;
 }

@@ -82,6 +82,7 @@ typedef struct {
 #define EI_CLASS    4
 #define EI_DATA     5
 #define EI_VERSION  6
+#define EV_CURRENT  1   //current ELF version
 
 //segment tracking for cleanup
 #define ELF_MAX_SEGMENTS 16

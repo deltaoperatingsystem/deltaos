@@ -245,7 +245,7 @@ void mouse_init(void) {
             object_t *client_obj = process_get_handle(kproc, client_ep);
             if (client_obj) {
                 object_ref(client_obj);
-                ns_register("$devices/mouse/channel", client_obj);
+                ns_register("$devices/mouse/channel", client_obj, HANDLE_RIGHTS_ALL);
             }
         }
     }

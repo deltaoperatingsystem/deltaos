@@ -63,8 +63,25 @@ static const char scancodes_shift[128] = {
     'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', 0, '*', 0, ' ', 0,
 };
 
-//channel endpoint for pushing events
-static channel_endpoint_t *kbd_channel_ep = NULL;
+//maximum number of simultaneous keyboard subscribers
+#define KBD_MAX_SUBSCRIBERS 8
+
+//one entry per subscriber: the server-side endpoint we push events into
+typedef struct {
+    channel_endpoint_t *ep;  //server endpoint for this subscriber (NULL = free slot)
+} kbd_subscriber_t;
+
+static kbd_subscriber_t kbd_subscribers[KBD_MAX_SUBSCRIBERS];
+static spinlock_irq_t   kbd_sub_lock = SPINLOCK_IRQ_INIT;
+
+//factory object registered in the namespace - produces a new private channel per opener
+static object_t *kbd_factory_obj = NULL;
+
+static object_t *kbd_factory_lookup(object_t *obj, const char *name);
+
+static object_ops_t kbd_factory_ops = {
+    .lookup = kbd_factory_lookup,
+};
 
 //must be called with ps2_lock held
 static void ps2_wait_write(void) {
@@ -96,63 +113,117 @@ static uint8 ps2_kbd_cmd_locked(uint8 cmd) {
     return inb(KBD_SC);
 }
 
-//push event to channel
+//push an event to all live subscribers and prune closed ones
 static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
-    if (!kbd_channel_ep) return;
+    kbd_event_t event;
+    event.keycode   = keycode;
+    event.mods      = mods;
+    event.pressed   = pressed;
+    event._pad      = 0;
+    event.codepoint = codepoint;
 
-    //send to channel (non-blocking - if queue ful event is lost)
-    channel_t *ch = kbd_channel_ep->channel;
-    int peer_id = 1 - kbd_channel_ep->endpoint_id;
+    //snapshot the active subscriber list without holding the lock during alloc
+    channel_endpoint_t *eps[KBD_MAX_SUBSCRIBERS];
+    int ep_count = 0;
+    irq_state_t flags = spinlock_irq_acquire(&kbd_sub_lock);
+    for (int i = 0; i < KBD_MAX_SUBSCRIBERS; i++) {
+        channel_endpoint_t *ep = kbd_subscribers[i].ep;
+        if (!ep) continue;
+        //prune dead slots (client side closed)
+        if (ep->channel->closed[1 - ep->endpoint_id]) {
+            kbd_subscribers[i].ep = NULL;
+            continue;
+        }
+        eps[ep_count++] = ep;
+    }
+    spinlock_irq_release(&kbd_sub_lock, flags);
 
-    //fast drop when queue is already full (avoid heap churn in IRQ context)
-    irq_state_t flags = spinlock_irq_acquire(&ch->lock);
-    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
+    //deliver to each subscriber - alloc outside the lock
+    for (int i = 0; i < ep_count; i++) {
+        channel_endpoint_t *ep = eps[i];
+        channel_t *ch     = ep->channel;
+        int peer_id       = 1 - ep->endpoint_id;
+
+        if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) continue;
+
+        kbd_event_t *ev = kmalloc(sizeof(kbd_event_t));
+        if (!ev) continue;
+        *ev = event;
+
+        channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
+        if (!entry) { kfree(ev); continue; }
+        entry->data     = ev;
+        entry->data_len = sizeof(kbd_event_t);
+
+        //enqueue under the channel own lock
+        flags = spinlock_irq_acquire(&ch->lock);
+        if (ch->closed[peer_id] || ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
+            spinlock_irq_release(&ch->lock, flags);
+            kfree(entry);
+            kfree(ev);
+            continue;
+        }
+        if (ch->queue_tail[peer_id]) {
+            ch->queue_tail[peer_id]->next = entry;
+        } else {
+            ch->queue[peer_id] = entry;
+        }
+        ch->queue_tail[peer_id] = entry;
+        ch->queue_len[peer_id]++;
+        thread_wake_one(&ch->waiters[peer_id]);
         spinlock_irq_release(&ch->lock, flags);
-        return;
     }
-    spinlock_irq_release(&ch->lock, flags);
+}
 
-    //allocate event on heap (channel takes ownership)
-    kbd_event_t *event = kmalloc(sizeof(kbd_event_t));
-    if (!event) return;
+//called when a process opens $devices/keyboard/channel
+//creates a fresh private channel, registers the server side as a subscriber
+//and returns the client-side object to the opener
+static object_t *kbd_factory_lookup(object_t *obj, const char *name) {
+    (void)obj;
+    if (!name || name[0] != 'c') return NULL;  //only "channel"
+    if (name[1] != 'h' || name[2] != 'a' || name[3] != 'n' ||
+        name[4] != 'n' || name[5] != 'e' || name[6] != 'l' || name[7] != '\0') return NULL;
 
-    event->keycode = keycode;
-    event->mods = mods;
-    event->pressed = pressed;
-    event->_pad = 0;
-    event->codepoint = codepoint;
+    process_t *kproc = process_get_kernel();
+    if (!kproc) return NULL;
 
-    channel_msg_entry_t *entry = kzalloc(sizeof(channel_msg_entry_t));
-    if (!entry) {
-        kfree(event);
-        return;
+    //find a free subscriber slot
+    irq_state_t flags = spinlock_irq_acquire(&kbd_sub_lock);
+    int slot = -1;
+    for (int i = 0; i < KBD_MAX_SUBSCRIBERS; i++) {
+        if (!kbd_subscribers[i].ep) { slot = i; break; }
     }
+    spinlock_irq_release(&kbd_sub_lock, flags);
+    if (slot < 0) return NULL;  //too many subscribers
 
-    entry->data = event;
-    entry->data_len = sizeof(kbd_event_t);
-    entry->next = NULL;
+    //create a new channel pair inside the kernel process
+    int32 client_h, server_h;
+    if (channel_create(kproc, HANDLE_RIGHTS_DEFAULT, &client_h, &server_h) != 0)
+        return NULL;
 
-    //lock again to enqueue; re-check full due races
-    flags = spinlock_irq_acquire(&ch->lock);
-    if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) {
-        spinlock_irq_release(&ch->lock, flags);
-        kfree(entry);
-        kfree(event);
-        return;
+    //get the server-side endpoint pointer before we do anything else
+    channel_endpoint_t *server_ep = channel_get_endpoint(kproc, server_h);
+
+    //get the client-side object (we will return this to the opener)
+    object_t *client_obj = process_get_handle(kproc, client_h);
+    if (!client_obj) {
+        process_close_handle(kproc, client_h);
+        process_close_handle(kproc, server_h);
+        return NULL;
     }
-    
-    //enqueue
-    if (ch->queue_tail[peer_id]) {
-        ch->queue_tail[peer_id]->next = entry;
-    } else {
-        ch->queue[peer_id] = entry;
-    }
-    ch->queue_tail[peer_id] = entry;
-    ch->queue_len[peer_id]++;
+    //bump refcount so it stays alive after we close kproc's handle below
+    object_ref(client_obj);
 
-    //wake any thread waiting for a message
-    thread_wake_one(&ch->waiters[peer_id]);
-    spinlock_irq_release(&ch->lock, flags);
+    //register server endpoint as subscriber (hold server handle in kproc to keep channel alive)
+    //we intentionally do NOT close server_h so the channel stays referenced
+    flags = spinlock_irq_acquire(&kbd_sub_lock);
+    kbd_subscribers[slot].ep = server_ep;
+    spinlock_irq_release(&kbd_sub_lock, flags);
+
+    //remove client handle from kproc's table - the opener will get their own handle
+    process_close_handle(kproc, client_h);
+
+    return client_obj;
 }
 
 void keyboard_queue_interrupt(uint64 pid) {
@@ -219,7 +290,7 @@ void keyboard_irq(void) {
         return;
     }
 
-    //ignore device replies and extended prefixes 
+    //ignore device replies and extended prefixes
     //rn we only support the simple set-1 make/break path here
     //reating these as keys turns
     //boot-time controller chatter into garbage characters later
@@ -236,6 +307,10 @@ void keyboard_irq(void) {
     }
     if (extended_prefix) {
         extended_prefix = false;
+        bool released = (sc & SC_RELEASE);
+        uint8 code = sc & 0x7F;
+        //prefix extended keys with 0xE000 so consumers can distinguish them
+        kbd_push_event(code, !released, 0xE000 | code);
         return;
     }
 
@@ -263,7 +338,7 @@ void keyboard_irq(void) {
     if (!released && (mods & KBD_MOD_CTRL) && (ascii == 'c' || ascii == 'C')) {
         keyboard_queue_interrupt(proc_get_console_foreground_pid());
     }
-    
+
     //push to channel (for userspace/consumers)
     kbd_push_event(code, !released, (uint32)(unsigned char)ascii);
 }
@@ -306,21 +381,11 @@ void keyboard_init(void) {
     spinlock_irq_release(&ps2_lock, flags);
 
     interrupt_unmask(1);
-    
-    //create channel for keyboard events
-    process_t *kproc = process_get_kernel();
-    if (kproc) {
-        int32 client_ep, server_ep;
-        if (channel_create(kproc, HANDLE_RIGHTS_DEFAULT, &client_ep, &server_ep) == 0) {
-            //server endpoint is where we push events FROM
-            kbd_channel_ep = channel_get_endpoint(kproc, server_ep);
-            
-            //client endpoint is what userspace opens to receive events
-            object_t *client_obj = process_get_handle(kproc, client_ep);
-            if (client_obj) {
-                ns_register("$devices/keyboard/channel", client_obj);
-            }
-        }
+
+    //create the factory object and register it so that each opener gets their own private channel
+    kbd_factory_obj = object_create(OBJECT_DIR, &kbd_factory_ops, NULL);
+    if (kbd_factory_obj) {
+        ns_register("$devices/keyboard", kbd_factory_obj, HANDLE_RIGHTS_ALL);
     }
 }
 

@@ -386,7 +386,7 @@ static void pci_register_device(pci_device_t *pdev) {
         //format: $devices/pci/BB:DD.F
         snprintf(name, sizeof(name), "$devices/pci/%02X:%02X.%X", 
                  pdev->bus, pdev->dev, pdev->func);
-        ns_register(name, obj);
+        ns_register(name, obj, HANDLE_RIGHTS_ALL);
         object_deref(obj);  //namespace holds the ref now
     }
     
@@ -408,7 +408,7 @@ static void pci_register_device(pci_device_t *pdev) {
                 snprintf(chan_name, sizeof(chan_name), "$devices/pci/%02X:%02X.%X/channel",
                          pdev->bus, pdev->dev, pdev->func);
                 object_ref(client_obj);  //ns_register doesn't add ref
-                ns_register(chan_name, client_obj);
+                ns_register(chan_name, client_obj, HANDLE_RIGHTS_ALL);
             }
         }
     }

@@ -84,7 +84,10 @@ static void acpi_parse_fadt(acpi_fadt_t *f) {
            fadt->pm1a_cnt_blk, fadt->reset_reg.address);
 
     //find _S5 in DSDT/SSDT to get SLP_TYP
-    acpi_header_t *dsdt = (acpi_header_t *)P2V(fadt->dsdt);
+    acpi_header_t *dsdt = NULL;
+    if (fadt->dsdt != 0) {
+        dsdt = (acpi_header_t *)P2V(fadt->dsdt);
+    }
     if (fadt->header.revision >= 2 && fadt->x_dsdt != 0) {
         dsdt = (acpi_header_t *)P2V(fadt->x_dsdt);
     }
@@ -244,16 +247,14 @@ void acpi_init(void) {
         return;
     }
 
-    if (rsdp->checksum != 0) {
-        uint8 sum = 0;
-        uint8 *bytes = (uint8 *)rsdp;
-        for (size i = 0; i < 20; i++) {
-            sum += bytes[i];
-        }
-        if (sum != 0) {
-            serial_write("[acpi] ERR: RSDP checksum failed\n");
-            return;
-        }
+    uint8 sum = 0;
+    uint8 *bytes = (uint8 *)rsdp;
+    for (size i = 0; i < 20; i++) {
+        sum += bytes[i];
+    }
+    if (sum != 0) {
+        serial_write("[acpi] ERR: RSDP checksum failed\n");
+        return;
     }
 
     if (rsdp->revision >= 2 && rsdp->xsdt_address != 0) {

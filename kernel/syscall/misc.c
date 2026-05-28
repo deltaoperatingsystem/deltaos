@@ -28,7 +28,20 @@ int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) {
 }
 
 intptr sys_debug_write(const char *buf, size count) {
-    debug_write(buf, count);
+    if (!buf || count == 0) return 0;
+    //copy in chunks using stack buffer to validate user memory
+    char k_buf[512];
+    size remaining = count;
+    const char *user_ptr = buf;
+    while (remaining > 0) {
+        size chunk = (remaining > sizeof(k_buf)) ? sizeof(k_buf) : remaining;
+        if (copy_user_bytes(user_ptr, k_buf, chunk) != 0) {
+            return -EFAULT;
+        }
+        debug_write(k_buf, chunk);
+        user_ptr += chunk;
+        remaining -= chunk;
+    }
     return (intptr)count;
 }
 
