@@ -17,6 +17,7 @@ typedef struct px_surface {
 typedef struct px_window {
     px_surface_t *surface;
     handle_t ch;
+    surface_id_t id;  //real surface ID returned by comp_create_surface
 } px_window_t;
 
 typedef struct px_image {
@@ -32,7 +33,7 @@ static handle_t server_handle = INVALID_HANDLE;
 
 static void px_send_resize(px_window_t *win) {
     if (!win || !win->surface) return;
-    comp_resize_surface(win->ch, 0, win->surface->w, win->surface->h);
+    comp_resize_surface(win->ch, win->id, win->surface->w, win->surface->h);
 }
 
 //drop the old mapping before resize so the new map can land anywhere cleanly
@@ -109,6 +110,7 @@ px_window_t *px_create_window(char *name, uint16 width, uint16 height) {
         return NULL;
     }
     win->ch = ch;
+    win->id = id;
 
     comp_msg_t cfg = {0};
     bool got_cfg = false;
@@ -198,7 +200,7 @@ void px_draw_rect(px_surface_t *surface, px_rect_t r) {
 void px_update_window(px_window_t *win) {
     if (!win || !win->surface) return;
     if (!win->surface->dirty) return;
-    comp_commit(win->ch, 0);
+    comp_commit(win->ch, win->id);
     win->surface->dirty = false;
 }
 
@@ -264,7 +266,7 @@ bool px_draw_image(px_surface_t *surface, px_image_t *image, uint32 x, uint32 y)
 
 bool px_set_title(px_window_t *win, const char *title) {
     if (!win || !title) return false;
-    comp_set_title(win->ch, 0, title);
+    comp_set_title(win->ch, win->id, title);
     return true;
 }
 

@@ -103,6 +103,7 @@ static void handle_surface_destroyed(comp_msg_t *msg) {
 
 static void handle_surface_activated(comp_msg_t *msg) {
     surface_id_t sid = msg->u.surface_activated.id;
+    if (find_client(sid) < 0) return;
     focused = sid;
     raise_client(sid);
     comp_set_focus(wm_ch, sid);

@@ -32,7 +32,11 @@ void object_deref(object_t *obj) {
         if (obj->ops && obj->ops->close) {
             obj->ops->close(obj);
         }
-        kfree(obj);
+        //embedded objects (OBJECT_FLAG_EMBEDDED) are part of a larger allocation
+        //the enclosing struct is responsible for freeing its own memory
+        if (!(obj->flags & OBJECT_FLAG_EMBEDDED)) {
+            kfree(obj);
+        }
     }
 }
 

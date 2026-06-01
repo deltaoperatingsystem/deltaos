@@ -180,17 +180,22 @@ ssize handle_read(handle_t h, void *buf, size len) {
     if (!entry->obj->ops || !entry->obj->ops->read) { spinlock_release(&proc->lock); return -3; }
     object_t *obj = entry->obj;
     size offset = entry->offset;
+    entry->offset += len; //reserve offset
     object_ref(obj);
     spinlock_release(&proc->lock);
 
     ssize result = obj->ops->read(obj, buf, len, offset);
-    if (result > 0) {
-        //best effort offset update may race with concurrent reads
-        spinlock_acquire(&proc->lock);
-        proc_handle_t *e2 = process_get_handle_entry(proc, h);
-        if (e2 && e2->obj == obj) e2->offset += result;
-        spinlock_release(&proc->lock);
+    
+    spinlock_acquire(&proc->lock);
+    proc_handle_t *e2 = process_get_handle_entry(proc, h);
+    if (e2 && e2->obj == obj) {
+        if (result > 0) {
+            e2->offset -= (len - (size)result);
+        } else {
+            e2->offset -= len;
+        }
     }
+    spinlock_release(&proc->lock);
     object_deref(obj);
     return result;
 }
@@ -207,16 +212,22 @@ ssize handle_write(handle_t h, const void *buf, size len) {
     if (!entry->obj->ops || !entry->obj->ops->write) { spinlock_release(&proc->lock); return -1; }
     object_t *obj = entry->obj;
     size offset = entry->offset;
+    entry->offset += len; //reserve offset
     object_ref(obj);
     spinlock_release(&proc->lock);
 
     ssize result = obj->ops->write(obj, buf, len, offset);
-    if (result > 0) {
-        spinlock_acquire(&proc->lock);
-        proc_handle_t *e2 = process_get_handle_entry(proc, h);
-        if (e2 && e2->obj == obj) e2->offset += result;
-        spinlock_release(&proc->lock);
+    
+    spinlock_acquire(&proc->lock);
+    proc_handle_t *e2 = process_get_handle_entry(proc, h);
+    if (e2 && e2->obj == obj) {
+        if (result > 0) {
+            e2->offset -= (len - (size)result);
+        } else {
+            e2->offset -= len;
+        }
     }
+    spinlock_release(&proc->lock);
     object_deref(obj);
     return result;
 }
@@ -269,16 +280,22 @@ int handle_readdir(handle_t h, void *entries, uint32 count) {
     if (!entry->obj->ops || !entry->obj->ops->readdir) { spinlock_release(&proc->lock); return -1; }
     object_t *obj = entry->obj;
     uint32 index = (uint32)entry->offset;
+    entry->offset += count; //reserve count entries
     object_ref(obj);
     spinlock_release(&proc->lock);
 
     int result = obj->ops->readdir(obj, entries, count, &index);
-    if (result >= 0) {
-        spinlock_acquire(&proc->lock);
-        proc_handle_t *e2 = process_get_handle_entry(proc, h);
-        if (e2 && e2->obj == obj) e2->offset = index;
-        spinlock_release(&proc->lock);
+    
+    spinlock_acquire(&proc->lock);
+    proc_handle_t *e2 = process_get_handle_entry(proc, h);
+    if (e2 && e2->obj == obj) {
+        if (result >= 0) {
+            e2->offset = index;
+        } else {
+            e2->offset -= count;
+        }
     }
+    spinlock_release(&proc->lock);
     object_deref(obj);
     return result;
 }

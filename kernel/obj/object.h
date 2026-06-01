@@ -18,6 +18,9 @@ struct stat;
 
 #define OBJECT_FLAG_NONE      0x00
 #define OBJECT_FLAG_ALLOCATED 0x01
+//set on objects embedded inside a larger allocation (like channel endpoints inside channel_t)
+//object_deref will call the close handler but will NOT call kfree on the object pointer
+#define OBJECT_FLAG_EMBEDDED  0x02
 
 struct object;
 
@@ -36,6 +39,7 @@ typedef struct object_ops {
 typedef struct object {
     uint32 type;           //OBJECT_FILE, OBJECT_DIR, OBJECT_PROCESS, etc.
     uint32 refcount;       //freed when 0
+    uint32 flags;          //OBJECT_FLAG_* bitmask
     object_ops_t *ops;     //polymorphic operations
     void *data;            //type-specific data
 } object_t;

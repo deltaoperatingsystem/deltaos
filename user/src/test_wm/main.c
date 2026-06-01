@@ -99,6 +99,7 @@ int main(void) {
     }
 
     while (1) {
+        //first pass: poll events and draw all windows
         for (int i = 0; i < NUM_WINS; i++) {
             test_win_t *tw = &wins[i];
             px_event_t ev;
@@ -125,8 +126,10 @@ int main(void) {
             px_draw_rect(tw->surf, px_create_rect(0, 0, tw->w, tw->h, tw->bg));
 
             //inner border - accent color with a 1px black gap
-            px_draw_rect(tw->surf, px_create_rect(3, 3, tw->w - 6, tw->h - 6, PX_RGB(0, 0, 0)));
-            px_draw_rect(tw->surf, px_create_rect(4, 4, tw->w - 8, tw->h - 8, tw->accent));
+            if (tw->w > 8 && tw->h > 8) {
+                px_draw_rect(tw->surf, px_create_rect(3, 3, tw->w - 6, tw->h - 6, PX_RGB(0, 0, 0)));
+                px_draw_rect(tw->surf, px_create_rect(4, 4, tw->w - 8, tw->h - 8, tw->accent));
+            }
 
             //crosshair cursor
             uint32 cursor_col = tw->pressed ? PX_RGB(255, 255, 255) : tw->accent;
@@ -142,9 +145,14 @@ int main(void) {
             //frame counter bar at bottom
             tw->frames++;
             uint16 bar_w = (tw->frames % 200) < 100 ? 40 : 20;
-            px_draw_rect(tw->surf, px_create_rect(tw->w / 2 - bar_w / 2, tw->h - 12, bar_w, 6, tw->accent));
+            if (tw->h > 12 && tw->w >= bar_w) {
+                px_draw_rect(tw->surf, px_create_rect(tw->w / 2 - bar_w / 2, tw->h - 12, bar_w, 6, tw->accent));
+            }
+        }
 
-            px_update_window(tw->win);
+        //second pass: commit all windows after all VMOs are fully drawn
+        for (int i = 0; i < NUM_WINS; i++) {
+            px_update_window(wins[i].win);
         }
         yield();
     }

@@ -70,10 +70,13 @@ typedef struct {
     char *buf;      //NULL for console/serial output
     size pos;
     size max;
+    bool count_only; //true if we should only count length and not output
 } print_ctx_t;
 
 static void ctx_putc(print_ctx_t *ctx, char c) {
-    if (ctx->buf) {
+    if (ctx->count_only) {
+        ctx->pos++;
+    } else if (ctx->buf) {
         //buffer output: write only when space exists (max>1 reserves room for null terminator)
         if (ctx->max > 1 && ctx->pos < ctx->max - 1) {
             ctx->buf[ctx->pos] = c;
@@ -306,7 +309,7 @@ void printf(const char *format, ...) {
     
     va_list args;
     va_start(args, format);
-    print_ctx_t ctx = { .buf = NULL, .pos = 0, .max = 0 };
+    print_ctx_t ctx = { .buf = NULL, .pos = 0, .max = 0, .count_only = false };
     do_printf(&ctx, format, args);
     va_end(args);
     
@@ -319,7 +322,7 @@ void printf(const char *format, ...) {
 }
 
 int vsnprintf(char *buf, size n, const char *format, va_list args) {
-    print_ctx_t ctx = { .buf = buf, .pos = 0, .max = n };
+    print_ctx_t ctx = { .buf = buf, .pos = 0, .max = n, .count_only = (buf == NULL) };
     int ret = do_printf(&ctx, format, args);
     if (n > 0) {
         if (ctx.pos < n) buf[ctx.pos] = '\0';

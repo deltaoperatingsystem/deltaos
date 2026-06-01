@@ -51,7 +51,7 @@ void surface_remove_at(int idx) {
     comp.stack_count = sc;
 }
 
-void surface_map_vmo(surface_t *s) {
+bool surface_map_vmo(surface_t *s) {
     //the client already resized the underlying VMO before this remap
     //unmap the old view if any then remap at the new size
     if (s->pixels) {
@@ -60,8 +60,11 @@ void surface_map_vmo(surface_t *s) {
     }
     s->vmo_size = (size)s->w * s->h * comp.screen_bpp;
     s->pixels = vmo_map(s->vmo, NULL, 0, s->vmo_size, RIGHT_MAP);
-    if (!s->pixels)
+    if (!s->pixels) {
         ERROR("vmo_map failed for surface id=%u\n", s->id);
+        return false;
+    }
+    return true;
 }
 
 void surface_create_common(surface_t *s, uint32 pid, uint16 w, uint16 h, handle_t ch) {

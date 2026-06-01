@@ -149,7 +149,14 @@ bool comp_create_surface(handle_t server_ch, uint16 w, uint16 h, surface_id_t *o
         if (ch != INVALID_HANDLE) break;
         yield();
     }
-    if (ch == INVALID_HANDLE) return false;
+    if (ch == INVALID_HANDLE) {
+        comp_msg_t cleanup_msg = {
+            .type = MSG_DESTROY_SURFACE,
+            .u.destroy_surface.id = ack.u.ack.id
+        };
+        channel_send(server_ch, &cleanup_msg, sizeof(cleanup_msg));
+        return false;
+    }
 
     *out_id = ack.u.ack.id;
     *out_ch = ch;

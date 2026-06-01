@@ -345,8 +345,14 @@ void kfree(void *p) {
         slab_t *slab = meta;
         slab_cache_t *cache = slab->cache;
 
-        //validate cache ptr is within our known bucket array
-        if (!cache || cache < &buckets[0] || cache > &buckets[BUCKET_COUNT - 1]) {
+        //validate cache ptr is within our known bucket array and aligned
+        uintptr cache_addr = (uintptr)cache;
+        uintptr buckets_begin = (uintptr)&buckets[0];
+        uintptr buckets_end = (uintptr)&buckets[BUCKET_COUNT];
+        if (!cache ||
+            cache_addr < buckets_begin ||
+            cache_addr >= buckets_end ||
+            ((cache_addr - buckets_begin) % sizeof(buckets[0])) != 0) {
             printf("[kheap] ERR: kfree corrupt cache ptr %P\n", p);
             spinlock_irq_release(&kheap_lock, flags);
             return;

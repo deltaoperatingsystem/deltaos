@@ -49,7 +49,11 @@ int path_normalize(char *path) {
         if (tlen == 1 && p[0] == '.') {
             //ignore .
         } else if (tlen == 2 && p[0] == '.' && p[1] == '.') {
-            if (count > 0) count--;
+            if (count > 0 && strcmp(components[count - 1], "..") != 0) {
+                count--;
+            } else if (!absolute && !is_namespace) {
+                components[count++] = p;
+            }
         } else if (tlen > 0) {
             components[count++] = p;
         }

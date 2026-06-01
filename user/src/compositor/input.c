@@ -71,6 +71,23 @@ void handle_input(void) {
 
         if (!(m.buttons & MOUSE_BTN_LEFT)) {
             comp.is_dragging = false;
+            if (comp.mprev.buttons & MOUSE_BTN_LEFT) {
+                for (int i = 0; i < comp.num_surfaces; i++) {
+                    if (comp.surfaces[i].focused && comp.surfaces[i].ch != INVALID_HANDLE) {
+                        comp_msg_t mev = {
+                            .type = MSG_MOUSE_EVENT,
+                            .u.mouse_event = {
+                                .id = comp.surfaces[i].id,
+                                .x = (int16)(comp.mouse_x - comp.surfaces[i].x),
+                                .y = (int16)(comp.mouse_y - comp.surfaces[i].y),
+                                .buttons = m.buttons
+                            }
+                        };
+                        send_msg(comp.surfaces[i].ch, &mev);
+                        break;
+                    }
+                }
+            }
         }
 
         if (m.buttons & MOUSE_BTN_LEFT && !(comp.mprev.buttons & MOUSE_BTN_LEFT)) {
@@ -87,6 +104,10 @@ void handle_input(void) {
                         if (comp.surfaces[i].focused) {
                             damage_add_surface_rect(&comp.surfaces[i]);
                             comp.surfaces[i].focused = false;
+                            if (comp.surfaces[i].ch != INVALID_HANDLE) {
+                                comp_msg_t fev = { .type = MSG_FOCUS_EVENT, .u.focus_event = { .id = comp.surfaces[i].id, .focused = false } };
+                                send_msg(comp.surfaces[i].ch, &fev);
+                            }
                         }
                     }
                     comp.surfaces[idx].focused = true;
