@@ -299,7 +299,8 @@ void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
                 for (int j = 0; j < 512; j++) {
                     pt_virt[j] = (base_phys + (j * 4096)) | flags;
                 }
-                pd[PD_IDX(cur_virt)] = (uintptr)pt_phys | AMD64_PTE_PRESENT | AMD64_PTE_WRITE;
+                pd[PD_IDX(cur_virt)] = (uintptr)pt_phys | AMD64_PTE_PRESENT | AMD64_PTE_WRITE
+                                     | (pd_entry & AMD64_PTE_USER);
                 //now unmap the single page via the new page table
                 pt_virt[PT_IDX(cur_virt)] = 0;
                 i++;

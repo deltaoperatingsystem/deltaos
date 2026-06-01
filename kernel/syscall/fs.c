@@ -168,10 +168,14 @@ intptr sys_chdir(const char *path) {
 
     char full_path[256];
     if (k_path[0] == '/') {
+        if (strlen(k_path) >= sizeof(full_path)) return -1;
         strncpy(full_path, k_path, sizeof(full_path) - 1);
         full_path[sizeof(full_path) - 1] = '\0';
     } else {
-        snprintf(full_path, sizeof(full_path), "%s/%s", proc->cwd, k_path);
+        int n = snprintf(full_path, sizeof(full_path), "%s/%s", proc->cwd, k_path);
+        if (n < 0 || (size)n >= sizeof(full_path)) {
+            return -1;
+        }
     }
 
     path_normalize(full_path);

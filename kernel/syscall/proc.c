@@ -404,22 +404,20 @@ intptr sys_wait(uintptr pid) {
 
     spinlock_acquire(&proc->lock);
     while (proc->state != PROC_STATE_ZOMBIE) {
-        //run bottom halves and check for pending process events
-        //so ctrl+c can interrupt a stuck wait() even when the
-        //foreground child is not the waited process
+        spinlock_release(&proc->lock);
         bottom_half_run_budget(16);
         if (proc_current_should_abort_blocking()) {
-            spinlock_release(&proc->lock);
             process_unref(proc);
             return -1;
         }
-        thread_sleep_locked(&proc->exit_wait, &proc->lock);
-        spinlock_release(&proc->lock);
-
-        process_unref(proc);
-        proc = process_find_ref(pid);
-        if (!proc) return -1;
         spinlock_acquire(&proc->lock);
+
+        //recheck state since we dropped the lock
+        if (proc->state == PROC_STATE_ZOMBIE) {
+            break;
+        }
+
+        thread_sleep_locked(&proc->exit_wait, &proc->lock);
     }
 
     int64 exit_code = proc->exit_code;

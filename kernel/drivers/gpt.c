@@ -193,23 +193,36 @@ int gpt_scan(blkdev_t *dev) {
         return 0;
     }
 
-    uint32 orig_num_entries = hdr->num_partition_entries;
+    uint64 orig_num_entries = hdr->num_partition_entries;
 
     //validate the entry table fits within the disk
-    uint32 entries_per_sector = dev->sector_size / entry_size;
-    uint32 table_sectors      = (orig_num_entries + entries_per_sector - 1) / entries_per_sector;
+    uint64 entries_per_sector = dev->sector_size / entry_size;
+    if (entries_per_sector == 0) {
+        pmm_free(buf_phys, 1);
+        return 0;
+    }
+    uint64 table_sectors = (orig_num_entries + entries_per_sector - 1) / entries_per_sector;
     if (hdr->partition_entry_lba < 2 ||
-        hdr->partition_entry_lba + table_sectors > dev->sector_count) {
+        (uint64)hdr->partition_entry_lba + table_sectors > dev->sector_count) {
         printf("[gpt] ERR: %s partition entry table is out of disk bounds, ignoring\n", dev->name);
         pmm_free(buf_phys, 1);
         return 0;
     }
 
     //allocate and read contiguous buffer for partition entries table CRC check
-    uint32 table_size = orig_num_entries * entry_size;
-    uint32 table_sectors_to_read = (table_size + dev->sector_size - 1) / dev->sector_size;
-    uint32 alloc_size = table_sectors_to_read * dev->sector_size;
-    uint32 table_pages = (alloc_size + 4095) / 4096;
+    uint64 table_size = orig_num_entries * (uint64)entry_size;
+    uint64 table_sectors_to_read = (table_size + dev->sector_size - 1) / dev->sector_size;
+    uint64 alloc_size = table_sectors_to_read * dev->sector_size;
+    if (alloc_size > (uint64)0xFFFFFFFF) {
+        printf("[gpt] ERR: %s partition entry table too large, ignoring\n", dev->name);
+        pmm_free(buf_phys, 1);
+        return 0;
+    }
+    uint32 table_pages = (uint32)((alloc_size + 4095) / 4096);
+    if (table_pages == 0) {
+        pmm_free(buf_phys, 1);
+        return 0;
+    }
     void *table_buf_phys = pmm_alloc(table_pages);
     if (!table_buf_phys) {
         pmm_free(buf_phys, 1);
@@ -217,7 +230,7 @@ int gpt_scan(blkdev_t *dev) {
     }
     void *table_buf = P2V(table_buf_phys);
 
-    if (dev->ops->read(dev, hdr->partition_entry_lba, table_sectors_to_read, table_buf) != 0) {
+    if (dev->ops->read(dev, hdr->partition_entry_lba, (uint32)table_sectors_to_read, table_buf) != 0) {
         printf("[gpt] ERR: %s failed to read partition entry table\n", dev->name);
         pmm_free(table_buf_phys, table_pages);
         pmm_free(buf_phys, 1);

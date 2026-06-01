@@ -735,12 +735,13 @@ tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
     uint64 start = arch_timer_get_ticks();
 
     while (arch_timer_get_ticks() - start < timeout) {
-        if (proc_current_should_abort_blocking()) {
+        irq_state_t scan_flags = spinlock_irq_acquire(&tcp_lock);
+        if (!listener->listening || !listener->active) {
+            spinlock_irq_release(&tcp_lock, scan_flags);
             return NULL;
         }
 
         //scan for connections on this port that completed handshake
-        irq_state_t scan_flags = spinlock_irq_acquire(&tcp_lock);
         for (int i = 0; i < TCP_MAX_CONNECTIONS; i++) {
             tcp_conn_t *c = &connections[i];
             if (c->active && !c->listening && !c->accepted &&
@@ -754,6 +755,11 @@ tcp_conn_t *tcp_accept(tcp_conn_t *listener) {
             }
         }
         spinlock_irq_release(&tcp_lock, scan_flags);
+
+        if (proc_current_should_abort_blocking()) {
+            return NULL;
+        }
+
         net_poll();
         sched_yield();
     }

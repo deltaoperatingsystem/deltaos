@@ -60,7 +60,7 @@ typedef struct {
         struct { surface_id_t id; }                    destroy_surface;
         struct { surface_id_t id; uint16 w, h; }       resize_surface;
         struct { surface_id_t id; char text[32]; }     set_title;
-        struct { surface_id_t id; int16 x, y, w, h; }  set_position;
+        struct { surface_id_t id; int16 x, y; uint16 w, h; }  set_position;
         struct { surface_id_t id; }                    set_focus;
         struct { surface_id_t id; comp_decoration_t d; } set_decoration;
         struct { surface_id_t ids[32]; uint8 count; }  set_stacking;

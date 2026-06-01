@@ -457,6 +457,7 @@ void proc_init(void) {
 
 uintptr process_vma_find_free(process_t *proc, size length) {
     if (!proc || length == 0) return 0;
+    if (length > (size)(-1) - 0xFFFULL) return 0;
     
     //page-align the length
     length = (length + 0xFFF) & ~0xFFFULL;
@@ -501,10 +502,12 @@ int process_vma_add(process_t *proc, uintptr start, size length,
                     uint32 flags, object_t *backing_obj, size obj_offset) {
     if (!proc) return -1;
     if (length == 0) return -1;
+    if (length > (size)(-1) - 0xFFFULL) return -1;
 
     //keep VMA bookkeeping page aligned so overlap checks match the page tables
     start &= ~0xFFFULL;
     length = (length + 0xFFF) & ~0xFFFULL;
+    if (length == 0 || start > (uintptr)-1 - length) return -1;
     
     proc_vma_t *vma = kzalloc(sizeof(proc_vma_t));
     if (!vma) return -1;

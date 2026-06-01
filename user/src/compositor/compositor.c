@@ -14,7 +14,12 @@ void send_msg(handle_t ch, comp_msg_t *msg) {
 int recv_msg(handle_t ch, comp_msg_t *msg, uint32 *sender_pid) {
     channel_recv_result_t res;
     int rc = channel_try_recv_msg(ch, msg, sizeof(comp_msg_t), NULL, 0, &res);
-    if (rc == 0 && sender_pid) *sender_pid = res.sender_pid;
+    if (rc == 0) {
+        if (res.data_len != sizeof(comp_msg_t)) {
+            return -1;
+        }
+        if (sender_pid) *sender_pid = res.sender_pid;
+    }
     return rc;
 }
 
@@ -23,7 +28,7 @@ static void fb_setup(void) {
     ASSERT(comp.fb_handle == INVALID_HANDLE, "Failed to get framebuffer\n");
 
     stat_t st;
-    if (stat("$devices/fb0", &st) >= 0) {
+    if (stat("$devices/fb0", &st) >= 0 && st.width > 0 && st.height > 0 && st.pitch >= st.width) {
         comp.fb_size = st.height * st.pitch;
         comp.screen_w = st.width;
         comp.screen_h = st.height;
@@ -39,6 +44,7 @@ static void fb_setup(void) {
     ASSERT(!comp.backbuffer, "Failed to allocate backbuffer\n");
 
     comp.saved_fb = malloc(comp.fb_size);
+    ASSERT(!comp.saved_fb, "Failed to allocate saved_fb\n");
     handle_seek(comp.fb_handle, 0, HANDLE_SEEK_SET);
     handle_read(comp.fb_handle, comp.saved_fb, comp.fb_size);
 
@@ -87,18 +93,16 @@ int main(void) {
         if (comp.has_damage) {
             comp.has_damage = false;
 
-            //clamp damage to screen bounds
-            if (comp.damage_x0 < 0) comp.damage_x0 = 0;
-            if (comp.damage_y0 < 0) comp.damage_y0 = 0;
-            if (comp.damage_x1 > comp.screen_w) comp.damage_x1 = comp.screen_w;
-            if (comp.damage_y1 > comp.screen_h) comp.damage_y1 = comp.screen_h;
+            //render full screen to avoid partial update artifacts with overlapping surfaces
+            comp.damage_x0 = 0;
+            comp.damage_y0 = 0;
+            comp.damage_x1 = comp.screen_w;
+            comp.damage_y1 = comp.screen_h;
 
-            if (comp.damage_x0 < comp.damage_x1 && comp.damage_y0 < comp.damage_y1) {
-                render_surfaces(comp.backbuffer);
-                render_mouse(comp.backbuffer);
-                handle_seek(comp.fb_handle, 0, HANDLE_SEEK_SET);
-                handle_write(comp.fb_handle, comp.backbuffer, comp.fb_size);
-            }
+            render_surfaces(comp.backbuffer);
+            render_mouse(comp.backbuffer);
+            handle_seek(comp.fb_handle, 0, HANDLE_SEEK_SET);
+            handle_write(comp.fb_handle, comp.backbuffer, comp.fb_size);
         }
         yield();
     }

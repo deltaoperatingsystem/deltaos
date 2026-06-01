@@ -69,6 +69,8 @@ static const char scancodes_shift[128] = {
 //one entry per subscriber: the server-side endpoint we push events into
 typedef struct {
     channel_endpoint_t *ep;  //server endpoint for this subscriber (NULL = free slot)
+    channel_t *ch;           //the channel this endpoint belongs to (cached for safe ISR delivery)
+    int32 server_h;          //kernel-held server handle (kept alive to hold channel open)
 } kbd_subscriber_t;
 
 static kbd_subscriber_t kbd_subscribers[KBD_MAX_SUBSCRIBERS];
@@ -122,29 +124,28 @@ static void kbd_push_event(uint8 keycode, uint8 pressed, uint32 codepoint) {
     event._pad      = 0;
     event.codepoint = codepoint;
 
-    //snapshot the active subscriber list without holding the lock during alloc
-    channel_endpoint_t *eps[KBD_MAX_SUBSCRIBERS];
+    //snapshot chs[] and peer_ids[] for all active subscriber slots
+    //ch stays alive for the duration of delivery because:
+    //  - server_h is held in kproc -> ch_refcount >= 1 -> channel can't be freed
+    //  - pruning (which closes server_h) acquires+releases ch->lock before calling
+    //    process_close_handle, serializing against our delivery loop below
+    channel_t *chs[KBD_MAX_SUBSCRIBERS];
+    int        peer_ids[KBD_MAX_SUBSCRIBERS];
     int ep_count = 0;
     irq_state_t flags = spinlock_irq_acquire(&kbd_sub_lock);
     for (int i = 0; i < KBD_MAX_SUBSCRIBERS; i++) {
         channel_endpoint_t *ep = kbd_subscribers[i].ep;
         if (!ep) continue;
-        //prune dead slots (client side closed)
-        if (ep->channel->closed[1 - ep->endpoint_id]) {
-            kbd_subscribers[i].ep = NULL;
-            continue;
-        }
-        eps[ep_count++] = ep;
+        chs[ep_count]      = kbd_subscribers[i].ch;
+        peer_ids[ep_count] = 1 - ep->endpoint_id;  //safe: ep is live while slot is non-NULL
+        ep_count++;
     }
     spinlock_irq_release(&kbd_sub_lock, flags);
 
     //deliver to each subscriber - alloc outside the lock
     for (int i = 0; i < ep_count; i++) {
-        channel_endpoint_t *ep = eps[i];
-        channel_t *ch     = ep->channel;
-        int peer_id       = 1 - ep->endpoint_id;
-
-        if (ch->queue_len[peer_id] >= CHANNEL_MSG_QUEUE_SIZE) continue;
+        channel_t *ch     = chs[i];   //use cached ch pointer - do NOT use ep->channel here
+        int peer_id       = peer_ids[i];
 
         kbd_event_t *ev = kmalloc(sizeof(kbd_event_t));
         if (!ev) continue;
@@ -187,19 +188,64 @@ static object_t *kbd_factory_lookup(object_t *obj, const char *name) {
     process_t *kproc = process_get_kernel();
     if (!kproc) return NULL;
 
-    //find a free subscriber slot
+    //prune dead slots first (safe in process context)
+    //wo-phase removal to prevent UAF in the ISR
+    //1: clear ep/ch/server_h under the IRQ-safe lock so no new ISR snapshots them
+    //2: acquire+release ch->lock to wait for any ISR already mid-delivery, then
+    //close the handle (which may free the channel)
+    typedef struct { int32 server_h; channel_t *ch; } dead_entry_t;
+    dead_entry_t dead[KBD_MAX_SUBSCRIBERS];
+    int dead_count = 0;
+
     irq_state_t flags = spinlock_irq_acquire(&kbd_sub_lock);
+    for (int i = 0; i < KBD_MAX_SUBSCRIBERS; i++) {
+        channel_endpoint_t *ep = kbd_subscribers[i].ep;
+        if (ep && ep->channel->closed[1 - ep->endpoint_id]) {
+            dead[dead_count].server_h = kbd_subscribers[i].server_h;
+            dead[dead_count].ch       = kbd_subscribers[i].ch;
+            dead_count++;
+            kbd_subscribers[i].ep      = NULL;
+            kbd_subscribers[i].ch      = NULL;
+            kbd_subscribers[i].server_h = -1;
+        }
+    }
+
+    //find a free subscriber slot and reserve it atomically
     int slot = -1;
     for (int i = 0; i < KBD_MAX_SUBSCRIBERS; i++) {
-        if (!kbd_subscribers[i].ep) { slot = i; break; }
+        if (!kbd_subscribers[i].ep && kbd_subscribers[i].server_h < 0) {
+            kbd_subscribers[i].server_h = -2;  //sentinel: slot reserved
+            slot = i;
+            break;
+        }
     }
     spinlock_irq_release(&kbd_sub_lock, flags);
+
+    //for each dead slot, flush any in-progress ISR delivery then close the handle
+    //acquiring ch->lock serializes against kbd_push_event delivery loop which holds ch->lock
+    //while enqueuing, a fter we release ch->lock the ISR is no longer touching ch, so it is
+    //safe to call process_close_handle which may free the channel
+    for (int i = 0; i < dead_count; i++) {
+        if (dead[i].ch) {
+            irq_state_t ch_flags = spinlock_irq_acquire(&dead[i].ch->lock);
+            spinlock_irq_release(&dead[i].ch->lock, ch_flags);
+        }
+        if (dead[i].server_h >= 0) {
+            process_close_handle(kproc, dead[i].server_h);
+        }
+    }
+
     if (slot < 0) return NULL;  //too many subscribers
 
     //create a new channel pair inside the kernel process
     int32 client_h, server_h;
-    if (channel_create(kproc, HANDLE_RIGHTS_DEFAULT, &client_h, &server_h) != 0)
+    if (channel_create(kproc, HANDLE_RIGHTS_DEFAULT, &client_h, &server_h) != 0) {
+        //release reserved slot
+        flags = spinlock_irq_acquire(&kbd_sub_lock);
+        kbd_subscribers[slot].server_h = -1;
+        spinlock_irq_release(&kbd_sub_lock, flags);
         return NULL;
+    }
 
     //get the server-side endpoint pointer before we do anything else
     channel_endpoint_t *server_ep = channel_get_endpoint(kproc, server_h);
@@ -209,15 +255,20 @@ static object_t *kbd_factory_lookup(object_t *obj, const char *name) {
     if (!client_obj) {
         process_close_handle(kproc, client_h);
         process_close_handle(kproc, server_h);
+        //release reserved slot
+        flags = spinlock_irq_acquire(&kbd_sub_lock);
+        kbd_subscribers[slot].server_h = -1;
+        spinlock_irq_release(&kbd_sub_lock, flags);
         return NULL;
     }
     //bump refcount so it stays alive after we close kproc's handle below
     object_ref(client_obj);
 
-    //register server endpoint as subscriber (hold server handle in kproc to keep channel alive)
-    //we intentionally do NOT close server_h so the channel stays referenced
+    //register server endpoint as subscriber; keep server_h so channel stays alive and we can close it on teardown
     flags = spinlock_irq_acquire(&kbd_sub_lock);
-    kbd_subscribers[slot].ep = server_ep;
+    kbd_subscribers[slot].ep      = server_ep;
+    kbd_subscribers[slot].ch      = server_ep->channel;
+    kbd_subscribers[slot].server_h = server_h;
     spinlock_irq_release(&kbd_sub_lock, flags);
 
     //remove client handle from kproc's table - the opener will get their own handle
@@ -351,6 +402,13 @@ void keyboard_init(void) {
     ps2_kbd_flush_locked();
     mods = 0;
     extended_prefix = false;
+
+    //initialize subscriber fields (-1 for server_h since 0 is a valid handle)
+    for (int i = 0; i < KBD_MAX_SUBSCRIBERS; i++) {
+        kbd_subscribers[i].ep       = NULL;
+        kbd_subscribers[i].ch       = NULL;
+        kbd_subscribers[i].server_h = -1;
+    }
 
     //explicitly enable the first PS/2 port and IRQ1 instead of relying on
     //firmware leaving the 8042 in a keyboard-friendly state

@@ -42,11 +42,12 @@ static int channel_endpoint_close(object_t *obj) {
     ch->queue_tail[id] = NULL;
     ch->queue_len[id] = 0;
 
-    //if both endpoints closed just free the channel
-    int both_closed = ch->closed[0] && ch->closed[1];
     spinlock_irq_release(&ch->lock, flags);
 
-    if (both_closed) {
+    //decrement the channel's own lifetime refcount; free only when both endpoints are gone
+    //ch_refcount is decremented atomically outside the channel lock to avoid
+    //holding the lock across kfree
+    if (__atomic_sub_fetch(&ch->ch_refcount, 1, __ATOMIC_SEQ_CST) == 0) {
         kfree(ch);
     }
 
@@ -69,20 +70,26 @@ int channel_create(process_t *proc, handle_rights_t rights,
     channel_t *ch = kzalloc(sizeof(channel_t));
     if (!ch) return -1;
 
+    //channel lifetime refcount: 2 = one ref per endpoint
+    //decremented in channel_endpoint_close; channel freed only when both reach 0
+    ch->ch_refcount = 2;
+
     //initialize endpoints (embedded objects)
     for (int i = 0; i < 2; i++) {
-        ch->endpoints[i].obj.type = OBJECT_CHANNEL;
+        ch->endpoints[i].obj.type     = OBJECT_CHANNEL;
         ch->endpoints[i].obj.refcount = 1;
-        ch->endpoints[i].obj.ops = &channel_endpoint_ops;
-        ch->endpoints[i].obj.data = &ch->endpoints[i];
-        ch->endpoints[i].channel = ch;
-        ch->endpoints[i].endpoint_id = i;
-        ch->endpoints[i].handler = NULL;
-        ch->endpoints[i].handler_ctx = NULL;
-        ch->queue[i] = NULL;
+        //OBJECT_FLAG_EMBEDDED: endpoints are part of channel_t; object_deref must NOT kfree them
+        ch->endpoints[i].obj.flags    = OBJECT_FLAG_EMBEDDED;
+        ch->endpoints[i].obj.ops      = &channel_endpoint_ops;
+        ch->endpoints[i].obj.data     = &ch->endpoints[i];
+        ch->endpoints[i].channel      = ch;
+        ch->endpoints[i].endpoint_id  = i;
+        ch->endpoints[i].handler      = NULL;
+        ch->endpoints[i].handler_ctx  = NULL;
+        ch->queue[i]      = NULL;
         ch->queue_tail[i] = NULL;
-        ch->queue_len[i] = 0;
-        ch->closed[i] = 0;
+        ch->queue_len[i]  = 0;
+        ch->closed[i]     = 0;
         wait_queue_init(&ch->waiters[i]);
     }
     spinlock_irq_init(&ch->lock);
@@ -101,6 +108,7 @@ int channel_create(process_t *proc, handle_rights_t rights,
     if (h1 < 0) {
         //closing h0 will deref to 0 -> channel_endpoint_close -> channel freed
         process_close_handle(proc, h0);
+        object_deref(&ch->endpoints[1].obj);
         return -1;
     }
     //surrender construction ref for ep1
@@ -176,7 +184,7 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
         for (uint32 i = 0; i < msg->handle_count; i++) {
             proc_handle_t *he = process_get_handle_entry(proc, msg->handles[i]);
             if (!he) {
-                //rollback: restore already-transferred handles
+                //rollback: deref already-grabbed objects
                 for (uint32 j = 0; j < i; j++) {
                     if (entry->objects[j]) object_deref(entry->objects[j]);
                 }
@@ -200,13 +208,10 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
                 return -7;  //no transfer right
             }
 
-            //grab object ref and rights
+            //grab object ref and rights (do NOT close the sender's handle yet)
             entry->objects[i] = he->obj;
             entry->rights[i] = he->rights;
             object_ref(he->obj);
-
-            //remove from sender (MOVE)
-            process_close_handle(proc, msg->handles[i]);
         }
     }
 
@@ -287,6 +292,13 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
 
             spinlock_irq_release(&ch->lock, flags);
 
+            //send is committed - now safe to remove sender's handles (MOVE semantics)
+            if (msg->handle_count > 0 && msg->handles) {
+                for (uint32 i = 0; i < msg->handle_count; i++) {
+                    process_close_handle(proc, msg->handles[i]);
+                }
+            }
+
             //call handler outside the lock (handler may do its own locking)
             peer_ep->handler(peer_ep, &handler_msg, peer_ep->handler_ctx);
             return 0;
@@ -294,6 +306,14 @@ int channel_send(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
     }
 
     spinlock_irq_release(&ch->lock, flags);
+
+    //send is committed - now safe to remove sender's handles (MOVE semantics)
+    if (msg->handle_count > 0 && msg->handles) {
+        for (uint32 i = 0; i < msg->handle_count; i++) {
+            process_close_handle(proc, msg->handles[i]);
+        }
+    }
+
     return 0;
 }
 
@@ -317,14 +337,22 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
             spinlock_irq_release(&ch->lock, flags);
             return -2;  //peer closed, no more messages
         }
-        //check for pending process events (like ctrl+c interrupt)
-        //this runs bottom halves which may post events, then checks
-        //whether the current thread should abort the blocking wait
+        
+        spinlock_irq_release(&ch->lock, flags);
         bottom_half_run_budget(16);
         if (proc_current_should_abort_blocking()) {
-            spinlock_irq_release(&ch->lock, flags);
             return -3;  //interrupted by process event
         }
+        flags = spinlock_irq_acquire(&ch->lock);
+
+        if (ch->queue[my_id]) {
+            break;
+        }
+        if (ch->closed[1 - my_id]) {
+            spinlock_irq_release(&ch->lock, flags);
+            return -2;
+        }
+
         //atomically release channel lock + sleep to avoid missed wakeups
         thread_sleep_locked_irq(&ch->waiters[my_id], &ch->lock, &flags);
 
@@ -379,6 +407,10 @@ int channel_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg) {
                 kfree(msg->handles);
                 msg->handles = NULL;
                 msg->handle_count = 0;
+                //free the payload we already handed to the caller
+                if (msg->data) kfree(msg->data);
+                msg->data = NULL;
+                msg->data_len = 0;
                 kfree(entry->objects);
                 kfree(entry->rights);
                 kfree(entry);
@@ -450,6 +482,10 @@ int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg)
             kfree(entry->objects);
             kfree(entry->rights);
             kfree(entry);
+            //free the payload we already handed to the caller
+            if (msg->data) kfree(msg->data);
+            msg->data = NULL;
+            msg->data_len = 0;
             return -1;
         }
         msg->handle_count = entry->object_count;
@@ -468,6 +504,10 @@ int channel_try_recv(process_t *proc, int32 endpoint_handle, channel_msg_t *msg)
                 kfree(msg->handles);
                 msg->handles = NULL;
                 msg->handle_count = 0;
+                //free the payload we already handed to the caller
+                if (msg->data) kfree(msg->data);
+                msg->data = NULL;
+                msg->data_len = 0;
                 kfree(entry->objects);
                 kfree(entry->rights);
                 kfree(entry);

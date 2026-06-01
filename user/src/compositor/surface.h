@@ -9,7 +9,7 @@ int find_surface_by_ch(handle_t ch);
 //removal closes handles and compacts arrays
 void surface_remove_at(int idx);
 //remap compositor side pixels after the client resized the VMO
-void surface_map_vmo(surface_t *s);
+bool surface_map_vmo(surface_t *s);
 //shared creation path for app surfaces and future internal surfaces
 void surface_create_common(surface_t *s, uint32 pid, uint16 w, uint16 h, handle_t ch);
 

@@ -190,6 +190,7 @@ void thread_wake_thread(thread_t *thread) {
     if (thread->blocked_on == wq && thread->state == THREAD_STATE_BLOCKED) {
         thread_t *prev = NULL;
         thread_t *curr = wq->head;
+        int removed = 0;
 
         //remove the thread from the wait queue singly-linked list
         while (curr) {
@@ -204,22 +205,25 @@ void thread_wake_thread(thread_t *thread) {
                 }
                 curr->wait_next = NULL;
                 curr->blocked_on = NULL;
+                removed = 1;
                 break;
             }
             prev = curr;
             curr = curr->wait_next;
         }
 
-        //place the thread back onto the scheduler queue
-        if (thread->process && thread->process->state == PROC_STATE_DEAD) {
-            thread->wait_cpu = -1;
-            sched_queue_dead(thread);
-        } else {
-            thread->state = THREAD_STATE_READY;
-            uint32 target_cpu = (thread->wait_cpu >= 0) ? (uint32)thread->wait_cpu
-                                                        : percpu_get()->cpu_index;
-            thread->wait_cpu = -1;
-            sched_add_cpu(thread, target_cpu);
+        //place the thread back onto the scheduler queue only if we unlinked it
+        if (removed) {
+            if (thread->process && thread->process->state == PROC_STATE_DEAD) {
+                thread->wait_cpu = -1;
+                sched_queue_dead(thread);
+            } else {
+                thread->state = THREAD_STATE_READY;
+                uint32 target_cpu = (thread->wait_cpu >= 0) ? (uint32)thread->wait_cpu
+                                                            : percpu_get()->cpu_index;
+                thread->wait_cpu = -1;
+                sched_add_cpu(thread, target_cpu);
+            }
         }
     }
     spinlock_irq_release(&wq->lock, wq_flags);

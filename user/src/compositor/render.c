@@ -144,7 +144,7 @@ static void render_wallpaper(uint32 *fb) {
 }
 
 static void draw_decoration(uint32 *fb, surface_t *s) {
-    if (!s->alive || !s->committed) return;
+    if (!s->alive) return;
 
     bool foc = s->focused;
     int dx = (int)s->x - (int)s->deco.border_w;
@@ -194,7 +194,7 @@ void render_surfaces(uint32 *fb) {
         int idx = find_surface(comp.stack[si]);
         if (idx < 0) continue;
         surface_t *s = &comp.surfaces[idx];
-        if (!s->alive || !s->committed) continue;
+        if (!s->alive) continue;
 
         if (s->pixels) {
             int dst_x0 = max(max((int)s->x, 0), (int)comp.damage_x0);

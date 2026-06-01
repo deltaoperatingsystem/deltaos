@@ -33,7 +33,9 @@ int main(void) {
 
         px_draw_rect(surface, px_create_rect(0, 0, sw, sh, PX_RGB(10, 10, 20)));
 
-        px_draw_rect(surface, px_create_rect(20, 20, sw - 40, sh - 40, PX_RGB(30, 35, 60)));
+        uint16 inner_w = sw > 40 ? sw - 40 : 0;
+        uint16 inner_h = sh > 40 ? sh - 40 : 0;
+        px_draw_rect(surface, px_create_rect(20, 20, inner_w, inner_h, PX_RGB(30, 35, 60)));
 
         px_draw_rect(surface, px_create_rect(mx - 5, my - 5, 10, 10,
             pressed ? PX_RGB(255, 80, 80) : PX_RGB(80, 200, 255)));

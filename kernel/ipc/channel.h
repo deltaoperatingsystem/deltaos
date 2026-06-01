@@ -75,6 +75,10 @@ typedef struct channel {
     //state
     int closed[2]; //1 if endpoint is closed
     
+    //channel lifetime refcount: starts at 2 (one per endpoint), kfree'd when it reaches 0
+    //this is separate from the per-endpoint object refcounts which track handle ownership
+    uint32 ch_refcount;
+    
     //SMP lock (irq-safe because IRQ handlers push to channels)
     spinlock_irq_t lock;
 } channel_t;

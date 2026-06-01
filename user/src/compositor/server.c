@@ -102,7 +102,9 @@ static void handle_resize(surface_t *s, uint16 w, uint16 h) {
     damage_add_surface_rect(s);
     s->w = w;
     s->h = h;
-    surface_map_vmo(s);
+    if (!surface_map_vmo(s)) {
+        return;
+    }
     s->committed = true;
     damage_add_surface_rect(s);
     INFO("Resized surface id=%u to %ux%u\n", s->id, w, h);
@@ -139,6 +141,7 @@ void handle_wm_message(comp_msg_t *msg) {
             handle_close(comp.wm_ch);
             comp.wm_present = false;
             comp.wm_ch = INVALID_HANDLE;
+            comp.keyboard_grabbed = false;
             kbd_init();  //reclaim keyboard in fallback mode
             break;
 
@@ -172,6 +175,10 @@ void handle_wm_message(comp_msg_t *msg) {
                 if (comp.surfaces[i].focused) {
                     damage_add_surface_rect(&comp.surfaces[i]);
                     comp.surfaces[i].focused = false;
+                    if (comp.surfaces[i].ch != INVALID_HANDLE) {
+                        comp_msg_t fev = { .type = MSG_FOCUS_EVENT, .u.focus_event = { .id = comp.surfaces[i].id, .focused = false } };
+                        send_msg(comp.surfaces[i].ch, &fev);
+                    }
                 }
             }
             comp.surfaces[idx].focused = true;
@@ -341,6 +348,7 @@ check_clients:
                 handle_close(comp.wm_ch);
                 comp.wm_present = false;
                 comp.wm_ch = INVALID_HANDLE;
+                comp.keyboard_grabbed = false;
                 kbd_init();  //reclaim keyboard since WM is gone
             }
         }
