@@ -106,7 +106,8 @@ int channel_create(process_t *proc, handle_rights_t rights,
 
     int h1 = process_grant_handle(proc, &ch->endpoints[1].obj, rights);
     if (h1 < 0) {
-        //closing h0 will deref to 0 -> channel_endpoint_close -> channel freed
+        //process_close_handle(proc, h0) drops ch_refcount from 2 to 1
+        //object_deref(&ch->endpoints[1].obj) then reaches 0 and runs channel_endpoint_close/free
         process_close_handle(proc, h0);
         object_deref(&ch->endpoints[1].obj);
         return -1;

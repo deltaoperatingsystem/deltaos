@@ -213,7 +213,7 @@ static object_t *kbd_factory_lookup(object_t *obj, const char *name) {
     //find a free subscriber slot and reserve it atomically
     int slot = -1;
     for (int i = 0; i < KBD_MAX_SUBSCRIBERS; i++) {
-        if (!kbd_subscribers[i].ep && kbd_subscribers[i].server_h < 0) {
+        if (!kbd_subscribers[i].ep && kbd_subscribers[i].server_h == -1) {
             kbd_subscribers[i].server_h = -2;  //sentinel: slot reserved
             slot = i;
             break;

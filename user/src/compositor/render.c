@@ -37,7 +37,7 @@ void fill_rect(uint32 *fb, int x, int y, int w, int h, uint32 color) {
     int ry1 = min(y + h, (int)comp.damage_y1);
     for (int row = ry0; row < ry1; row++) {
         for (int col = rx0; col < rx1; col++) {
-            fb[row * comp.screen_w + col] = color;
+            fb[row * comp.row_stride + col] = color;
         }
     }
 }
@@ -53,7 +53,7 @@ static void draw_glyph(uint32 *fb, int x, int y, unsigned char ch, uint32 color)
             if (!(glyph[row] & (0x80u >> col))) continue;
             int px = x + col;
             if (px < comp.damage_x0 || px >= comp.damage_x1) continue;
-            fb[py * comp.screen_w + px] = color;
+            fb[py * comp.row_stride + px] = color;
         }
     }
 }
@@ -134,12 +134,12 @@ static void render_wallpaper(uint32 *fb) {
     int y1 = comp.damage_y1;
     if (!comp.wallpaper_loaded || !comp.wallpaper) {
         for (int y = y0; y < y1; y++) {
-            memset(fb + y * comp.screen_w + x0, 0, (x1 - x0) * sizeof(uint32));
+            memset(fb + y * comp.row_stride + x0, 0, (x1 - x0) * sizeof(uint32));
         }
         return;
     }
     for (int y = y0; y < y1; y++) {
-        memcpy(fb + y * comp.screen_w + x0, comp.wallpaper + y * comp.screen_w + x0, (x1 - x0) * sizeof(uint32));
+        memcpy(fb + y * comp.row_stride + x0, comp.wallpaper + y * comp.screen_w + x0, (x1 - x0) * sizeof(uint32));
     }
 }
 
@@ -215,7 +215,7 @@ void render_surfaces(uint32 *fb) {
                 if (copy_w > 0 && copy_h > 0) {
                     for (int row = 0; row < copy_h; row++) {
                         uint32 *src_row = s->pixels + (size)(src_y0 + row) * s->w + src_x0;
-                        uint32 *dst_row = fb + (size)(dst_y0 + row) * comp.screen_w + dst_x0;
+                        uint32 *dst_row = fb + (size)(dst_y0 + row) * comp.row_stride + dst_x0;
                         for (int col = 0; col < copy_w; col++) {
                             dst_row[col] = src_row[col];
                         }
@@ -236,7 +236,7 @@ void render_mouse(uint32 *fb) {
             int px = i + (int)comp.mouse_x;
             int py = j + (int)comp.mouse_y;
             if (px < (int)comp.damage_x0 || py < (int)comp.damage_y0 || px >= (int)comp.damage_x1 || py >= (int)comp.damage_y1) continue;
-            fb[py * comp.screen_w + px] = c;
+            fb[py * comp.row_stride + px] = c;
         }
     }
 }

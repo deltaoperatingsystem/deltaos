@@ -10,7 +10,7 @@ AR := ar
 LIB_INC_DIRS := $(shell find lib -maxdepth 2 -type d -name include 2>/dev/null)
 LIB_INCLUDES := $(patsubst %,-I%,$(LIB_INC_DIRS))
 
-CFLAGS := -ffreestanding -fno-builtin -fno-stack-protector -m64 -pedantic -c -O2 -Ilibc/include -Ilibc/include/isoc -I../include -std=c11 -fPIC $(LIB_INCLUDES)
+CFLAGS := -ffreestanding -fno-builtin -fno-stack-protector -m64 -pedantic -c -O2 -MMD -MP -Ilibc/include -Ilibc/include/isoc -I../include -std=c11 -fPIC $(LIB_INCLUDES)
 ASFLAGS := -m64 -c
 LDFLAGS := -nostdlib -rpath-link ../initrd/system/libraries
 
@@ -34,6 +34,7 @@ LIB_TOPS := $(notdir $(wildcard lib/*))
 LIB_SRCS := $(foreach l,$(LIB_TOPS),$(shell find lib/$(l) -name '*.c' 2>/dev/null))
 LIB_OBJS := $(LIB_SRCS:.c=.o)
 USER_LIBS := $(patsubst %,../initrd/system/libraries/lib%.so,$(LIB_TOPS))
+DEPS := $(LIBC_OBJS:.o=.d) $(SRC_OBJS:.o=.d) $(LIB_OBJS:.o=.d)
 
 # per-src-project config loader
 define LOAD_PROJECT_CONFIG
@@ -116,6 +117,8 @@ $(foreach t,$(LIB_TOPS),$(eval $(call LINK_LIB,$t)))
 
 libraries: $(USER_LIBS)
 
+-include $(DEPS)
+
 # ld build and copy
 ld:
 	$(MAKE) -C ld
@@ -124,6 +127,7 @@ ld:
 
 clean:
 	find . -type f -name '*.o' -delete
+	find . -type f -name '*.d' -delete
 	rm -f *.o *.bin libc.a libc.so
 	find . -name '*.[s]o' -delete
 	rm -f ../initrd/system/libraries/lib*.so

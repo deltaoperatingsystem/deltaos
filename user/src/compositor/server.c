@@ -254,6 +254,9 @@ void server_listen(void) {
         case MSG_CREATE_SURFACE:
             handle_create_surface(pid, msg.u.create_surface.w, msg.u.create_surface.h);
             break;
+        case MSG_DESTROY_SURFACE:
+            handle_destroy(msg.u.destroy_surface.id);
+            break;
         case MSG_CLAIM_WM:
             if (comp.wm_present) {
                 WARN("CLAIM_WM rejected - WM already present\n");

@@ -324,7 +324,7 @@ void printf(const char *format, ...) {
 int vsnprintf(char *buf, size n, const char *format, va_list args) {
     print_ctx_t ctx = { .buf = buf, .pos = 0, .max = n, .count_only = (buf == NULL) };
     int ret = do_printf(&ctx, format, args);
-    if (n > 0) {
+    if (!ctx.count_only && n > 0) {
         if (ctx.pos < n) buf[ctx.pos] = '\0';
         else buf[n - 1] = '\0';
     }

@@ -28,16 +28,21 @@ static void fb_setup(void) {
     ASSERT(comp.fb_handle == INVALID_HANDLE, "Failed to get framebuffer\n");
 
     stat_t st;
-    if (stat("$devices/fb0", &st) >= 0 && st.width > 0 && st.height > 0 && st.pitch >= st.width) {
+    if (stat("$devices/fb0", &st) >= 0 && st.width > 0 && st.height > 0 &&
+        st.pitch >= st.width * sizeof(uint32) && (st.pitch % sizeof(uint32)) == 0) {
         comp.fb_size = st.height * st.pitch;
         comp.screen_w = st.width;
         comp.screen_h = st.height;
-        comp.screen_bpp = st.pitch / st.width;
+        comp.screen_bpp = sizeof(uint32);
+        comp.screen_pitch_bytes = st.pitch;
+        comp.row_stride = st.pitch / sizeof(uint32);
     } else {
         comp.screen_w = 1280;
         comp.screen_h = 800;
         comp.fb_size = comp.screen_w * comp.screen_h * sizeof(uint32);
-        comp.screen_bpp = 4;
+        comp.screen_bpp = sizeof(uint32);
+        comp.screen_pitch_bytes = comp.screen_w * sizeof(uint32);
+        comp.row_stride = comp.screen_w;
     }
 
     comp.backbuffer = malloc(comp.fb_size);

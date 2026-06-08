@@ -8,6 +8,7 @@ object_t *object_create(uint32 type, object_ops_t *ops, void *data) {
     
     obj->type = type;
     obj->refcount = 1;
+    obj->flags = OBJECT_FLAG_NONE;
     obj->ops = ops;
     obj->data = data;
     

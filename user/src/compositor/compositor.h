@@ -130,6 +130,9 @@ struct compositor_state {
     int16 damage_y0;
     int16 damage_x1;
     int16 damage_y1;
+
+    uint32 screen_pitch_bytes;
+    uint32 row_stride;
 };
 
 extern struct compositor_state comp;
