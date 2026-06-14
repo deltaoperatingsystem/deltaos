@@ -37,6 +37,47 @@ double atof(const char *s) {
     return res * sign;
 }
 
+double strtod(const char *s, char **end) {
+    double v = 0;
+    int sign = 1;
+    while (*s == ' ' || *s == '\t') s++;
+    if (*s == '-') { sign = -1; s++; }
+    else if (*s == '+') s++;
+    while (*s >= '0' && *s <= '9') { 
+        v = v * 10 + (*s - '0'); 
+        s++; 
+    }
+    if (*s == '.') {
+        s++;
+        double frac = 0, div = 10;
+        while (*s >= '0' && *s <= '9') { 
+            frac += (*s - '0') / div; 
+            div *= 10; 
+            s++; 
+        }
+        v += frac;
+    }
+    if (*s == 'e' || *s == 'E') {
+        s++;
+        int esign = 1, exp = 0;
+        if (*s == '-') { 
+            esign = -1; 
+            s++; 
+        }
+        else if (*s == '+') s++;
+        while (*s >= '0' && *s <= '9') { 
+            exp = exp * 10 + (*s - '0'); 
+            s++; 
+        }
+        while (exp > 0) { 
+            v *= (esign > 0) ? 10 : 0.1; 
+            exp--; 
+        }
+    }
+    if (end) *end = (char *)s;
+    return v * sign;
+}
+
 char *getenv(const char *name) {
     static char value[256];
 

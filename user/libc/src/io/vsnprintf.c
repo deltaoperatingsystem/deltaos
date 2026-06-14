@@ -257,6 +257,100 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                     ctx_putc(ctx, '0' + digit);
                     frac -= digit;
                 }
+            } else if (*p == 'g' || *p == 'G') {
+                //C99 %g: P significant digits, switch between %f and %e
+                double f = va_arg(args, double);
+                int P = (precision >= 0) ? precision : 6;
+                if (P == 0) P = 1;
+
+                int X = 0;
+                double abs_v = (f < 0) ? -f : f;
+                if (abs_v > 0.0) {
+                    double tmp = abs_v;
+                    while (tmp >= 10.0) { tmp /= 10.0; X++; }
+                    while (tmp < 1.0 && tmp > 0.0) { tmp *= 10.0; X--; }
+                }
+
+                int use_sci = !(X >= -4 && X < P);
+                char buf[128];
+                int pos = 0;
+                int neg = (f < 0.0);
+                double val = neg ? -f : f;
+
+                if (use_sci) {
+                    //%e style: 1.d...de±XX
+                    double pow10 = 1.0;
+                    int exp_abs = (X >= 0) ? X : -X;
+                    for (int i = 0; i < exp_abs; i++) {
+                        if (X >= 0) pow10 *= 10.0;
+                        else pow10 /= 10.0;
+                    }
+                    double sig = val / pow10;
+                    int sig_int = (int)sig;
+                    double sig_frac = sig - sig_int;
+
+                    if (neg) buf[pos++] = '-';
+                    buf[pos++] = '0' + sig_int;
+                    buf[pos++] = '.';
+                    int dec = P - 1;
+                    int start = pos;
+                    for (int i = 0; i < dec && pos < 120; i++) {
+                        sig_frac *= 10.0;
+                        int digit = (int)sig_frac;
+                        buf[pos++] = '0' + digit;
+                        sig_frac -= digit;
+                    }
+                    while (pos > start && buf[pos - 1] == '0') pos--;
+                    if (pos > 0 && buf[pos - 1] == '.') pos--;
+
+                    buf[pos++] = (*p == 'G') ? 'E' : 'e';
+                    int exp_val = X;
+                    if (exp_val >= 0) buf[pos++] = '+';
+                    else { buf[pos++] = '-'; exp_val = -exp_val; }
+                    char exp_tmp[8];
+                    int epos = 0;
+                    int exp_copy = exp_val;
+                    if (exp_copy == 0) exp_tmp[epos++] = '0';
+                    while (exp_copy) { exp_tmp[epos++] = '0' + (exp_copy % 10); exp_copy /= 10; }
+                    if (epos == 1) buf[pos++] = '0';
+                    for (int i = epos - 1; i >= 0; i--) buf[pos++] = exp_tmp[i];
+                } else {
+                    //%f style: precision = P - (X + 1) decimal places
+                    int dec_places = P - (X + 1);
+                    if (dec_places < 0) dec_places = 0;
+                    int int_part = (int)val;
+                    double frac = val - int_part;
+
+                    if (neg) buf[pos++] = '-';
+                    char tmp[32];
+                    int tlen = 0;
+                    uintmax u = (uintmax)int_part;
+                    if (int_part == 0) { tmp[tlen++] = '0'; }
+                    else { while (u) { tmp[tlen++] = '0' + (u % 10); u /= 10; } }
+                    for (int i = tlen - 1; i >= 0; i--) buf[pos++] = tmp[i];
+
+                    buf[pos++] = '.';
+                    int start = pos;
+                    for (int i = 0; i < dec_places && pos < 120; i++) {
+                        frac *= 10.0;
+                        int digit = (int)frac;
+                        buf[pos++] = '0' + digit;
+                        frac -= digit;
+                    }
+                    while (pos > start && buf[pos - 1] == '0') pos--;
+                    if (pos > 0 && buf[pos - 1] == '.') pos--;
+                }
+
+                buf[pos] = 0;
+                int flen = pos;
+                int pad = (width > flen) ? width - flen : 0;
+                if (!left_align) {
+                    for (int i = 0; i < pad; i++) ctx_putc(ctx, zero_pad ? '0' : ' ');
+                }
+                for (int i = 0; i < flen; i++) ctx_putc(ctx, buf[i]);
+                if (left_align) {
+                    for (int i = 0; i < pad; i++) ctx_putc(ctx, ' ');
+                }
             } else if (*p == 'b') {
                 uintmax num;
 

@@ -30,12 +30,16 @@ void netbuf_reserve(netbuf_t *nb, size headroom) {
 }
 
 void *netbuf_push(netbuf_t *nb, size len) {
+    //guard against data pointer underflowing past the backing buffer
+    if (len > (size)(nb->data - nb->buf)) return NULL;
     nb->data -= len;
     nb->len += len;
     return nb->data;
 }
 
 void *netbuf_pull(netbuf_t *nb, size len) {
+    //guard against stripping more bytes than the packet contains
+    if (len > nb->len) return NULL;
     void *old = nb->data;
     nb->data += len;
     nb->len -= len;
@@ -43,6 +47,9 @@ void *netbuf_pull(netbuf_t *nb, size len) {
 }
 
 void *netbuf_put(netbuf_t *nb, size len) {
+    //guard against appending past the end of the backing buffer
+    size used_headroom = (size)(nb->data - nb->buf);
+    if (len > nb->capacity - used_headroom - nb->len) return NULL;
     void *tail = nb->data + nb->len;
     nb->len += len;
     return tail;

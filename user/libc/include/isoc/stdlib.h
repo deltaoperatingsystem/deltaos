@@ -8,6 +8,7 @@
 int abs(int j);
 int atoi(const char *nptr);
 double atof(const char *nptr);
+double strtod(const char *nptr, char **endptr);
 long strtol(const char *nptr, char **endptr, int base);
 
 

@@ -15,7 +15,7 @@ static ssize vmo_obj_read(object_t *obj, void *buf, size len, size offset) {
     if (!vmo || !vmo->pages) return -1;
     
     if (offset >= vmo->size) return 0;
-    if (offset + len > vmo->size) len = vmo->size - offset;
+    if (len > vmo->size - offset) len = vmo->size - offset;
     
     memcpy(buf, (char *)vmo->pages + offset, len);
     return len;
@@ -26,7 +26,7 @@ static ssize vmo_obj_write(object_t *obj, const void *buf, size len, size offset
     if (!vmo || !vmo->pages) return -1;
     
     if (offset >= vmo->size) return 0;
-    if (offset + len > vmo->size) len = vmo->size - offset;
+    if (len > vmo->size - offset) len = vmo->size - offset;
     
     memcpy((char *)vmo->pages + offset, buf, len);
     return len;
@@ -166,8 +166,8 @@ void *vmo_map(process_t *proc, int32 handle, void *vaddr_hint,
     
     //validate offset and length
     if (offset >= vmo->size) return NULL;
+    if (len > vmo->size - offset) return NULL;
     if (len == 0) len = vmo->size - offset;
-    if (offset + len > vmo->size) return NULL;
     
     //for kernel process (NULL pagemap) return direct pointer
     if (!proc->pagemap) {

@@ -402,6 +402,13 @@ intptr sys_wait(uintptr pid) {
     process_t *proc = process_find_ref(pid);
     if (!proc) return -1;
 
+    //only the parent process may wait for its child
+    process_t *current = process_current();
+    if (current && current->pid != proc->parent_pid) {
+        process_unref(proc);
+        return -1;
+    }
+
     spinlock_acquire(&proc->lock);
     while (proc->state != PROC_STATE_ZOMBIE) {
         spinlock_release(&proc->lock);

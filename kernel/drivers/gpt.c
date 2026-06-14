@@ -27,8 +27,8 @@ static int partition_read(blkdev_t *dev, uint64 lba, uint32 count, void *buf) {
     blkdev_t *parent = dev->parent;
     if (!parent) return -1;
     
-    //bounds check against partition size
-    if (lba + count > dev->sector_count) return -1;
+    //bounds check against partition size we use subtraction form to avoid lba+count wrap
+    if (lba >= dev->sector_count || (uint64)count > dev->sector_count - lba) return -1;
     
     return parent->ops->read(parent, dev->start_lba + lba, count, buf);
 }
@@ -38,8 +38,8 @@ static int partition_write(blkdev_t *dev, uint64 lba, uint32 count, const void *
     blkdev_t *parent = dev->parent;
     if (!parent) return -1;
     
-    //bounds check against partition size
-    if (lba + count > dev->sector_count) return -1;
+    //bounds check against partition size we use subtraction form to avoid lba+count wrap
+    if (lba >= dev->sector_count || (uint64)count > dev->sector_count - lba) return -1;
     
     return parent->ops->write(parent, dev->start_lba + lba, count, buf);
 }
@@ -60,7 +60,8 @@ static ssize part_read_op(object_t *obj, void *buf, size len, size offset) {
     uint64 lba = offset / dev->sector_size;
     uint32 count = len / dev->sector_size;
     
-    if (lba + count > dev->sector_count) return -1;
+    //bounds check against partition size we use subtraction form to avoid lba+count wrap
+    if (lba >= dev->sector_count || (uint64)count > dev->sector_count - lba) return -1;
     
     //allocate kernel bounce buffer for NVMe DMA
     void *kbuf_phys = pmm_alloc((len + 4095) / 4096);
@@ -86,7 +87,8 @@ static ssize part_write_op(object_t *obj, const void *buf, size len, size offset
     uint64 lba = offset / dev->sector_size;
     uint32 count = len / dev->sector_size;
     
-    if (lba + count > dev->sector_count) return -1;
+    //bounds check against partition size we use subtraction form to avoid lba+count wrap
+    if (lba >= dev->sector_count || (uint64)count > dev->sector_count - lba) return -1;
     
     //allocate kernel bounce buffer for NVmE DMA
     void *kbuf_phys = pmm_alloc((len + 4095) / 4096);

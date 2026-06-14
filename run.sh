@@ -315,6 +315,7 @@ run_qemu() {
         -no-shutdown
         -device sb16
         -device adlib
+        -vga virtio
     )
     QEMU_ARGS+=("$accel_spec")
 

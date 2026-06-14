@@ -2,22 +2,23 @@
 #define DRIVERS_FB_H
 
 #include <arch/types.h>
+#include <drivers/fb_backend.h>
 
-//initialize framebuffer from boot info
+//initialize framebuffer from boot info (BUS level)
 void fb_init(void);
 
-//allocate backbuffer for double buffering
+//commit the active backend (DEVICE level - falls back to boot GOP if nothing registered)
 void fb_init_backbuffer(void);
 
-//copy backbuffer to VRAM
+//copy draw_buffer to display for the whole screen or a sub-rect
 void fb_flip(void);
 void fb_flip_rect(uint32 x, uint32 y, uint32 w, uint32 h);
 void fb_copy_rect(uint32 dst_x, uint32 dst_y, uint32 src_x, uint32 src_y, uint32 w, uint32 h);
 
-//check if framebuffer is available
+//true if a backend has been committed and drawing is possible
 bool fb_available(void);
 
-//get framebuffer dimensions
+//framebuffer dimensions
 uint32 fb_width(void);
 uint32 fb_height(void);
 

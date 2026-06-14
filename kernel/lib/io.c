@@ -7,6 +7,7 @@
 #include <arch/cpu.h>
 #include <lib/spinlock.h>
 
+
 bool serial_enabled = false;
 static enum output_mode mode = SERIAL;
 static spinlock_irq_t console_lock = SPINLOCK_IRQ_INIT;
@@ -111,6 +112,11 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
             //width
             int width = 0;
             while (*p >= '0' && *p <= '9') {
+                if (width > (INT32_MAX - (*p - '0')) / 10) {
+                    width = INT32_MAX;
+                    while (*p >= '0' && *p <= '9') p++;
+                    break;
+                }
                 width = width * 10 + (*p - '0');
                 p++;
             }
@@ -125,6 +131,11 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                 } else {
                     precision = 0;
                     while (*p >= '0' && *p <= '9') {
+                        if (precision > (INT32_MAX - (*p - '0')) / 10) {
+                            precision = INT32_MAX;
+                            while (*p >= '0' && *p <= '9') p++;
+                            break;
+                        }
                         precision = precision * 10 + (*p - '0');
                         p++;
                     }

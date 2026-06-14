@@ -58,6 +58,9 @@ vt_t *vt_get(int num);
 vt_t *vt_get_active(void);
 
 static void vt_scroll(vt_t *vt) {
+    //guard against rows==0 to prevent uint32 underflow of (rows - 1)
+    if (!vt || vt->rows == 0 || vt->cols == 0) return;
+
     vt_hide_cursor_locked(vt);
 
     //flush any pending dirty rows before scrolling
@@ -280,7 +283,8 @@ vt_t *vt_create(void) {
 
     vt->cols = con_cols();
     vt->rows = con_rows();
-    vt->cells = kzalloc(vt->cols * vt->rows * sizeof(vt_cell_t));
+    //cast to `size` first to avoid uint32 overflow for large terminal dimensions
+    vt->cells = kzalloc((size)vt->cols * vt->rows * sizeof(vt_cell_t));
     if (!vt->cells) {
         flags = spinlock_irq_acquire(&vt_lock);
         if (vts[num] == VT_RESERVED_SLOT) vts[num] = NULL;
@@ -672,17 +676,14 @@ void vt_flush(vt_t *vt) {
 }
 
 static void vt_write_cells_locked(vt_t *vt, uint32 col, uint32 row, const vt_cell_t *cells, size count) {
-    if (!vt || !cells) return;
+    if (!vt || !cells || vt->cols == 0 || vt->rows == 0) return;
 
     for (size i = 0; i < count; i++) {
-        uint32 c = col + i;
-        uint32 r = row;
-
-        //wrap to next row if needed
-        while (c >= vt->cols) {
-            c -= vt->cols;
-            r++;
-        }
+        //compute the linear cell index directly rather than looping col+i
+        //until c < cols which avoids huge iteration counts for large col values
+        uint64 linear = (uint64)col + (uint64)row * vt->cols + i;
+        uint32 r = (uint32)(linear / vt->cols);
+        uint32 c = (uint32)(linear % vt->cols);
 
         if (r >= vt->rows) break;  //off screen
 
