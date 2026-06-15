@@ -126,6 +126,7 @@ static int pci_setup_queue(struct virtio_device *dev, uint16 queue_idx,
     //used ring: 6 + 8*queue_size bytes (+ padding to align to page)
     size desc_bytes = sizeof(virtq_desc_t) * queue_size;
     size avail_bytes = sizeof(uint16) * (3 + queue_size);  //flags+idx+ring+used_event
+    avail_bytes = ((avail_bytes + 3) / 4) * 4;
     size used_bytes = sizeof(uint16) * 3 + sizeof(virtq_used_elem_t) * queue_size;
 
     size total = desc_bytes + avail_bytes + used_bytes;
@@ -193,7 +194,8 @@ static void virtio_pci_setup_msix(pci_device_t *pci, virtio_pci_data_t *d) {
     if (!(pci->status & (1 << 4))) return; //no capabilities list
 
     uint8 ptr = (uint8)pci_config_read(pci->bus, pci->dev, pci->func, 0x34, 1);
-    while (ptr) {
+    int cap_count = 0;
+    while (ptr && cap_count++ < 48) {
         uint8 id = (uint8)pci_config_read(pci->bus, pci->dev, pci->func, ptr, 1);
         if (id == PCI_CAP_ID_MSIX) {
             d->msix_cap_ptr = ptr;
@@ -253,7 +255,8 @@ static void virtio_pci_probe(pci_device_t *pci) {
     if (!(pci->status & (1 << 4))) goto no_caps;
 
     uint8 ptr = (uint8)pci_config_read(pci->bus, pci->dev, pci->func, 0x34, 1);
-    while (ptr) {
+    int cap_count = 0;
+    while (ptr && cap_count++ < 48) {
         uint8 id = (uint8)pci_config_read(pci->bus, pci->dev, pci->func, ptr, 1);
         if (id == PCI_CAP_ID_VENDOR) {
             virtio_pci_cap_t cap;

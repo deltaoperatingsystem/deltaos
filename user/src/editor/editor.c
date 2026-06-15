@@ -140,20 +140,21 @@ static void line_append(line_t *l, const char *s, uint32 slen) {
 }
 
 //ensure lines array has room for at least `needed` entries
-static void doc_ensure_cap(uint32 needed) {
-    if (needed < line_cap) return;
+static bool doc_ensure_cap(uint32 needed) {
+    if (needed < line_cap) return true;
     uint32 new_cap = line_cap ? line_cap * 2 : 64;
     while (new_cap <= needed) new_cap *= 2;
     line_t *nl = realloc(lines, new_cap * sizeof(line_t));
-    if (!nl) return;
+    if (!nl) return false;
     memset(nl + line_cap, 0, (new_cap - line_cap) * sizeof(line_t));
     lines = nl;
     line_cap = new_cap;
+    return true;
 }
 
 //insert a blank line after index `after`
 static void doc_insert_line_after(uint32 after) {
-    doc_ensure_cap(line_count + 1);
+    if (!doc_ensure_cap(line_count + 1)) return;
     for (uint32 i = line_count; i > after + 1; i--) {
         lines[i] = lines[i - 1];
     }
@@ -422,6 +423,7 @@ static void doc_clear(void) {
 static void editor_load(const char *path) {
     handle_t fh = get_obj(INVALID_HANDLE, path, RIGHT_READ);
     if (fh == INVALID_HANDLE) {
+        doc_clear();
         //file doesn't exist yet - set filename and start blan
         strncpy(filename, path, FILENAME_MAX - 1);
         filename[FILENAME_MAX - 1] = '\0';
@@ -443,13 +445,17 @@ static void editor_load(const char *path) {
             char c = rbuf[i];
             if (c == '\n') {
                 cur_line++;
-                doc_ensure_cap(cur_line + 1);
+                if (!doc_ensure_cap(cur_line + 1)) {
+                    break;
+                }
                 if (cur_line >= line_count) {
                     line_init(&lines[cur_line], "", 0);
                     line_count = cur_line + 1;
                 }
             } else if (c != '\r') {
-                line_append(&lines[cur_line], &c, 1);
+                if (cur_line < line_cap) {
+                    line_append(&lines[cur_line], &c, 1);
+                }
             }
         }
     }
@@ -474,14 +480,15 @@ static void editor_save(void) {
         filename[FILENAME_MAX - 1] = '\0';
     }
 
-    //create the file if it doesn't exist yet
+    //truncate the file if it exists, then recreate it
     stat_t st;
-    if (stat(filename, &st) < 0) {
-        if (mkfile(filename) < 0) {
-            editor_status("Cannot create file");
-            editor_redraw();
-            return;
-        }
+    if (stat(filename, &st) == 0) {
+        remove(filename);
+    }
+    if (mkfile(filename) < 0) {
+        editor_status("Cannot create file");
+        editor_redraw();
+        return;
     }
 
     handle_t fh = get_obj(INVALID_HANDLE, filename, RIGHT_WRITE);
@@ -611,8 +618,6 @@ static void op_paste(void) {
         line_t tmp = lines[0];
         lines[0] = lines[1];
         lines[1] = tmp;
-    } else {
-        cur_row++;
     }
     line_t *nl = &lines[cur_row];
     line_append(nl, clipboard, clip_len);

@@ -90,6 +90,7 @@ static int mmio_setup_queue(struct virtio_device *dev, uint16 queue_idx,
     //and used ring (header+ring+flags) all page-aligned
     size desc_bytes = sizeof(virtq_desc_t) * queue_size;
     size avail_bytes = sizeof(uint16) * (3 + queue_size);
+    avail_bytes = ((avail_bytes + 3) / 4) * 4;
     size used_bytes = sizeof(uint16) * 3 + sizeof(virtq_used_elem_t) * queue_size;
     size total = desc_bytes + avail_bytes + used_bytes;
     size pages = (total + 0xFFF) / 0x1000;

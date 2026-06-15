@@ -38,28 +38,41 @@ double atof(const char *s) {
 }
 
 double strtod(const char *s, char **end) {
+    const char *orig = s;
     double v = 0;
     int sign = 1;
-    while (*s == ' ' || *s == '\t') s++;
+    int consumed = 0;
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' || *s == '\f' || *s == '\v') s++;
     if (*s == '-') { sign = -1; s++; }
     else if (*s == '+') s++;
     while (*s >= '0' && *s <= '9') { 
         v = v * 10 + (*s - '0'); 
         s++; 
+        consumed = 1;
     }
     if (*s == '.') {
+        const char *dot_pos = s;
         s++;
         double frac = 0, div = 10;
+        int frac_consumed = 0;
         while (*s >= '0' && *s <= '9') { 
             frac += (*s - '0') / div; 
             div *= 10; 
             s++; 
+            frac_consumed = 1;
+            consumed = 1;
         }
-        v += frac;
+        if (frac_consumed || consumed) {
+            v += frac;
+        } else {
+            s = dot_pos;
+        }
     }
-    if (*s == 'e' || *s == 'E') {
+    if (consumed && (*s == 'e' || *s == 'E')) {
+        const char *e_pos = s;
         s++;
         int esign = 1, exp = 0;
+        int exp_consumed = 0;
         if (*s == '-') { 
             esign = -1; 
             s++; 
@@ -68,13 +81,18 @@ double strtod(const char *s, char **end) {
         while (*s >= '0' && *s <= '9') { 
             exp = exp * 10 + (*s - '0'); 
             s++; 
+            exp_consumed = 1;
         }
-        while (exp > 0) { 
-            v *= (esign > 0) ? 10 : 0.1; 
-            exp--; 
+        if (exp_consumed) {
+            while (exp > 0) { 
+                v *= (esign > 0) ? 10 : 0.1; 
+                exp--; 
+            }
+        } else {
+            s = e_pos;
         }
     }
-    if (end) *end = (char *)s;
+    if (end) *end = (char *)(consumed ? s : orig);
     return v * sign;
 }
 

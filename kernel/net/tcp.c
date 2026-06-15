@@ -451,11 +451,13 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
 
                     //if FIN is also set in this segment, handle it after data
                     if (flags & TCP_FIN) {
-                        conn->rcv_nxt = seq + payload_len + 1;
-                        conn->state = TCP_STATE_CLOSE_WAIT;
-                        spinlock_irq_release(&tcp_lock, lock_flags);
-                        tcp_send_segment(conn, TCP_ACK, NULL, 0);
-                        return;
+                        if (copy == payload_len) {
+                            conn->rcv_nxt = seq + copy + 1;
+                            conn->state = TCP_STATE_CLOSE_WAIT;
+                            spinlock_irq_release(&tcp_lock, lock_flags);
+                            tcp_send_segment(conn, TCP_ACK, NULL, 0);
+                            return;
+                        }
                     }
 
                     spinlock_irq_release(&tcp_lock, lock_flags);
@@ -470,7 +472,7 @@ static void tcp_recv_common(netif_t *nif, const net_addr_t *src_addr,
             }
 
             //handle FIN
-            if (flags & TCP_FIN) {
+            if ((flags & TCP_FIN) && seq == conn->rcv_nxt) {
                 conn->rcv_nxt = seq + payload_len + 1;
                 conn->state = TCP_STATE_CLOSE_WAIT;
                 spinlock_irq_release(&tcp_lock, lock_flags);

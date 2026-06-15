@@ -33,8 +33,8 @@ static void boot_flush(void) {
 static void boot_flush_rect(uint32 x, uint32 y, uint32 w, uint32 h) {
     if (!boot_bb || !boot_vram) return;
     if (x >= boot_w || y >= boot_h || w == 0 || h == 0) return;
-    if (x + w > boot_w) w = boot_w - x;
-    if (y + h > boot_h) h = boot_h - y;
+    if (w > boot_w - x) w = boot_w - x;
+    if (h > boot_h - y) h = boot_h - y;
 
     size row_bytes = w * 4;
     for (uint32 py = 0; py < h; py++) {
@@ -82,8 +82,8 @@ static void fb_fillrect_target(uint32 *target, uint32 x, uint32 y,
     if (!target) return;
     //clamp to screen bounds
     if (x >= cur_width() || y >= cur_height()) return;
-    if (x + w > cur_width()) w = cur_width() - x;
-    if (y + h > cur_height()) h = cur_height() - y;
+    if (w > cur_width() - x) w = cur_width() - x;
+    if (h > cur_height() - y) h = cur_height() - y;
 
     for (uint32 py = y; py < y + h; py++) {
         uint32 *row = (uint32 *)((uint8 *)target + py * cur_pitch());
@@ -105,7 +105,7 @@ static ssize fb_obj_read(object_t *obj, void *buf, size len, size offset) {
     if (!active_backend) return 0;
     //bounds check
     if (offset >= active_backend->size) return 0;
-    if (offset + len > active_backend->size) len = active_backend->size - offset;
+    if (len > active_backend->size - offset) len = active_backend->size - offset;
     //read from frontbuffer (VRAM)
     memcpy(buf, (uint8 *)active_backend->display_buffer + offset, len);
     return len;
@@ -147,6 +147,12 @@ static object_ops_t fb_object_ops = {
 //backend registration
 bool fb_set_backend(fb_backend_t *backend) {
     if (active_backend) return false;
+    if (!backend) return false;
+    if (!backend->name || !backend->draw_buffer || !backend->display_buffer ||
+        backend->width == 0 || backend->height == 0 || backend->pitch == 0 ||
+        backend->size == 0 || !backend->flush || !backend->flush_rect) {
+        return false;
+    }
     active_backend = backend;
     return true;
 }
@@ -170,6 +176,11 @@ void fb_init(void) {
     boot_w = fb->width;
     boot_h = fb->height;
     boot_pitch = fb->pitch;
+    if (boot_pitch == 0 || boot_h > SIZE_MAX / boot_pitch) {
+        puts("[fb] invalid framebuffer dimensions or overflow\n");
+        boot_vram = NULL;
+        return;
+    }
     boot_size = boot_h * boot_pitch;
 
     //remap VRAM as write-combining (huge performance boost on real hardware)
@@ -245,8 +256,8 @@ void fb_flip(void) {
 void fb_flip_rect(uint32 x, uint32 y, uint32 w, uint32 h) {
     if (!active_backend || !active_backend->flush_rect) return;
     if (x >= cur_width() || y >= cur_height() || w == 0 || h == 0) return;
-    if (x + w > cur_width()) w = cur_width() - x;
-    if (y + h > cur_height()) h = cur_height() - y;
+    if (w > cur_width() - x) w = cur_width() - x;
+    if (h > cur_height() - y) h = cur_height() - y;
     active_backend->flush_rect(x, y, w, h);
 }
 
@@ -259,10 +270,10 @@ static void fb_copy_rect_target(uint32 *target, uint32 dst_x, uint32 dst_y,
     uint32 fp = cur_pitch();
 
     if (dst_x >= fw || dst_y >= fh || src_x >= fw || src_y >= fh) return;
-    if (src_x + w > fw) w = fw - src_x;
-    if (dst_x + w > fw) w = fw - dst_x;
-    if (src_y + h > fh) h = fh - src_y;
-    if (dst_y + h > fh) h = fh - dst_y;
+    if (w > fw - src_x) w = fw - src_x;
+    if (w > fw - dst_x) w = fw - dst_x;
+    if (h > fh - src_y) h = fh - src_y;
+    if (h > fh - dst_y) h = fh - dst_y;
 
     size row_bytes = w * 4;
     bool reverse = (dst_y > src_y);
@@ -329,8 +340,8 @@ void fb_drawimage(const unsigned char *src, uint32 width, uint32 height,
     uint32 *target = get_draw_target();
     if (!target || !src) return;
     if (offset_x >= cur_width() || offset_y >= cur_height()) return;
-    if (offset_x + width > cur_width()) width = cur_width() - offset_x;
-    if (offset_y + height > cur_height()) height = cur_height() - offset_y;
+    if (width > cur_width() - offset_x) width = cur_width() - offset_x;
+    if (height > cur_height() - offset_y) height = cur_height() - offset_y;
 
     for (uint32 y = 0; y < height; y++) {
         uint32 *row = (uint32 *)((uint8 *)target + (offset_y + y) * cur_pitch()) + offset_x;
@@ -351,8 +362,8 @@ void fb_drawglyph(uint32 x, uint32 y, const uint8 *glyph, uint32 fg, uint32 bg,
     if (!target || !glyph) return;
     if (x >= cur_width() || y >= cur_height()) return;
     if (width > 8) width = 8;
-    if (x + width > cur_width()) width = cur_width() - x;
-    if (y + height > cur_height()) height = cur_height() - y;
+    if (width > cur_width() - x) width = cur_width() - x;
+    if (height > cur_height() - y) height = cur_height() - y;
 
     for (uint32 py = 0; py < height; py++) {
         uint8 row_bits = glyph[py];
