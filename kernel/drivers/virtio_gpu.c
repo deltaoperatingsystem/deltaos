@@ -153,17 +153,19 @@ static int gpu_submit_cmd(gpu_dev_t *g,
     //poll until the device posts a used-ring entry for our chain
     int ret = virtq_poll_used(&g->ctrlq, head);
 
+    if (ret < 0) {
+        g->vdev->transport->write_status(g->vdev, VIRTIO_STATUS_FAILED);
+        printf("[virtio-gpu] submit_cmd: poll_used timed out\n");
+        gpu_mutex_release(&gpu_mutex);
+        return -1;
+    }
+
     spinlock_acquire(&g->ctrlq.lock);
     virtq_free_desc(&g->ctrlq, (uint16)req_desc);
     virtq_free_desc(&g->ctrlq, (uint16)rsp_desc);
     spinlock_release(&g->ctrlq.lock);
 
     gpu_mutex_release(&gpu_mutex);
-
-    if (ret < 0) {
-        printf("[virtio-gpu] submit_cmd: poll_used timed out\n");
-        return -1;
-    }
     //check the response type   
     virtio_gpu_ctrl_hdr_t *resp = resp_virt;
     if (resp->type != VIRTIO_GPU_RESP_OK_NODATA &&
@@ -201,7 +203,23 @@ static int gpu_get_display_info(gpu_dev_t *g) {
         g->height = resp->pmodes[0].r.height;
     }
 
-    g->pitch   = g->width * 4; //B8G8R8A8 = 4 bytes per pixel
+#define GPU_MAX_WIDTH  16384
+#define GPU_MAX_HEIGHT 16384
+
+    if (g->width == 0 || g->width > GPU_MAX_WIDTH || g->height == 0 || g->height > GPU_MAX_HEIGHT) {
+        printf("[virtio-gpu] invalid display dimensions %ux%u\n", g->width, g->height);
+        return -1;
+    }
+    if (g->width > SIZE_MAX / 4) {
+        printf("[virtio-gpu] width calculation overflow\n");
+        return -1;
+    }
+    uint32 pitch = g->width * 4;
+    if (g->height > SIZE_MAX / pitch) {
+        printf("[virtio-gpu] pitch calculation overflow\n");
+        return -1;
+    }
+    g->pitch   = pitch;
     g->fb_size = g->height * g->pitch;
     return 0;
 }
@@ -234,11 +252,11 @@ static int gpu_attach_backing(gpu_dev_t *g) {
     g->backing_pages = pages;
     g->backing_virt = kzalloc(pages * sizeof(void *));
     g->backing_phys = kzalloc(pages * sizeof(void *));
-    if (!g->backing_virt || !g->backing_phys) return -1;
+    if (!g->backing_virt || !g->backing_phys) goto fail;
 
     for (uint32 i = 0; i < pages; i++) {
         g->backing_phys[i] = pmm_alloc(1);
-        if (!g->backing_phys[i]) return -1;
+        if (!g->backing_phys[i]) goto fail;
         g->backing_virt[i] = P2V(g->backing_phys[i]);
         memset(g->backing_virt[i], 0, 0x1000);
     }
@@ -267,7 +285,7 @@ static int gpu_attach_backing(gpu_dev_t *g) {
     int ret = gpu_submit_cmd(g,
                              cmd,  cmd_phys,  cmd_len,
                              resp, resp_phys, sizeof(*resp));
-    if (ret != 0) return ret;
+    if (ret != 0) goto fail;
 
     //map the scatter-gather backing pages into a contiguous virtual region
     //so all drawing code sees one flat framebuffer regardless of whether
@@ -275,10 +293,27 @@ static int gpu_attach_backing(gpu_dev_t *g) {
     g->fb_linear = gpu_vmap(g->backing_phys, pages);
     if (!g->fb_linear) {
         printf("[virtio-gpu] ERR: out of GPU vmap space\n");
-        return -1;
+        goto fail;
     }
 
     return 0;
+
+fail:
+    if (g->backing_phys) {
+        for (uint32 i = 0; i < pages; i++) {
+            if (g->backing_phys[i]) {
+                pmm_free(g->backing_phys[i], 1);
+            }
+        }
+        kfree(g->backing_phys);
+        g->backing_phys = NULL;
+    }
+    if (g->backing_virt) {
+        kfree(g->backing_virt);
+        g->backing_virt = NULL;
+    }
+    g->backing_pages = 0;
+    return -1;
 }
 
 //set scanout 0 to display our resource
@@ -460,4 +495,4 @@ fail:
     kfree(g);
 }
 
-DECLARE_DRIVER(virtio_gpu_init, INIT_LEVEL_BUS);
+DECLARE_DRIVER(virtio_gpu_init, INIT_LEVEL_ARCH);

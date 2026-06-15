@@ -286,6 +286,10 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                         else pow10 /= 10.0;
                     }
                     double sig = val / pow10;
+                    if (sig >= 10.0) {
+                        sig /= 10.0;
+                        X++;
+                    }
                     int sig_int = (int)sig;
                     double sig_frac = sig - sig_int;
 
@@ -345,9 +349,17 @@ static int do_printf(print_ctx_t *ctx, const char *format, va_list args) {
                 int flen = pos;
                 int pad = (width > flen) ? width - flen : 0;
                 if (!left_align) {
-                    for (int i = 0; i < pad; i++) ctx_putc(ctx, zero_pad ? '0' : ' ');
+                    if (zero_pad && buf[0] == '-') {
+                        ctx_putc(ctx, '-');
+                        for (int i = 0; i < pad; i++) ctx_putc(ctx, '0');
+                        for (int i = 1; i < flen; i++) ctx_putc(ctx, buf[i]);
+                    } else {
+                        for (int i = 0; i < pad; i++) ctx_putc(ctx, zero_pad ? '0' : ' ');
+                        for (int i = 0; i < flen; i++) ctx_putc(ctx, buf[i]);
+                    }
+                } else {
+                    for (int i = 0; i < flen; i++) ctx_putc(ctx, buf[i]);
                 }
-                for (int i = 0; i < flen; i++) ctx_putc(ctx, buf[i]);
                 if (left_align) {
                     for (int i = 0; i < pad; i++) ctx_putc(ctx, ' ');
                 }

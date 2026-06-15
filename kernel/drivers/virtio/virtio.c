@@ -10,6 +10,7 @@ virtio_device_t *virtio_devices = NULL;
 
 //virtqueue management
 void virtq_init(virtq_t *vq, uint16 size) {
+    if (size == 0 || (size & (size - 1)) != 0) return;
     vq->desc_count = size;
     vq->free_head  = 0;
     vq->free_count = size;
@@ -80,9 +81,12 @@ int virtq_poll_used(virtq_t *vq, uint16 head_idx) {
 
             uint32 len = elem->len;
             uint32 id = elem->id;
-            vq->last_used_idx++;
 
-            if ((uint16)id == head_idx) return (int)len;
+            if ((uint16)id == head_idx) {
+                vq->last_used_idx++;
+                return (int)len;
+            }
+            break;
         }
 
         arch_pause();
