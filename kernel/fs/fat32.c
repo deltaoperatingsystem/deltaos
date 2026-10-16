@@ -1018,6 +1018,9 @@ static int fat32_update_file_meta(fat32_fs_t *fs, fat32_node_t *node) {
     if (fat32_dir_cluster_for_offset(fs, node->parent_cluster, node->dir_entry_offset,
                                      &target_cluster, &cluster_offset) < 0) return -1;
     if (fat32_read_dirent(fs, target_cluster, cluster_offset, &ent) < 0) return -1;
+    //if the entry was deleted (0xE5) or never used (0x00), do NOT overwrite
+    //what may now be a different file's dirent
+    if ((uint8)ent.name[0] == 0xE5 || (uint8)ent.name[0] == 0x00) return -1;
     ent.first_cluster_hi = (uint16)((node->first_cluster >> 16) & 0xFFFF);
     ent.first_cluster_lo = (uint16)(node->first_cluster & 0xFFFF);
     ent.size = node->size;
@@ -1584,10 +1587,221 @@ static int fat32_fs_stat(fs_t *fs_obj, const char *path, stat_t *st) {
     return fat32_fs_stat_path(fs, path, st);
 }
 
+static bool fat32_name_is_dot(const char *n) {
+    return n && (strcmp(n, ".") == 0 || strcmp(n, "..") == 0);
+}
+
+//true if ancestor == descendant or an ancestor of it via ".."
+static bool fat32_dir_is_ancestor_or_self(fat32_fs_t *fs, uint32 ancestor, uint32 descendant) {
+    if (!fs || ancestor < 2 || descendant < 2) return false;
+    uint32 cur = descendant;
+    for (int i = 0; i < 64; i++) {
+        if (cur == ancestor) return true;
+        if (cur == fs->root_cluster) return false;
+        if (cur < 2) return false;
+        fat32_dirent_t dotdot;
+        memset(&dotdot, 0, sizeof(dotdot));
+        if (fat32_dev_read_bytes(fs, fat32_cluster_offset(fs, cur) + sizeof(fat32_dirent_t),
+                                 &dotdot, sizeof(dotdot)) < 0) {
+            //conservative: I/O error -> refuse the move
+            return true;
+        }
+        uint32 parent = ((uint32)dotdot.first_cluster_hi << 16) | dotdot.first_cluster_lo;
+        if (parent == 0) parent = fs->root_cluster;
+        if (parent == cur) return false;
+        if (parent < 2) return false;
+        cur = parent;
+    }
+    return true;
+}
+
+//wipe reserved new slots after a mid-rename I/O failure
+static void fat32_rename_cleanup_new(fat32_fs_t *fs, uint32 dir_cluster, uint64 base_offset, uint32 slots) {
+    if (!fs || dir_cluster < 2 || slots == 0) return;
+    for (uint32 i = 0; i < slots; i++) {
+        uint64 off = base_offset + (uint64)i * sizeof(fat32_dirent_t);
+        uint32 c = 0;
+        uint64 co = 0;
+        if (fat32_dir_cluster_for_offset(fs, dir_cluster, off, &c, &co) < 0) break;
+        fat32_dirent_t ent;
+        if (fat32_read_dirent(fs, c, co, &ent) < 0) break;
+        if ((uint8)ent.name[0] == 0xE5) continue;
+        ent.name[0] = (char)0xE5;
+        fat32_update_dirent(fs, c, co, &ent);
+    }
+}
+
+//rename an entry (file or directory) from old_path to new_path on the same volume
+//this does not support cross-filesystem moves (the VFS layer enforces same-fs rn)
+static int fat32_fs_rename(fs_t *fs_obj, const char *old_path, const char *new_path) {
+    fat32_fs_t *fs = (fat32_fs_t *)fs_obj->data;
+    if (!fs || !old_path || !*old_path || !new_path || !*new_path) return -1;
+    //same-path rename is a no-op success (POSIX)
+    if (strcmp(old_path, new_path) == 0) return 0;
+
+    //split old and new into parent + leaf
+    char old_parent[FAT32_MAX_PATH];
+    char old_name[FAT32_MAX_PATH];
+    if (fat32_path_split(old_path, old_parent, old_name) < 0) return -1;
+
+    char new_parent[FAT32_MAX_PATH];
+    char new_name[FAT32_MAX_PATH];
+    if (fat32_path_split(new_path, new_parent, new_name) < 0) return -1;
+
+    if (!*old_name || !*new_name) return -1;
+    if (fat32_name_is_dot(old_name) || fat32_name_is_dot(new_name)) return -1;
+
+    //resolve old parent directory
+    uint32 old_parent_cluster = fs->root_cluster;
+    if (old_parent[0]) {
+        fat32_dirent_t par;
+        if (fat32_lookup_path(fs, old_parent, &par, NULL, NULL) < 0) return -1;
+        if (!(par.attr & FAT32_ATTR_DIR)) return -1;
+        old_parent_cluster = ((uint32)par.first_cluster_hi << 16) | par.first_cluster_lo;
+        if (old_parent_cluster < 2) return -1;
+    }
+
+    //find the old entry and read its data
+    fat32_dirent_t old_ent;
+    uint64 old_entry_offset = 0;
+    if (fat32_find_child(fs, old_parent_cluster, old_name, &old_ent, &old_entry_offset) < 0) return -1;
+
+    //resolve new parent directory
+    uint32 new_parent_cluster = fs->root_cluster;
+    if (new_parent[0]) {
+        fat32_dirent_t par;
+        if (fat32_lookup_path(fs, new_parent, &par, NULL, NULL) < 0) return -1;
+        if (!(par.attr & FAT32_ATTR_DIR)) return -1;
+        new_parent_cluster = ((uint32)par.first_cluster_hi << 16) | par.first_cluster_lo;
+        if (new_parent_cluster < 2) return -1;
+    }
+
+    //new path must not already exist
+    if (fat32_find_child(fs, new_parent_cluster, new_name, NULL, NULL) == 0) return -1;
+
+    //moving a directory into itself or a descendant would create a FAT cycle
+    if (old_ent.attr & FAT32_ATTR_DIR) {
+        uint32 dir_cluster = ((uint32)old_ent.first_cluster_hi << 16) | old_ent.first_cluster_lo;
+        if (dir_cluster < 2) return -1;
+        if (dir_cluster == fs->root_cluster) return -1;
+        if (fat32_dir_is_ancestor_or_self(fs, dir_cluster, new_parent_cluster)) return -1;
+    }
+
+    //build short name and LFN info for the new name
+    char short_name[11];
+    bool needs_lfn = false;
+    if (fat32_short_name_from_component(new_name, short_name) < 0) {
+        needs_lfn = true;
+    }
+
+    uint64 new_entry_offset = 0;
+    uint32 slot_cluster = 0;
+    uint32 slots_needed = 1;
+    if (needs_lfn) {
+        slots_needed = (uint32)fat32_lfn_entry_count(new_name) + 1;
+        if (slots_needed <= 1 || slots_needed > FAT32_LFN_MAX_ENTRIES + 1) return -1;
+        if (fat32_short_alias_for_long_name(fs, new_parent_cluster, new_name, short_name) < 0) return -1;
+
+        char alias_display[FAT32_MAX_PATH];
+        fat32_dirent_t alias_probe;
+        memset(&alias_probe, 0, sizeof(alias_probe));
+        memcpy(alias_probe.name, short_name, 11);
+        fat32_component_from_short_name(&alias_probe, alias_display, sizeof(alias_display));
+        if (fat32_find_child(fs, new_parent_cluster, alias_display, NULL, NULL) == 0) return -1;
+    }
+
+    if (fat32_dir_reserve_slots(fs, new_parent_cluster, slots_needed, &new_entry_offset, &slot_cluster) < 0)
+        return -1;
+    uint64 new_base_offset = new_entry_offset;
+    fat32_dirent_t original_dotdot;
+    bool dotdot_changed = false;
+
+    //build the new short entry, copying cluster chain and size from the old entry
+    fat32_dirent_t short_ent;
+    memset(&short_ent, 0, sizeof(short_ent));
+    memcpy(short_ent.name, short_name, 11);
+    short_ent.attr = old_ent.attr;
+    short_ent.first_cluster_hi = old_ent.first_cluster_hi;
+    short_ent.first_cluster_lo = old_ent.first_cluster_lo;
+    short_ent.size = old_ent.size;
+    //copy timestamp info
+    short_ent.crt_time_tenth = old_ent.crt_time_tenth;
+    short_ent.crt_time = old_ent.crt_time;
+    short_ent.crt_date = old_ent.crt_date;
+    short_ent.access_date = old_ent.access_date;
+    short_ent.wrt_time = old_ent.wrt_time;
+    short_ent.wrt_date = old_ent.wrt_date;
+
+    //write LFN entries if needed
+    if (needs_lfn) {
+        uint8 checksum = fat32_lfn_checksum((const uint8 *)short_name);
+        uint32 lfn_count = (uint32)fat32_lfn_entry_count(new_name);
+        for (uint32 seq = lfn_count; seq > 0; seq--) {
+            fat32_lfn_dirent_t lfn;
+            uint8 order = (uint8)seq;
+            if (seq == lfn_count) order |= 0x40;
+            if (fat32_lfn_fill_entry(&lfn, order, checksum, new_name, (seq - 1) * 13) < 0) {
+                fat32_rename_cleanup_new(fs, new_parent_cluster, new_base_offset, slots_needed);
+                return -1;
+            }
+            if (fat32_dir_write_entry_at(fs, new_parent_cluster,
+                new_entry_offset + (uint64)(lfn_count - seq) * sizeof(fat32_dirent_t),
+                (const fat32_dirent_t *)&lfn) < 0) {
+                fat32_rename_cleanup_new(fs, new_parent_cluster, new_base_offset, slots_needed);
+                return -1;
+            }
+        }
+        new_entry_offset += (uint64)lfn_count * sizeof(fat32_dirent_t);
+    }
+
+    //write the short entry
+    if (fat32_dir_write_entry_at(fs, new_parent_cluster, new_entry_offset, &short_ent) < 0) {
+        fat32_rename_cleanup_new(fs, new_parent_cluster, new_base_offset, slots_needed);
+        return -1;
+    }
+
+    //if we moved a directory to a different parent, update the ".." entry
+    if ((old_ent.attr & FAT32_ATTR_DIR) && old_parent_cluster != new_parent_cluster) {
+        uint32 dir_cluster = ((uint32)old_ent.first_cluster_hi << 16) | old_ent.first_cluster_lo;
+        if (dir_cluster < 2) {
+            fat32_rename_cleanup_new(fs, new_parent_cluster, new_base_offset, slots_needed);
+            return -1;
+        }
+        uint64 dotdot_offset = fat32_cluster_offset(fs, dir_cluster) + sizeof(fat32_dirent_t);
+        if (fat32_dev_read_bytes(fs, dotdot_offset, &original_dotdot, sizeof(original_dotdot)) < 0) {
+            fat32_rename_cleanup_new(fs, new_parent_cluster, new_base_offset, slots_needed);
+            return -1;
+        }
+        fat32_dirent_t dotdot = original_dotdot;
+        dotdot.first_cluster_hi = (uint16)((new_parent_cluster >> 16) & 0xFFFF);
+        dotdot.first_cluster_lo = (uint16)(new_parent_cluster & 0xFFFF);
+        if (fat32_dev_write_bytes(fs, dotdot_offset, &dotdot, sizeof(dotdot)) < 0) {
+            fat32_rename_cleanup_new(fs, new_parent_cluster, new_base_offset, slots_needed);
+            return -1;
+        }
+        dotdot_changed = true;
+    }
+
+    //remove the old entry chain (LFN + SFN) without freeing data clusters
+    if (fat32_dir_remove_entry_chain(fs, old_parent_cluster, old_entry_offset) < 0) {
+        //roll back the new chain so the clusters don't have two owners
+        fat32_rename_cleanup_new(fs, new_parent_cluster, new_base_offset, slots_needed);
+        if (dotdot_changed) {
+            uint32 dir_cluster = ((uint32)old_ent.first_cluster_hi << 16) | old_ent.first_cluster_lo;
+            fat32_dev_write_bytes(fs, fat32_cluster_offset(fs, dir_cluster) + sizeof(fat32_dirent_t),
+                                  &original_dotdot, sizeof(original_dotdot));
+        }
+        return -1;
+    }
+
+    return 0;
+}
+
 static fs_ops_t fat32_ops = {
     .lookup = fat32_fs_lookup,  //path lookup
     .create = fat32_fs_create,  //create file or dir
     .remove = fat32_fs_remove,  //delete file or dir
+    .rename = fat32_fs_rename,  //rename/move file or dir
     .readdir = NULL,
     .stat = fat32_fs_stat       //path stat
 };

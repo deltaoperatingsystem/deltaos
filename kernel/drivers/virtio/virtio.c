@@ -9,8 +9,8 @@
 virtio_device_t *virtio_devices = NULL;
 
 //virtqueue management
-void virtq_init(virtq_t *vq, uint16 size) {
-    if (size == 0 || (size & (size - 1)) != 0) return;
+int virtq_init(virtq_t *vq, uint16 size) {
+    if (size == 0 || (size & (size - 1)) != 0) return -1;
     vq->desc_count = size;
     vq->free_head  = 0;
     vq->free_count = size;
@@ -31,6 +31,7 @@ void virtq_init(virtq_t *vq, uint16 size) {
     vq->avail->idx = 0;
     vq->used->flags = 0;
     vq->used->idx = 0;
+    return 0;
 }
 
 int virtq_alloc_desc(virtq_t *vq) {
@@ -68,12 +69,12 @@ void virtq_kick(virtio_device_t *dev, virtq_t *vq, uint16 head) {
 }
 
 int virtq_poll_used(virtq_t *vq, uint16 head_idx) {
-    //spin until the device posts an entry matching our head descriptor
-    //the device can post entries out of order so we scan the whole ring
+    //only consume the oldest unconsumed entry once it matches head_idx
+    //leave last_used_idx alone if another waiter's entry is at the head
     for (int retries = 5000000; retries > 0; retries--) {
         uint16 used_idx = __atomic_load_n(&vq->used->idx, __ATOMIC_ACQUIRE);
 
-        while (vq->last_used_idx != used_idx) {
+        if (vq->last_used_idx != used_idx) {
             uint16 slot = vq->last_used_idx & (vq->desc_count - 1);
             virtq_used_elem_t *elem = &vq->used->ring[slot];
 
@@ -86,7 +87,6 @@ int virtq_poll_used(virtq_t *vq, uint16 head_idx) {
                 vq->last_used_idx++;
                 return (int)len;
             }
-            break;
         }
 
         arch_pause();

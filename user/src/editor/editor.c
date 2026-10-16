@@ -19,6 +19,7 @@
 #include <mem.h>
 #include <string.h>
 #include <system.h>
+#include <isoc/stdio.h>
 
 //tunables
 #define LINE_CAP_INIT   128
@@ -86,21 +87,27 @@ static void editor_load(const char *path);
 static void editor_status(const char *msg);
 
 //ine management
-static void line_ensure(line_t *l, uint32 needed) {
-    if (needed < l->cap) return;
+static bool line_ensure(line_t *l, uint32 needed) {
+    if (needed < l->cap) return true;
+    if (needed >= (uint32)-1 - 1) return false;
     uint32 new_cap = l->cap ? l->cap * 2 : LINE_CAP_INIT;
-    while (new_cap <= needed) new_cap *= 2;
+    if (new_cap == 0) new_cap = LINE_CAP_INIT;
+    while (new_cap <= needed) {
+        if (new_cap > (uint32)-1 / 2) { new_cap = (uint32)-1; break; }
+        new_cap *= 2;
+    }
     char *nb = realloc(l->buf, new_cap);
-    if (!nb) return;
+    if (!nb) return false;
     l->buf = nb;
     l->cap = new_cap;
+    return true;
 }
 
 static void line_init(line_t *l, const char *s, uint32 slen) {
     l->cap = 0;
     l->buf = NULL;
     l->len = 0;
-    line_ensure(l, slen + 1);
+    if (!line_ensure(l, slen + 1)) return;
     if (l->buf) {
         memcpy(l->buf, s, slen);
         l->buf[slen] = '\0';
@@ -116,12 +123,14 @@ static void line_free(line_t *l) {
     l->len = l->cap = 0;
 }
 
-static void line_insert(line_t *l, uint32 pos, char c) {
-    line_ensure(l, l->len + 2);
-    if (!l->buf) return;
+static bool line_insert(line_t *l, uint32 pos, char c) {
+    if (!line_ensure(l, l->len + 2)) return false;
+    if (!l->buf) return false;
+    if (pos > l->len) pos = l->len;
     memmove(l->buf + pos + 1, l->buf + pos, l->len - pos + 1);
     l->buf[pos] = c;
     l->len++;
+    return true;
 }
 
 static void line_delete(line_t *l, uint32 pos) {
@@ -131,19 +140,24 @@ static void line_delete(line_t *l, uint32 pos) {
 }
 
 //append s[0..slen) to line
-static void line_append(line_t *l, const char *s, uint32 slen) {
-    line_ensure(l, l->len + slen + 1);
-    if (!l->buf) return;
+static bool line_append(line_t *l, const char *s, uint32 slen) {
+    if (!line_ensure(l, l->len + slen + 1)) return false;
+    if (!l->buf) return false;
     memcpy(l->buf + l->len, s, slen);
     l->len += slen;
     l->buf[l->len] = '\0';
+    return true;
 }
 
 //ensure lines array has room for at least `needed` entries
 static bool doc_ensure_cap(uint32 needed) {
-    if (needed < line_cap) return true;
+    if (needed <= line_cap) return true;
     uint32 new_cap = line_cap ? line_cap * 2 : 64;
-    while (new_cap <= needed) new_cap *= 2;
+    if (new_cap <= line_cap) new_cap = (uint32)-1; //overflow clamp
+    while (new_cap <= needed && new_cap < (uint32)-1) {
+        if (new_cap > (uint32)-1 / 2) { new_cap = (uint32)-1; break; }
+        new_cap *= 2;
+    }
     line_t *nl = realloc(lines, new_cap * sizeof(line_t));
     if (!nl) return false;
     memset(nl + line_cap, 0, (new_cap - line_cap) * sizeof(line_t));
@@ -152,9 +166,9 @@ static bool doc_ensure_cap(uint32 needed) {
     return true;
 }
 
-//insert a blank line after index `after`
-static void doc_insert_line_after(uint32 after) {
-    if (!doc_ensure_cap(line_count + 1)) return;
+//insert a blank line after index `after`, returns false on allocation failure
+static bool doc_insert_line_after(uint32 after) {
+    if (!doc_ensure_cap(line_count + 1)) return false;
     for (uint32 i = line_count; i > after + 1; i--) {
         lines[i] = lines[i - 1];
     }
@@ -162,6 +176,7 @@ static void doc_insert_line_after(uint32 after) {
     line_t *nl = &lines[after + 1];
     nl->buf = NULL; nl->len = nl->cap = 0;
     line_init(nl, "", 0);
+    return true;
 }
 
 //remove line at index `idx`
@@ -440,24 +455,42 @@ static void editor_load(const char *path) {
     line_free(&lines[0]);
     line_init(&lines[0], "", 0);
 
-    while ((got = handle_read(fh, rbuf, (int)sizeof(rbuf))) > 0) {
+    bool alloc_failed = false;
+    while ((got = handle_read(fh, rbuf, (int)sizeof(rbuf))) > 0 && !alloc_failed) {
         for (int i = 0; i < got; i++) {
             char c = rbuf[i];
             if (c == '\n') {
                 cur_line++;
                 if (!doc_ensure_cap(cur_line + 1)) {
+                    alloc_failed = true;
                     break;
                 }
                 if (cur_line >= line_count) {
                     line_init(&lines[cur_line], "", 0);
+                    if (!lines[cur_line].buf && cur_line != 0) {
+                        //line_init OOM
+                        alloc_failed = true;
+                        break;
+                    }
                     line_count = cur_line + 1;
                 }
             } else if (c != '\r') {
                 if (cur_line < line_cap) {
-                    line_append(&lines[cur_line], &c, 1);
+                    if (!line_append(&lines[cur_line], &c, 1)) {
+                        alloc_failed = true;
+                        break;
+                    }
                 }
             }
         }
+    }
+
+    if (alloc_failed) {
+        handle_close(fh);
+        //don't leave a truncated buffer masquerading as clean
+        modified = true;
+        editor_status("File load failed: out of memory");
+        return;
     }
 
     handle_close(fh);
@@ -480,35 +513,65 @@ static void editor_save(void) {
         filename[FILENAME_MAX - 1] = '\0';
     }
 
-    //truncate the file if it exists, then recreate it
-    stat_t st;
-    if (stat(filename, &st) == 0) {
-        remove(filename);
-    }
-    if (mkfile(filename) < 0) {
-        editor_status("Cannot create file");
+    //write to a temp file, then atomically rename to the target
+    //this avoids the TOCTOU window and data loss on write failure
+    char tmpname[FILENAME_MAX + 4];
+    snprintf(tmpname, sizeof(tmpname), "%s.tmp", filename);
+
+    //clear any stale temp left by a previous crashed save; mkfile fails if it exists
+    remove(tmpname);
+    if (mkfile(tmpname) < 0) {
+        editor_status("Cannot create temp file");
         editor_redraw();
         return;
     }
 
-    handle_t fh = get_obj(INVALID_HANDLE, filename, RIGHT_WRITE);
+    handle_t fh = get_obj(INVALID_HANDLE, tmpname, RIGHT_WRITE);
     if (fh == INVALID_HANDLE) {
-        editor_status("Cannot write file");
+        remove(tmpname);
+        editor_status("Cannot write temp file");
         editor_redraw();
         return;
     }
 
-    handle_seek(fh, 0, HANDLE_SEEK_SET);
-
-    for (uint32 i = 0; i < line_count; i++) {
+    //handle_write may return short counts so loop until the full buffer lands
+    bool write_ok = true;
+    for (uint32 i = 0; i < line_count && write_ok; i++) {
         line_t *l = &lines[i];
-        if (l->buf && l->len > 0)
-            handle_write(fh, l->buf, (int)l->len);
-        if (i + 1 < line_count)
-            handle_write(fh, "\n", 1);
+        uint32 off = 0;
+        while (l->buf && off < l->len) {
+            int ret = handle_write(fh, l->buf + off, (int)(l->len - off));
+            if (ret <= 0 || (uint32)ret > l->len - off) { write_ok = false; break; }
+            off += (uint32)ret;
+        }
+        if (!write_ok) break;
+        if (i + 1 < line_count) {
+            uint32 noff = 0;
+            while (noff < 1) {
+                int ret = handle_write(fh, "\n" + noff, (int)(1 - noff));
+                if (ret <= 0 || (uint32)ret > 1 - noff) { write_ok = false; break; }
+                noff += (uint32)ret;
+            }
+        }
     }
 
     handle_close(fh);
+
+    if (!write_ok) {
+        remove(tmpname);
+        editor_status("Write failed, file not saved");
+        editor_redraw();
+        return;
+    }
+
+    //atomic replace: rename temp over original
+    if (rename(tmpname, filename) < 0) {
+        remove(tmpname);
+        editor_status("Rename failed, file not saved");
+        editor_redraw();
+        return;
+    }
+
     modified = false;
     editor_status("Saved");
 }
@@ -516,7 +579,10 @@ static void editor_save(void) {
 //edit operations
 static void op_insert_char(char c) {
     line_t *l = &lines[cur_row];
-    line_insert(l, cur_col, c);
+    if (!line_insert(l, cur_col, c)) {
+        editor_status("Out of memory");
+        return;
+    }
     cur_col++;
     preferred_col = cur_col;
     modified = true;
@@ -536,11 +602,22 @@ static void op_enter(void) {
             if (l->buf) l->buf[l->len] = '\0';
         }
     }
-    doc_insert_line_after(cur_row);
+    if (!doc_insert_line_after(cur_row)) {
+        if (tail) free(tail);
+        return;
+    }
     cur_row++;
     if (tail) {
         line_t *nl = &lines[cur_row];
-        line_append(nl, tail, tail_len);
+        if (!line_append(nl, tail, tail_len)) {
+            free(tail);
+            editor_status("Out of memory");
+            //keep cursor sane; the split line is already in place
+            cur_col = 0;
+            preferred_col = 0;
+            modified = true;
+            return;
+        }
         free(tail);
     }
     cur_col = 0;
@@ -559,8 +636,12 @@ static void op_backspace(void) {
         line_t *prev = &lines[cur_row - 1];
         line_t *cur  = &lines[cur_row];
         uint32 prev_end = prev->len;
-        if (cur->buf && cur->len > 0)
-            line_append(prev, cur->buf, cur->len);
+        if (cur->buf && cur->len > 0) {
+            if (!line_append(prev, cur->buf, cur->len)) {
+                editor_status("Out of memory");
+                return;
+            }
+        }
         cur_row--;
         cur_col = prev_end;
         preferred_col = cur_col;
@@ -578,7 +659,10 @@ static void op_delete(void) {
         //merge next line into current
         line_t *next = &lines[cur_row + 1];
         if (next->buf && next->len > 0) {
-            line_append(l, next->buf, next->len);
+            if (!line_append(l, next->buf, next->len)) {
+                editor_status("Out of memory");
+                return;
+            }
         }
         doc_remove_line(cur_row + 1);
         modified = true;
@@ -612,7 +696,10 @@ static void op_cut_line(void) {
 static void op_paste(void) {
     if (!clip_len) { editor_status("Clipboard empty"); return; }
     //insert clipboard text as a new line before current
-    doc_insert_line_after(cur_row == 0 ? 0 : cur_row - 1);
+    if (!doc_insert_line_after(cur_row == 0 ? 0 : cur_row - 1)) {
+        editor_status("Paste failed: out of memory");
+        return;
+    }
     if (cur_row == 0) {
         //special: paste before first lin 
         line_t tmp = lines[0];
@@ -620,7 +707,10 @@ static void op_paste(void) {
         lines[1] = tmp;
     }
     line_t *nl = &lines[cur_row];
-    line_append(nl, clipboard, clip_len);
+    if (!line_append(nl, clipboard, clip_len)) {
+        editor_status("Paste failed: out of memory");
+        return;
+    }
     cur_col = 0;
     preferred_col = 0;
     modified = true;

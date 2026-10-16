@@ -9,6 +9,12 @@ int channel_send(int32 ep, const void *data, int len) {
     return __syscall3(SYS_CHANNEL_SEND, ep, (long)data, len);
 }
 
+int channel_send_msg(int32 ep, const void *data, int len,
+                     const int32 *handles, uint32 handle_count) {
+    return __syscall5(SYS_CHANNEL_SEND_MSG, ep, (long)data, len,
+                      (long)handles, handle_count);
+}
+
 int channel_recv(int32 ep, void *buf, int buflen) {
     return __syscall3(SYS_CHANNEL_RECV, ep, (long)buf, buflen);
 }

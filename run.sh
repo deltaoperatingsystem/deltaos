@@ -288,14 +288,11 @@ run_qemu() {
         machine_spec="q35,kernel_irqchip=off"
         echo "    kernel IRQ chip disabled"
     fi
-    local accel_spec="-enable-kvm"
-    if [[ "$QEMU_KERNEL_IRQCHIP" == "off" ]]; then
-        accel_spec="-accel tcg"
-        echo "    using TCG because KVM does not support userspace APIC here"
-    fi
+    local accel_args=(-enable-kvm)
     local cpu_spec="qemu64"
-    if [[ "$accel_spec" == "-accel tcg" ]]; then
-        cpu_spec="qemu64"
+    if [[ "$QEMU_KERNEL_IRQCHIP" == "off" ]]; then
+        accel_args=(-accel tcg)
+        echo "    using TCG because KVM does not support userspace APIC here"
     fi
     display_spec=$(choose_display_spec)
     echo "    display backend: $display_spec"
@@ -310,14 +307,14 @@ run_qemu() {
         -device nvme,serial=deadbeef,drive=nvm
         -drive "file=$FAT32_IMG,format=raw,if=none,id=fatdisk"
         -device nvme,serial=feedbeef,drive=fatdisk
-        -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0 
+        -chardev stdio,id=char0,logfile=../serial.log,signal=off -serial chardev:char0
         -no-reboot
         -no-shutdown
         -device sb16
         -device adlib
         -vga virtio
     )
-    QEMU_ARGS+=("$accel_spec")
+    QEMU_ARGS+=("${accel_args[@]}")
 
     if [[ "$QEMU_NET_MODE" == "tap" ]]; then
         configure_tap_ipv6

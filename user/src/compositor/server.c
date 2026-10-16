@@ -18,21 +18,102 @@ static void send_configure(surface_t *s) {
     send_msg(s->ch, &cfg);
 }
 
-static void handle_client_connect(uint32 pid) {
-    INFO("Client connected pid=%u\n", pid);
-    comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = true };
-    send_msg(comp.server_handle, &ack);
-}
+static void handle_client_connect(handle_t client_ch, uint32 pid) {
+    INFO("Client connecting pid=%u\n", pid);
 
-static void handle_create_surface(uint32 pid, uint16 w, uint16 h) {
-    if (comp.num_surfaces >= MAX_SURFACES) {
-        WARN("Max surfaces reached from pid=%u\n", pid);
-        comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = false };
-        send_msg(comp.server_handle, &ack);
+    if (!comp_ensure_clients(comp.num_clients + 1)) {
+        WARN("Out of memory for new client\n");
+        //send NACK before closing so the blocked client wakes immediately
+        comp_msg_t nack = { .type = MSG_ACK, .u.ack.ok = false };
+        send_msg(client_ch, &nack);
+        handle_close(client_ch);
         return;
     }
 
-    //create a channel pair one end for compositor and one registered at the unique path for the client
+    comp.clients[comp.num_clients] = client_ch;
+    comp.client_pids[comp.num_clients] = pid;
+    comp.num_clients++;
+
+    comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = true };
+    send_msg(client_ch, &ack);
+}
+
+static void handle_claim_wm(handle_t reply_ch) {
+    if (comp.wm_present) {
+        WARN("CLAIM_WM rejected - WM already present\n");
+        comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = false };
+        send_msg(reply_ch, &ack);
+        return;
+    }
+    static uint32 wm_counter = 0;
+    wm_counter++;
+
+    handle_t wm_end = INVALID_HANDLE;
+    handle_t client_end = INVALID_HANDLE;
+    comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = false };
+    if (channel_create(&wm_end, &client_end) == 0 &&
+        wm_end != INVALID_HANDLE && client_end != INVALID_HANDLE) {
+        comp.wm_ch = wm_end;
+        comp.wm_present = true;
+        kbd_close();  //WM owns keyboard now; compositor reads via MSG_KEY_EVENT
+        INFO("WM claimed\n");
+
+        //send SURFACE_CREATED for each existing surface so the WM can reconstruct state
+        for (size_t i = 0; i < comp.num_surfaces; i++) {
+            surface_t *s = &comp.surfaces[i];
+            if (!s->alive) continue;
+            comp_msg_t sc = {
+                .type = MSG_SURFACE_CREATED,
+                .u.surface_created = { .id = s->id, .pid = s->owner_pid, .w = s->w, .h = s->h, .title = {0} }
+            };
+            int k = 0;
+            while (k < 31 && s->title[k]) { sc.u.surface_created.title[k] = s->title[k]; k++; }
+            send_msg(comp.wm_ch, &sc);
+        }
+        //tell the WM which surface is currently focused
+        for (size_t i = 0; i < comp.num_surfaces; i++) {
+            if (comp.surfaces[i].alive && comp.surfaces[i].focused) {
+                comp_msg_t sa = { .type = MSG_SURFACE_ACTIVATED, .u.surface_activated = { .id = comp.surfaces[i].id } };
+                send_msg(comp.wm_ch, &sa);
+                break;
+            }
+        }
+        ack.u.ack.ok = true;
+        ack.u.ack.id = wm_counter;
+        if (channel_send_msg(reply_ch, &ack, sizeof(ack), &client_end, 1) != 0) {
+            handle_close(wm_end);
+            handle_close(client_end);
+            comp.wm_ch = INVALID_HANDLE;
+            comp.wm_present = false;
+            kbd_init();
+            //client blocks on recv_msg, so always reply even on handoff failure
+            ack.u.ack.ok = false;
+            send_msg(reply_ch, &ack);
+        }
+        return;
+    } else {
+        if (wm_end != INVALID_HANDLE) handle_close(wm_end);
+        if (client_end != INVALID_HANDLE) handle_close(client_end);
+    }
+    send_msg(reply_ch, &ack);
+}
+
+static void handle_create_surface(handle_t reply_ch, uint32 pid, uint16 w, uint16 h) {
+    if (w == 0 || h == 0) {
+        WARN("Reject zero-size surface from pid=%u\n", pid);
+        comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = false };
+        send_msg(reply_ch, &ack);
+        return;
+    }
+    if (!comp_ensure_surfaces(comp.num_surfaces + 1) ||
+        !comp_ensure_stack(comp.stack_count + 1)) {
+        WARN("Out of memory for surface from pid=%u\n", pid);
+        comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = false };
+        send_msg(reply_ch, &ack);
+        return;
+    }
+
+    //create a private channel pair and move the client endpoint in the ACK
     handle_t wm_end = INVALID_HANDLE;
     handle_t client_end = INVALID_HANDLE;
     if (channel_create(&wm_end, &client_end) != 0 ||
@@ -40,7 +121,7 @@ static void handle_create_surface(uint32 pid, uint16 w, uint16 h) {
         if (wm_end != INVALID_HANDLE) handle_close(wm_end);
         if (client_end != INVALID_HANDLE) handle_close(client_end);
         comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = false };
-        send_msg(comp.server_handle, &ack);
+        send_msg(reply_ch, &ack);
         return;
     }
 
@@ -51,25 +132,26 @@ static void handle_create_surface(uint32 pid, uint16 w, uint16 h) {
         handle_close(wm_end);
         handle_close(client_end);
         comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = false };
-        send_msg(comp.server_handle, &ack);
+        send_msg(reply_ch, &ack);
         return;
     }
-
-    char path[64];
-    snprintf(path, sizeof(path), "$gui/display/%u_%u/ch", pid, s.id);
-    //ceiling: client can only send/recv on its surface channel
-    if (ns_register(path, client_end, RIGHT_READ | RIGHT_WRITE) != 0) {
-        int idx = find_surface(s.id);
-        if (idx >= 0) surface_remove_at(idx);
-        handle_close(client_end);
-        comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = false };
-        send_msg(comp.server_handle, &ack);
-        return;
-    }
-    handle_close(client_end);
 
     comp_msg_t ack = { .type = MSG_ACK, .u.ack = { .ok = true, .id = s.id } };
-    send_msg(comp.server_handle, &ack);
+    //compositor retains s.vmo and sends a transferable duplicate to the client
+    handle_t client_vmo = handle_dup(s.vmo, RIGHT_DUPLICATE | RIGHT_TRANSFER | RIGHT_WRITE | RIGHT_MAP);
+    handle_t handles[2] = { client_end, client_vmo };
+    if (client_vmo == INVALID_HANDLE ||
+        channel_send_msg(reply_ch, &ack, sizeof(ack), handles, 2) != 0) {
+        WARN("Failed to hand off surface id=%u to pid=%u (vmo=%d)\n",
+             s.id, pid, client_vmo);
+        if (client_end != INVALID_HANDLE) handle_close(client_end);
+        if (client_vmo != INVALID_HANDLE) handle_close(client_vmo);
+        int idx = find_surface(s.id);
+        if (idx >= 0) surface_remove_at(idx);
+        ack.u.ack.ok = false;
+        send_msg(reply_ch, &ack);
+        return;
+    }
     send_configure(&s);
 
     //notify WM about the new surface
@@ -171,7 +253,7 @@ void handle_wm_message(comp_msg_t *msg) {
         case MSG_SET_FOCUS: {
             int idx = find_surface(msg->u.set_focus.id);
             if (idx < 0) break;
-            for (int i = 0; i < comp.num_surfaces; i++) {
+            for (size_t i = 0; i < comp.num_surfaces; i++) {
                 if (comp.surfaces[i].focused) {
                     damage_add_surface_rect(&comp.surfaces[i]);
                     comp.surfaces[i].focused = false;
@@ -198,9 +280,14 @@ void handle_wm_message(comp_msg_t *msg) {
         }
 
         case MSG_SET_STACKING: {
-            comp.stack_count = min(msg->u.set_stacking.count, MAX_SURFACES);
-            for (int i = 0; i < comp.stack_count; i++)
-                comp.stack[i] = msg->u.set_stacking.ids[i];
+            size_t n = msg->u.set_stacking.count;
+            size_t offset = msg->u.set_stacking.offset;
+            size_t total = msg->u.set_stacking.total;
+            if (offset > total || n > total - offset || !comp_ensure_stack(total)) break;
+            if (offset == 0) comp.stack_count = total;
+            if (comp.stack_count != total) break;
+            for (size_t i = 0; i < n; i++)
+                comp.stack[offset + i] = msg->u.set_stacking.ids[i];
             damage_add_rect(0, 0, comp.screen_w, comp.screen_h);
             break;
         }
@@ -241,86 +328,65 @@ void server_listen(void) {
     comp_msg_t msg;
     uint32 pid = 0;
 
-    //read the server channel for new connections surface creation and WM claims
-    int rc = recv_msg(comp.server_handle, &msg, &pid);
-    //minus 3 means no data nonblocking and not an error
-    if (rc == -3) goto check_clients;
-    if (rc < 0) { WARN("Server recv error %d\n", rc); goto check_clients; }
-
-    switch (msg.type) {
-        case MSG_CLIENT_CONNECT:
-            handle_client_connect(pid);
-            break;
-        case MSG_CREATE_SURFACE:
-            handle_create_surface(pid, msg.u.create_surface.w, msg.u.create_surface.h);
-            break;
-        case MSG_DESTROY_SURFACE:
-            handle_destroy(msg.u.destroy_surface.id);
-            break;
-        case MSG_CLAIM_WM:
-            if (comp.wm_present) {
-                WARN("CLAIM_WM rejected - WM already present\n");
-                comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = false };
-                send_msg(comp.server_handle, &ack);
-                break;
-            }
-            {
-                handle_t wm_end = INVALID_HANDLE;
-                handle_t client_end = INVALID_HANDLE;
-                comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = false };
-                if (channel_create(&wm_end, &client_end) == 0 &&
-                    wm_end != INVALID_HANDLE && client_end != INVALID_HANDLE) {
-                    char path[64];
-                    snprintf(path, sizeof(path), "$gui/display/%u_wm/ch", pid);
-                    //ceiling: the WM can only send/recv on its compositor channel
-                    if (ns_register(path, client_end, RIGHT_READ | RIGHT_WRITE) != 0) {
-                        handle_close(wm_end);
-                        handle_close(client_end);
-                        send_msg(comp.server_handle, &ack);
-                        break;
-                    }
-                    handle_close(client_end);
-                    comp.wm_ch = wm_end;
-                    comp.wm_present = true;
-                    kbd_close();  //WM owns keyboard now; compositor reads via MSG_KEY_EVENT
-                    INFO("WM claimed\n");
-
-                    //send SURFACE_CREATED for each existing surface so the WM can reconstruct state
-                    for (int i = 0; i < comp.num_surfaces; i++) {
-                        surface_t *s = &comp.surfaces[i];
-                        if (!s->alive) continue;
-                        comp_msg_t sc = {
-                            .type = MSG_SURFACE_CREATED,
-                            .u.surface_created = { .id = s->id, .pid = s->owner_pid, .w = s->w, .h = s->h, .title = {0} }
-                        };
-                        int k = 0;
-                        while (k < 31 && s->title[k]) { sc.u.surface_created.title[k] = s->title[k]; k++; }
-                        send_msg(comp.wm_ch, &sc);
-                    }
-                    //tell the WM which surface is currently focused
-                    for (int i = 0; i < comp.num_surfaces; i++) {
-                        if (comp.surfaces[i].alive && comp.surfaces[i].focused) {
-                            comp_msg_t sa = { .type = MSG_SURFACE_ACTIVATED, .u.surface_activated = { .id = comp.surfaces[i].id } };
-                            send_msg(comp.wm_ch, &sa);
-                            break;
-                        }
-                    }
-                    ack.u.ack.ok = true;
-                } else {
-                    if (wm_end != INVALID_HANDLE) handle_close(wm_end);
-                    if (client_end != INVALID_HANDLE) handle_close(client_end);
-                }
-                send_msg(comp.server_handle, &ack);
-            }
-            break;
-        default:
-            WARN("Unknown server msg type %d from pid=%u\n", msg.type, pid);
-            break;
+    //read the server channel for new connections
+    handle_t client_ch = INVALID_HANDLE;
+    channel_recv_result_t recv_result;
+    int rc = channel_try_recv_msg(comp.server_handle, &msg, sizeof(msg),
+                                  &client_ch, 1, &recv_result);
+    if (rc == 0) {
+        if (recv_result.data_len != sizeof(msg)) {
+            if (client_ch != INVALID_HANDLE) handle_close(client_ch);
+            WARN("Invalid bootstrap message size %u\n", (uint32)recv_result.data_len);
+        } else if (msg.type == MSG_CLIENT_CONNECT && recv_result.handle_count == 1 &&
+                   client_ch != INVALID_HANDLE) {
+            handle_client_connect(client_ch, recv_result.sender_pid);
+        } else {
+            if (client_ch != INVALID_HANDLE) handle_close(client_ch);
+            WARN("Invalid bootstrap message type=%d handles=%u from pid=%u\n",
+                 msg.type, recv_result.handle_count, recv_result.sender_pid);
+        }
+    } else if (rc < 0 && rc != -3) {
+        WARN("Server bootstrap recv error %d\n", rc);
     }
 
-check_clients:
+    //poll dedicated client channels
+    for (size_t i = 0; i < comp.num_clients; i++) {
+        handle_t ch = comp.clients[i];
+        uint32 client_pid = comp.client_pids[i];
+        rc = recv_msg(ch, &msg, &pid);
+        if (rc == -3) continue;
+        if (rc < 0) {
+            INFO("Client pid=%u disconnected from dedicated channel\n", client_pid);
+            handle_close(ch);
+            for (size_t j = i; j + 1 < comp.num_clients; j++) {
+                comp.clients[j] = comp.clients[j + 1];
+                comp.client_pids[j] = comp.client_pids[j + 1];
+            }
+            comp.num_clients--;
+            i--;
+            continue;
+        }
+
+        switch (msg.type) {
+            case MSG_CLIENT_CONNECT: {
+                comp_msg_t ack = { .type = MSG_ACK, .u.ack.ok = true };
+                send_msg(ch, &ack);
+                break;
+            }
+            case MSG_CREATE_SURFACE:
+                handle_create_surface(ch, client_pid, msg.u.create_surface.w, msg.u.create_surface.h);
+                break;
+            case MSG_CLAIM_WM:
+                handle_claim_wm(ch);
+                break;
+            default:
+                WARN("Unexpected msg type %d on dedicated channel from pid=%u\n", msg.type, client_pid);
+                break;
+        }
+    }
+
     //surface channels are polled after the global server channel each frame
-    for (int i = 0; i < comp.num_surfaces; i++) {
+    for (size_t i = 0; i < comp.num_surfaces; i++) {
         surface_t *s = &comp.surfaces[i];
         if (!s->alive || s->ch == INVALID_HANDLE) continue;
 

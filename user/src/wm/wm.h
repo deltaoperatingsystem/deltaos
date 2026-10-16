@@ -32,7 +32,6 @@
 
 #define FB_RGB(r, g, b) ((uint32)((b) | ((g) << 8) | ((r) << 16)))
 
-#define MAX_CLIENTS 16
 #define SCREEN_W 1280
 #define SCREEN_H 800
 #define TITLEBAR_H 22
@@ -51,9 +50,12 @@ typedef struct {
 
 //wm state is global because the process is single threaded
 extern handle_t wm_ch;
-extern wm_client_t clients[MAX_CLIENTS];
-extern uint8 num_clients;
+extern wm_client_t *clients;
+extern size_t clients_cap;
+extern size_t num_clients;
 extern surface_id_t focused;
+
+bool wm_ensure_clients(size_t need);
 
 //helpers shared across the layout and keybind modules
 int find_client(surface_id_t id);

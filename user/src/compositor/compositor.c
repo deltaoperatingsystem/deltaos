@@ -6,6 +6,36 @@
 //global compositor state, declared extern in compositor.h
 struct compositor_state comp;
 
+#define COMP_INIT_CAP 16
+
+static bool grow_ptr(void **ptr, size_t *cap, size_t need, size_t elem) {
+    if (need <= *cap) return true;
+    size_t ncap = *cap ? *cap : COMP_INIT_CAP;
+    while (ncap < need) {
+        if (ncap > (size_t)-1 / 2 / (elem ? elem : 1)) return false;
+        ncap *= 2;
+    }
+    void *np = realloc(*ptr, ncap * elem);
+    if (!np) return false;
+    *ptr = np;
+    *cap = ncap;
+    return true;
+}
+
+bool comp_ensure_surfaces(size_t need) {
+    return grow_ptr((void **)&comp.surfaces, &comp.surfaces_cap, need, sizeof(surface_t));
+}
+
+bool comp_ensure_stack(size_t need) {
+    return grow_ptr((void **)&comp.stack, &comp.stack_cap, need, sizeof(surface_id_t));
+}
+
+bool comp_ensure_clients(size_t need) {
+    if (!grow_ptr((void **)&comp.clients, &comp.clients_cap, need, sizeof(handle_t))) return false;
+    if (!grow_ptr((void **)&comp.client_pids, &comp.client_pids_cap, need, sizeof(uint32))) return false;
+    return true;
+}
+
 void send_msg(handle_t ch, comp_msg_t *msg) {
     if (ch == INVALID_HANDLE) return;
     channel_send(ch, msg, sizeof(comp_msg_t));
@@ -80,13 +110,20 @@ int main(void) {
     comp.mouse_h = INVALID_HANDLE;
     comp.vt_handle = INVALID_HANDLE;
     comp.next_id = 1;
+    if (!comp_ensure_surfaces(COMP_INIT_CAP) ||
+        !comp_ensure_stack(COMP_INIT_CAP) ||
+        !comp_ensure_clients(COMP_INIT_CAP)) {
+        dprintf("[compositor]: ERROR: out of memory at startup\n");
+        exit(1);
+    }
+    for (size_t i = 0; i < comp.clients_cap; i++) comp.clients[i] = INVALID_HANDLE;
 
     fb_setup();
     comp.vt_handle = get_obj(INVALID_HANDLE, "$devices/vt0", RIGHT_WRITE);
     set_vt_cursor_visible(false); //hide VT cursor
     kbd_init();
-    server_setup();
     load_wallpaper();
+    server_setup();
 
     //damage entire screen initially
     damage_add_rect(0, 0, comp.screen_w, comp.screen_h);

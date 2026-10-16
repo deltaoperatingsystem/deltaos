@@ -3,22 +3,22 @@
 
 //stack[] controls z order and surfaces[] is the allocation pool
 int find_surface(surface_id_t id) {
-    for (int i = 0; i < comp.num_surfaces; i++)
+    for (size_t i = 0; i < comp.num_surfaces; i++)
         if (comp.surfaces[i].alive && comp.surfaces[i].id == id)
-            return i;
+            return (int)i;
     return -1;
 }
 
 //needed when the WM has no surface yet but does have a channel
 int find_surface_by_ch(handle_t ch) {
-    for (int i = 0; i < comp.num_surfaces; i++)
+    for (size_t i = 0; i < comp.num_surfaces; i++)
         if (comp.surfaces[i].alive && comp.surfaces[i].ch == ch)
-            return i;
+            return (int)i;
     return -1;
 }
 
 void surface_remove_at(int idx) {
-    if (idx < 0 || idx >= comp.num_surfaces) return;
+    if (idx < 0 || (size_t)idx >= comp.num_surfaces) return;
     surface_t *s = &comp.surfaces[idx];
     surface_id_t removed_id = s->id;
     INFO("Remove surface id=%u pid=%u\n", s->id, s->owner_pid);
@@ -39,13 +39,13 @@ void surface_remove_at(int idx) {
     }
 
     //shift the surfaces array to close the gap
-    for (int j = idx; j + 1 < comp.num_surfaces; j++)
+    for (size_t j = (size_t)idx; j + 1 < comp.num_surfaces; j++)
         comp.surfaces[j] = comp.surfaces[j + 1];
     comp.num_surfaces--;
 
     //remove from the stack too
-    uint8 sc = 0;
-    for (int j = 0; j < comp.stack_count; j++)
+    size_t sc = 0;
+    for (size_t j = 0; j < comp.stack_count; j++)
         if (comp.stack[j] != removed_id)
             comp.stack[sc++] = comp.stack[j];
     comp.stack_count = sc;
@@ -68,9 +68,15 @@ bool surface_map_vmo(surface_t *s) {
 }
 
 void surface_create_common(surface_t *s, uint32 pid, uint16 w, uint16 h, handle_t ch) {
+    if (!s || w == 0 || h == 0) return;
+    if (!comp_ensure_surfaces(comp.num_surfaces + 1) ||
+        !comp_ensure_stack(comp.stack_count + 1)) return;
     //surface buffers are shared VMOs so clients and the compositor see the same pixels
     size needed = (size)w * h * comp.screen_bpp;
-    handle_t vmo = vmo_create(needed, VMO_FLAG_RESIZABLE, RIGHT_WRITE | RIGHT_MAP);
+    if (needed == 0) return;
+    //compositor keeps this handle and moves a duplicate to the client
+    handle_t vmo = vmo_create(needed, VMO_FLAG_RESIZABLE,
+                              RIGHT_DUPLICATE | RIGHT_TRANSFER | RIGHT_WRITE | RIGHT_MAP);
     if (vmo == INVALID_HANDLE) return;
 
     uint32 *pixels = vmo_map(vmo, NULL, 0, needed, RIGHT_MAP);
@@ -103,19 +109,6 @@ void surface_create_common(surface_t *s, uint32 pid, uint16 w, uint16 h, handle_
     s->y = 40;
     s->content_w = w;
     s->content_h = h;
-
-    //register the VMO at the PID specific namespace path for the client to map
-    //ceiling: clients may only write pixels into it and map it - nothing else
-    char path[64];
-    snprintf(path, sizeof(path), "$gui/display/%u_%u/surface", pid, s->id);
-    if (ns_register(path, vmo, RIGHT_WRITE | RIGHT_MAP) != 0) {
-        vmo_unmap(s->pixels, s->vmo_size);
-        handle_close(vmo);
-        s->alive = false;
-        s->pixels = NULL;
-        s->vmo = INVALID_HANDLE;
-        return;
-    }
 
     comp.surfaces[comp.num_surfaces++] = *s;
     comp.stack[comp.stack_count++] = s->id;

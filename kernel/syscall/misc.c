@@ -16,8 +16,8 @@ int copy_to_user_bytes(void *user_ptr, const void *kernel_buf, size len) {
     if (!user_ptr || !kernel_buf) return -EFAULT;
 
     uintptr dst_addr = (uintptr)user_ptr;
-    if (dst_addr < USER_SPACE_START || dst_addr >= USER_SPACE_END) return -EFAULT;
-    if (len > (size)(USER_SPACE_END - dst_addr)) return -EFAULT;
+    if (dst_addr < USER_SPACE_START || dst_addr > USER_SPACE_END) return -EFAULT;
+    if (len > (size)(USER_SPACE_END - dst_addr + 1)) return -EFAULT;
 
     percpu_t *cpu = percpu_get();
     if (mmu_copy_to_user(user_ptr, kernel_buf, len, &cpu->recovery_rip, (uintptr)mmu_user_access_fault) != 0) {
@@ -120,8 +120,8 @@ intptr sys_dns_resolve(const char *hostname, uint32 *ip_out) {
     if (!hostname || !ip_out) return -1;
     
     //validate user pointers
-    if ((uintptr)hostname < USER_SPACE_START || (uintptr)hostname >= USER_SPACE_END) return -1;
-    if ((uintptr)ip_out < USER_SPACE_START || (uintptr)ip_out >= USER_SPACE_END) return -1;
+    if ((uintptr)hostname < USER_SPACE_START || (uintptr)hostname > USER_SPACE_END) return -1;
+    if ((uintptr)ip_out < USER_SPACE_START || (uintptr)ip_out > USER_SPACE_END) return -1;
 
     char k_hostname[256];
     if (copy_user_cstr(hostname, k_hostname, sizeof(k_hostname)) != 0) return -1;
@@ -135,8 +135,8 @@ intptr sys_dns_resolve(const char *hostname, uint32 *ip_out) {
 
 intptr sys_dns_resolve_aaaa(const char *hostname, uint8 *ipv6_out) {
     if (!hostname || !ipv6_out) return -1;
-    if ((uintptr)hostname < USER_SPACE_START || (uintptr)hostname >= USER_SPACE_END) return -1;
-    if ((uintptr)ipv6_out < USER_SPACE_START || (uintptr)ipv6_out > USER_SPACE_END - NET_IPV6_ADDR_LEN) return -1;
+    if ((uintptr)hostname < USER_SPACE_START || (uintptr)hostname > USER_SPACE_END) return -1;
+    if ((uintptr)ipv6_out < USER_SPACE_START || (uintptr)ipv6_out > USER_SPACE_END - NET_IPV6_ADDR_LEN + 1) return -1;
 
     char k_hostname[256];
     if (copy_user_cstr(hostname, k_hostname, sizeof(k_hostname)) != 0) return -1;

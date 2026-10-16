@@ -127,6 +127,8 @@ intptr sys_ns_register(const char *path, handle_t h, handle_rights_t max_rights)
 
 intptr sys_channel_create(int32 *ep0_out, int32 *ep1_out);
 intptr sys_channel_send(handle_t ep, const void *data, size len);
+intptr sys_channel_send_msg(handle_t ep, const void *data, size len,
+                            const int32 *handles, uint32 handle_count);
 intptr sys_channel_recv(handle_t ep, void *buf, size buflen);
 intptr sys_channel_try_recv(handle_t ep, void *buf, size buflen);
 intptr sys_channel_recv_msg(handle_t ep, void *data_buf, size data_len,
@@ -149,6 +151,7 @@ intptr sys_getcwd(char *buf, size bufsize);
 intptr sys_mount(handle_t source, const char *target, const char *fstype);
 intptr sys_mknode(const char *path, uint32 type);
 intptr sys_remove(const char *path);
+intptr sys_rename(const char *oldpath, const char *newpath);
 intptr sys_handle_read(handle_t h, void *buf, size len);
 intptr sys_handle_write(handle_t h, const void *buf, size len);
 intptr sys_handle_seek(handle_t h, size offset, int mode);

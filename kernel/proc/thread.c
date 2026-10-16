@@ -34,7 +34,19 @@ static object_ops_t thread_object_ops = {
 //threads don't need to know about interrupt state
 static void thread_entry_trampoline(void *thread_ptr) {
     thread_t *thread = (thread_t *)thread_ptr;
-    
+
+    //clear prev_thread immediately as the new thread has started executing
+    percpu_t *pc = percpu_get();
+    if (pc->prev_thread) {
+        thread_t *prev = (thread_t *)pc->prev_thread;
+        irq_state_t prev_flags = spinlock_irq_acquire(&prev->lock);
+        if (prev->cpu_id == (int)pc->cpu_index) {
+            prev->cpu_id = -1;
+        }
+        spinlock_irq_release(&prev->lock, prev_flags);
+        pc->prev_thread = NULL;
+    }
+
     //enable interrupts before calling user code
     arch_interrupts_enable();
     
@@ -162,13 +174,13 @@ void thread_set_current(thread_t *thread) {
 
 static void user_thread_trampoline(void *thread_ptr) {
     thread_t *thread = (thread_t *)thread_ptr;
-    
+
     //enable interrupts (arch_context_switch doesn't restore IF)
     arch_interrupts_enable();
-    
+
     //transition to usermode
     arch_enter_usermode(&thread->user_context);
-    
+
     //never reached
     thread_exit();
 }

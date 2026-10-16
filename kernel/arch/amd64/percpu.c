@@ -21,7 +21,12 @@ static percpu_state_t percpu_state = {0};
 
 uint32 arch_cpu_index(void) {
     percpu_t *cpu = percpu_get();
-    return cpu ? cpu->cpu_index : 0;
+    //before percpu_init GS_BASE is 0, so verify the pointer is within percpu_array
+    if ((uintptr)cpu < (uintptr)percpu_array ||
+        (uintptr)cpu >= (uintptr)(percpu_array + MAX_CPUS)) {
+        return 0;
+    }
+    return cpu->cpu_index;
 }
 
 percpu_t *percpu_get(void) {

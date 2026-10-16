@@ -44,6 +44,9 @@ typedef struct fs_ops {
     
     //remove file/dir at path
     int (*remove)(struct fs *fs, const char *path);
+
+    //rename/move from old path to new path
+    int (*rename)(struct fs *fs, const char *oldpath, const char *newpath);
     
     //read directory entries (index is in/out for stateless iteration)
     int (*readdir)(struct fs *fs, const char *path, dirent_t *entries, uint32 count, uint32 *index);

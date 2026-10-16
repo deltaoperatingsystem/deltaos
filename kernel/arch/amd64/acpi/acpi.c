@@ -20,6 +20,10 @@ static bool acpi_checksum(acpi_header_t *header) {
     if (!header || header->length < sizeof(acpi_header_t)) {
         return false;
     }
+    //reject absurd lengths so the checksum loop doesn't fault unmapped memory
+    if (header->length > 0x400000) {
+        return false;
+    }
     uint8 sum = 0;
     for (uint32 i = 0; i < header->length; i++) {
         sum += ((uint8 *)header)[i];
@@ -100,18 +104,28 @@ static void acpi_parse_fadt(acpi_fadt_t *f) {
             if (memcmp(p, "_S5_", 4) == 0) {
                 p += 4;
                 //AML: packageop, pkglength, numelements, prefix, slptypa, prefix, slptypb...
+                if (p >= end) break;
                 if (*p == 0x12) { //packageop
                     p++;
                     //skip pkglength
-                    if ((*p & 0xC0) == 0) p++;
-                    else if ((*p & 0xC0) == 0x40) p += 2;
-                    else if ((*p & 0xC0) == 0x80) p += 3;
-                    else if ((*p & 0xC0) == 0xC0) p += 4;
+                    if (p >= end) break;
+                    size need = 1;
+                    if ((*p & 0xC0) == 0) { need = 1; }
+                    else if ((*p & 0xC0) == 0x40) { need = 2; }
+                    else if ((*p & 0xC0) == 0x80) { need = 3; }
+                    else { need = 4; }
+                    if ((size)(end - p) < need) break;
+                    p += need;
+                    if (p >= end) break;
 
                     p++; //numelements
-                    if (*p == 0x0A) p++; //byteprefix
+                    if (p >= end) break;
+                    if (*p == 0x0A) p++;  //byteprefix
+                    if (p >= end) break;
                     slp_typa = *p++;
+                    if (p >= end) break;
                     if (*p == 0x0A) p++; //byteprefix
+                    if (p >= end) break;
                     slp_typb = *p++;
                     can_shutdown = true;
                     printf("[acpi] Found _S5: SlpTypA=%u, SlpTypB=%u\n", slp_typa, slp_typb);
@@ -151,12 +165,14 @@ static void acpi_parse_madt(acpi_madt_t *madt) {
     uint8 *end = (uint8 *)madt + madt->header.length;
     
     while (p < end) {
+        if (p + sizeof(acpi_madt_entry_t) > end) break;
         acpi_madt_entry_t *entry = (acpi_madt_entry_t *)p;
         if (entry->length < sizeof(acpi_madt_entry_t)) break;
         if (p + entry->length > end) break;
 
         switch (entry->type) {
             case ACPI_MADT_TYPE_LOCAL_APIC: {
+                if (entry->length < sizeof(acpi_madt_local_apic_t)) break;
                 acpi_madt_local_apic_t *lapic = (acpi_madt_local_apic_t *)entry;
                 if (lapic->flags & 1) { //enabled
                     if (acpi_cpu_count < 64) {
@@ -166,6 +182,7 @@ static void acpi_parse_madt(acpi_madt_t *madt) {
                 break;
             }
             case ACPI_MADT_TYPE_LOCAL_X2APIC: {
+                if (entry->length < sizeof(acpi_madt_local_x2apic_t)) break;
                 acpi_madt_local_x2apic_t *x2apic = (acpi_madt_local_x2apic_t *)entry;
                 if (x2apic->flags & 1) { //enabled
                     if (acpi_cpu_count < 64) {
@@ -175,6 +192,7 @@ static void acpi_parse_madt(acpi_madt_t *madt) {
                 break;
             }
             case ACPI_MADT_TYPE_IO_APIC: {
+                if (entry->length < sizeof(acpi_madt_io_apic_t)) break;
                 acpi_madt_io_apic_t *ioapic = (acpi_madt_io_apic_t *)entry;
                 acpi_ioapic_id = ioapic->io_apic_id;
                 acpi_ioapic_addr = ioapic->io_apic_address;
@@ -182,6 +200,7 @@ static void acpi_parse_madt(acpi_madt_t *madt) {
                 break;
             }
             case ACPI_MADT_TYPE_INT_SRC_OVERRIDE: {
+                if (entry->length < sizeof(acpi_madt_int_src_override_t)) break;
                 acpi_madt_int_src_override_t *iso = (acpi_madt_int_src_override_t *)entry;
                 if (acpi_iso_count < 16) {
                     acpi_isos[acpi_iso_count].irq_source = iso->irq_source;

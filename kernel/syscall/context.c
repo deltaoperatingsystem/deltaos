@@ -134,18 +134,33 @@ intptr sys_context_get(const char *key, uint32 type, void *value_ptr, size value
 intptr sys_context_set_handle(const char *key, handle_t h, uint32 flags) {
     process_t *proc = process_current();
     char k_key[PROC_CONTEXT_KEY_MAX];
-    proc_handle_t *entry;
 
     if (!proc) return -1;
     if (copy_context_key(key, k_key) != 0) return -1;
 
-    entry = process_get_handle_entry(proc, h);
-    if (!entry) return -1;
-    if (!rights_has(entry->rights, HANDLE_RIGHT_DUPLICATE)) return -1;
+    //access the handle entry under proc->lock to prevent a concurrent
+    //process_close_handle from freeing the object while we read it
+    spinlock_acquire(&proc->lock);
+    proc_handle_t *entry = process_get_handle_entry(proc, h);
+    if (!entry) {
+        spinlock_release(&proc->lock);
+        return -1;
+    }
+    if (!rights_has(entry->rights, HANDLE_RIGHT_DUPLICATE)) {
+        spinlock_release(&proc->lock);
+        return -1;
+    }
+    //take a ref on the object before releasing the lock
+    object_t *obj = entry->obj;
+    handle_rights_t rights = entry->rights;
+    object_ref(obj);
+    spinlock_release(&proc->lock);
 
     //the context stores the object plus its rights snapshot so inheritance
     //keeps the same capability envelope without eagerly minting child handles
-    return proc_context_set_object(&proc->context, k_key, entry->obj, entry->rights, flags);
+    int rc = proc_context_set_object(&proc->context, k_key, obj, rights, flags);
+    object_deref(obj);
+    return rc;
 }
 
 intptr sys_context_get_handle(const char *key, handle_t *out_h, uint32 *flags_out) {

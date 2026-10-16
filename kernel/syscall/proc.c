@@ -4,6 +4,7 @@
 #include <proc/bottom_half.h>
 #include <proc/thread.h>
 #include <proc/sched.h>
+#include <arch/percpu.h>
 #include <kernel/elf64.h>
 #include <mm/pmm.h>
 #include <mm/kheap.h>
@@ -365,7 +366,12 @@ static intptr sys_spawn_impl(const char *path, int argc, char **argv,
         return -1;
     }
 
-    sched_add(thread);
+    //start child on the caller's CPU during early boot, round-robin once SMP is up
+    if (percpu_cpu_count() <= 1) {
+        sched_add_cpu(thread, percpu_get()->cpu_index);
+    } else {
+        sched_add(thread);
+    }
     kfree(buf);
     return (intptr)proc->pid;
 }
@@ -491,7 +497,12 @@ intptr sys_process_start(handle_t proc_h, uintptr entry, uintptr stack) {
     thread_t *thread = thread_create_user(target, (void *)entry, (void *)stack);
     if (!thread) return -4;
 
-    sched_add(thread);
+    //same single-CPU vs SMP policy as sys_spawn_impl
+    if (percpu_cpu_count() <= 1) {
+        sched_add_cpu(thread, percpu_get()->cpu_index);
+    } else {
+        sched_add(thread);
+    }
     return (intptr)target->pid;
 }
 

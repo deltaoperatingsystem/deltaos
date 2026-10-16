@@ -25,6 +25,7 @@
 #define SYS_CHANNEL_TRY_RECV 44  //non-blocking channel receive
 #define SYS_CHANNEL_RECV_MSG 45  //receive with handles
 #define SYS_CHANNEL_TRY_RECV_MSG 46 //non-blocking recv_msg
+#define SYS_CHANNEL_SEND_MSG     86 //send with handles
 
 //memory: vmos
 #define SYS_VMO_CREATE      37
@@ -53,6 +54,7 @@
 #define SYS_PROC_GET_PENDING_EVENTS 82 //read current process pending event mask
 #define SYS_PROC_EVENT_RETURN 83 //return from a userspace event handler
 #define SYS_PROC_SET_CONSOLE_FOREGROUND 84 //set process receiving ctrl+c interrupts
+#define SYS_RENAME          85  //rename/move file or directory
 #define SYS_MKNODE          58  //create fs node
 #define SYS_REMOVE          59  //remove file or directory
 #define SYS_HANDLE_READ     6   //read from handle

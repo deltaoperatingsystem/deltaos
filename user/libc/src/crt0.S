@@ -43,3 +43,6 @@ _start:
 1:
     hlt
     jmp 1b
+
+/*mark stack as non-executable*/
+.section .note.GNU-stack,"",@progbits

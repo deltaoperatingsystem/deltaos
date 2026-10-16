@@ -52,6 +52,9 @@ static int vmo_obj_close(object_t *obj) {
         vmo->pages = NULL;
     }
     
+    //free the VMO struct itself (OBJECT_FLAG_EMBEDDED means object_deref skips kfree)
+    kfree(vmo);
+    
     return 0;
 }
 
@@ -85,6 +88,7 @@ int32 vmo_create(process_t *proc, size vmo_size, uint32 flags, handle_rights_t r
     //initialize embedded object
     vmo->obj.type = OBJECT_VMO;
     vmo->obj.refcount = 0;
+    vmo->obj.flags = OBJECT_FLAG_EMBEDDED;
     vmo->obj.ops = &vmo_ops;
     vmo->obj.data = vmo;
     
@@ -222,6 +226,7 @@ int vmo_unmap(process_t *proc, void *vaddr, size len) {
     //unmap pages
     size pages = (len + 0xFFF) / 0x1000;
     mmu_unmap_range(proc->pagemap, (uintptr)vaddr, pages);
+    mmu_tlb_shootdown_range((uintptr)vaddr, pages);
     
     //remove VMA entry
     process_vma_remove(proc, (uintptr)vaddr);
@@ -280,6 +285,7 @@ static void vmo_update_mapping_cb(process_t *proc, void *data) {
 
             //unmap all previously mapped pages for this VMA
             mmu_unmap_range(proc->pagemap, vma->start, old_map_pages);
+            mmu_tlb_shootdown_range(vma->start, old_map_pages);
 
             //remap based on new VMO location and (possibly updated) VMA boundaries
             //we clamp to VMO size in case it shrank

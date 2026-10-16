@@ -97,12 +97,8 @@ int remove(const char *pathname) {
     return __syscall1(SYS_REMOVE, (long)pathname);
 }
 
-static int64 sys_rename(const char *old, const char *new) {
-    return -1; //Not implemented in kernel yet
-}
-
 int rename(const char *oldpath, const char *newpath) {
-    return -1;
+    return (int)__syscall2(SYS_RENAME, (long)oldpath, (long)newpath);
 }
 
 int vsscanf(const char *str, const char *format, va_list args) {

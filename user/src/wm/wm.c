@@ -2,17 +2,33 @@
 #include "layout.h"
 #include "keybind.h"
 #include <keyboard.h>
+#include <mem.h>
 
 //global WM state
 handle_t wm_ch = INVALID_HANDLE;
-wm_client_t clients[MAX_CLIENTS];
-uint8 num_clients = 0;
+wm_client_t *clients = NULL;
+size_t clients_cap = 0;
+size_t num_clients = 0;
 surface_id_t focused = 0;
 
+bool wm_ensure_clients(size_t need) {
+    if (need <= clients_cap) return true;
+    size_t ncap = clients_cap ? clients_cap : 16;
+    while (ncap < need) {
+        if (ncap > (size_t)-1 / 2 / sizeof(wm_client_t)) return false;
+        ncap *= 2;
+    }
+    wm_client_t *np = realloc(clients, ncap * sizeof(wm_client_t));
+    if (!np) return false;
+    clients = np;
+    clients_cap = ncap;
+    return true;
+}
+
 int find_client(surface_id_t id) {
-    for (int i = 0; i < num_clients; i++)
+    for (size_t i = 0; i < num_clients; i++)
         if (clients[i].alive && clients[i].id == id)
-            return i;
+            return (int)i;
     return -1;
 }
 
@@ -20,16 +36,18 @@ void raise_client(surface_id_t id) {
     int idx = find_client(id);
     if (idx < 0) return;
     wm_client_t temp = clients[idx];
-    for (int i = idx; i + 1 < num_clients; i++) {
+    for (size_t i = (size_t)idx; i + 1 < num_clients; i++) {
         clients[i] = clients[i + 1];
     }
     clients[num_clients - 1] = temp;
 
-    surface_id_t ids[MAX_CLIENTS];
-    for (int i = 0; i < num_clients; i++) {
+    surface_id_t *ids = malloc(num_clients * sizeof(surface_id_t));
+    if (!ids) return;
+    for (size_t i = 0; i < num_clients; i++) {
         ids[i] = clients[i].id;
     }
     comp_set_stacking(wm_ch, ids, num_clients);
+    free(ids);
 }
 
 void send_decoration(surface_id_t id) {
@@ -50,10 +68,10 @@ void send_decoration(surface_id_t id) {
 }
 
 void remove_client(int idx) {
-    if (idx < 0 || idx >= num_clients) return;
+    if (idx < 0 || (size_t)idx >= num_clients) return;
     surface_id_t removed_id = clients[idx].id;
     //shift the array to close the gap
-    for (int j = idx; j + 1 < num_clients; j++)
+    for (size_t j = (size_t)idx; j + 1 < num_clients; j++)
         clients[j] = clients[j + 1];
     num_clients--;
     if (focused == removed_id) {
@@ -65,7 +83,7 @@ void remove_client(int idx) {
 }
 
 static void handle_surface_created(comp_msg_t *msg) {
-    if (num_clients >= MAX_CLIENTS) return;
+    if (!wm_ensure_clients(num_clients + 1)) return;
     surface_id_t sid = msg->u.surface_created.id;
     INFO("SURFACE_CREATED id=%u pid=%u %ux%u\n", sid, msg->u.surface_created.pid, msg->u.surface_created.w, msg->u.surface_created.h);
 
@@ -115,13 +133,12 @@ static void handle_decoration_event(comp_msg_t *msg) {
     if (msg->u.decoration_event.type != 0) return;
     int idx = find_client(sid);
     if (idx < 0) return;
-    uint32 pid = clients[idx].pid;
-    INFO("Killing pid=%u via decoration close\n", pid);
+    INFO("Closing surface id=%u via decoration close\n", sid);
     //tell the compositor to remove the surface immediately - do not wait for
     //the client to send MSG_DESTROY_SURFACE or for its channel to disconnect
     comp_wm_destroy_surface(wm_ch, sid);
-    //ask the client process to terminate so it cleans up any other resources
-    proc_send_event(pid, PROC_EVENT_TERMINATE);
+    //a process can own multiple windows, so decoration close only removes this
+    //surface; process termination is reserved for Alt+Shift+Q
     remove_client(idx);
 }
 

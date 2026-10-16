@@ -37,16 +37,20 @@ void thread_sleep(wait_queue_t *wq) {
     spinlock_irq_release(&wq->lock, flags);
 
     //wait until woken
-    while (current->state == THREAD_STATE_BLOCKED) {
+    while (__atomic_load_n(&current->state, __ATOMIC_ACQUIRE) == THREAD_STATE_BLOCKED) {
         sched_yield();
     }
 
+    //wakers hold wq->lock across state=READY + sched_add_cpu, so acquiring
+    //wq->lock here ensures the enqueue completed before we dequeue ourselves
+    irq_state_t wflags = spinlock_irq_acquire(&wq->lock);
     //we were woken - thread_wake_one added us to run queue with READY state
     //but we're continuing directly (not via scheduler) so clean up
     //remove from run queue and mark as RUNNING
     sched_remove(current);
     current->state = THREAD_STATE_RUNNING;
     current->blocked_on = NULL;
+    spinlock_irq_release(&wq->lock, wflags);
 }
 
 void thread_wake_one(wait_queue_t *wq) {
@@ -54,6 +58,8 @@ void thread_wake_one(wait_queue_t *wq) {
 
     thread_t *thread = wq->head;
     if (thread) {
+        irq_state_t t_flags = spinlock_irq_acquire(&thread->lock);
+
         //remove from wait queue
         wq->head = thread->wait_next;
         if (!wq->head) {
@@ -62,15 +68,22 @@ void thread_wake_one(wait_queue_t *wq) {
         thread->wait_next = NULL;
         thread->blocked_on = NULL;
 
-        //mark as ready and add back to run queue
+        //mark as ready and add back to run queue if not currently running
         if (thread->process && thread->process->state == PROC_STATE_DEAD) {
             thread->wait_cpu = -1;
+            spinlock_irq_release(&thread->lock, t_flags);
             sched_queue_dead(thread);
         } else {
             thread->state = THREAD_STATE_READY;
-            uint32 target_cpu = (thread->wait_cpu >= 0) ? (uint32)thread->wait_cpu
-                                                        : percpu_get()->cpu_index;
+            uint32 target_cpu;
+            if (thread->cpu_id < 0) {
+                target_cpu = (thread->wait_cpu >= 0) ? (uint32)thread->wait_cpu
+                                                     : percpu_get()->cpu_index;
+            } else {
+                target_cpu = (uint32)thread->cpu_id;
+            }
             thread->wait_cpu = -1;
+            spinlock_irq_release(&thread->lock, t_flags);
             sched_add_cpu(thread, target_cpu);
         }
     }
@@ -83,17 +96,26 @@ void thread_wake_all(wait_queue_t *wq) {
 
     while (wq->head) {
         thread_t *thread = wq->head;
+        irq_state_t t_flags = spinlock_irq_acquire(&thread->lock);
+
         wq->head = thread->wait_next;
         thread->wait_next = NULL;
         thread->blocked_on = NULL;
         if (thread->process && thread->process->state == PROC_STATE_DEAD) {
             thread->wait_cpu = -1;
+            spinlock_irq_release(&thread->lock, t_flags);
             sched_queue_dead(thread);
         } else {
             thread->state = THREAD_STATE_READY;
-            uint32 target_cpu = (thread->wait_cpu >= 0) ? (uint32)thread->wait_cpu
-                                                        : percpu_get()->cpu_index;
+            uint32 target_cpu;
+            if (thread->cpu_id < 0) {
+                target_cpu = (thread->wait_cpu >= 0) ? (uint32)thread->wait_cpu
+                                                     : percpu_get()->cpu_index;
+            } else {
+                target_cpu = (uint32)thread->cpu_id;
+            }
             thread->wait_cpu = -1;
+            spinlock_irq_release(&thread->lock, t_flags);
             sched_add_cpu(thread, target_cpu);
         }
     }
@@ -124,18 +146,21 @@ void thread_sleep_locked(wait_queue_t *wq, spinlock_t *lock) {
     spinlock_irq_release(&wq->lock, flags);
     spinlock_release(lock);
 
-    while (current->state == THREAD_STATE_BLOCKED) {
+    while (__atomic_load_n(&current->state, __ATOMIC_ACQUIRE) == THREAD_STATE_BLOCKED) {
         sched_yield();
     }
 
     //reacquire caller's lock before returning
     spinlock_acquire(lock);
 
+    //wait for the waker's enqueue to finish before dequeuing
+    irq_state_t wflags = spinlock_irq_acquire(&wq->lock);
     //we were woken - thread_wake_one added us to run queue with READY state
     //but we're continuing directly (not via scheduler) so clean up
     sched_remove(current);
     current->state = THREAD_STATE_RUNNING;
     current->blocked_on = NULL;
+    spinlock_irq_release(&wq->lock, wflags);
 }
 
 void thread_sleep_locked_irq(wait_queue_t *wq, spinlock_irq_t *lock, irq_state_t *flags) {
@@ -160,71 +185,84 @@ void thread_sleep_locked_irq(wait_queue_t *wq, spinlock_irq_t *lock, irq_state_t
     spinlock_release(&lock->lock);
     arch_irq_restore(*flags);
 
-    while (current->state == THREAD_STATE_BLOCKED) {
+    while (__atomic_load_n(&current->state, __ATOMIC_ACQUIRE) == THREAD_STATE_BLOCKED) {
         sched_yield();
     }
 
     //reacquire the caller's lock and refresh irq flags for caller's context
     *flags = spinlock_irq_acquire(lock);
 
+    //wait for the waker's enqueue to finish before dequeuing
+    irq_state_t wflags = spinlock_irq_acquire(&wq->lock);
     //waker queued us READY, but we're still running; normalize state
     sched_remove(current);
     current->state = THREAD_STATE_RUNNING;
     current->blocked_on = NULL;
+    spinlock_irq_release(&wq->lock, wflags);
 }
 
 void thread_wake_thread(thread_t *thread) {
     if (!thread) return;
 
-    //copy the wait queue pointer under the thread's lock
-    irq_state_t flags = spinlock_irq_acquire(&thread->lock);
-    wait_queue_t *wq = thread->blocked_on;
-    spinlock_irq_release(&thread->lock, flags);
+    //sample wq under thread->lock, then acquire in wq->lock -> thread->lock order
+    for (int iter = 0; iter < 4; iter++) {
+        irq_state_t tflags = spinlock_irq_acquire(&thread->lock);
+        wait_queue_t *wq = thread->blocked_on;
+        int blocked = (thread->state == THREAD_STATE_BLOCKED);
+        spinlock_irq_release(&thread->lock, tflags);
+        if (!wq || !blocked) return;
 
-    if (!wq) return;
-
-    //acquire wait queue's lock to modify it safely
-    irq_state_t wq_flags = spinlock_irq_acquire(&wq->lock);
-
-    //verify the thread is still blocked on this queue to prevent races
-    if (thread->blocked_on == wq && thread->state == THREAD_STATE_BLOCKED) {
-        thread_t *prev = NULL;
-        thread_t *curr = wq->head;
-        int removed = 0;
-
-        //remove the thread from the wait queue singly-linked list
-        while (curr) {
-            if (curr == thread) {
-                if (prev) {
-                    prev->wait_next = curr->wait_next;
-                } else {
-                    wq->head = curr->wait_next;
-                }
-                if (wq->tail == curr) {
-                    wq->tail = prev;
-                }
-                curr->wait_next = NULL;
-                curr->blocked_on = NULL;
-                removed = 1;
-                break;
-            }
-            prev = curr;
-            curr = curr->wait_next;
+        irq_state_t wflags = spinlock_irq_acquire(&wq->lock);
+        tflags = spinlock_irq_acquire(&thread->lock);
+        if (thread->blocked_on != wq || thread->state != THREAD_STATE_BLOCKED) {
+            spinlock_irq_release(&thread->lock, tflags);
+            spinlock_irq_release(&wq->lock, wflags);
+            return;
         }
-
-        //place the thread back onto the scheduler queue only if we unlinked it
-        if (removed) {
-            if (thread->process && thread->process->state == PROC_STATE_DEAD) {
-                thread->wait_cpu = -1;
-                sched_queue_dead(thread);
-            } else {
-                thread->state = THREAD_STATE_READY;
-                uint32 target_cpu = (thread->wait_cpu >= 0) ? (uint32)thread->wait_cpu
-                                                            : percpu_get()->cpu_index;
-                thread->wait_cpu = -1;
-                sched_add_cpu(thread, target_cpu);
+        //unlink from this wq
+        {
+            thread_t *prev = NULL;
+            thread_t *curr = wq->head;
+            int removed = 0;
+            while (curr) {
+                if (curr == thread) {
+                    if (prev) prev->wait_next = curr->wait_next;
+                    else wq->head = curr->wait_next;
+                    if (wq->tail == curr) wq->tail = prev;
+                    curr->wait_next = NULL;
+                    curr->blocked_on = NULL;
+                    removed = 1;
+                    break;
+                }
+                prev = curr;
+                curr = curr->wait_next;
+            }
+            if (!removed) {
+                spinlock_irq_release(&thread->lock, tflags);
+                spinlock_irq_release(&wq->lock, wflags);
+                return;
             }
         }
+        if (thread->process && thread->process->state == PROC_STATE_DEAD) {
+            thread->wait_cpu = -1;
+            spinlock_irq_release(&thread->lock, tflags);
+            spinlock_irq_release(&wq->lock, wflags);
+            sched_queue_dead(thread);
+            return;
+        }
+        thread->state = THREAD_STATE_READY;
+        uint32 target_cpu;
+        if (thread->cpu_id < 0) {
+            target_cpu = (thread->wait_cpu >= 0) ? (uint32)thread->wait_cpu
+                                                 : percpu_get()->cpu_index;
+        } else {
+            target_cpu = (uint32)thread->cpu_id;
+        }
+        thread->wait_cpu = -1;
+        spinlock_irq_release(&thread->lock, tflags);
+        //hold wq->lock across sched_add_cpu so sleepers see the completed enqueue
+        sched_add_cpu(thread, target_cpu);
+        spinlock_irq_release(&wq->lock, wflags);
+        return;
     }
-    spinlock_irq_release(&wq->lock, wq_flags);
 }

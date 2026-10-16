@@ -25,6 +25,7 @@
  * arch_set_kernel_stack(void *stack_top) - set kernel stack for ring transitions
  * arch_cpu_index() - get the current CPU logical index/ID
  * arch_cpu_count() - get the number of online CPUs (if architecture supports SMP)
+ * arch_current_sp() - get the current stack pointer
  *
  * memory barriers:
  *
@@ -36,6 +37,8 @@
  *
  * irq_state_t arch_irq_save() - disable interrupts and return previous state
  * arch_irq_restore(irq_state_t) - restore interrupt state
+ * arch_interrupts_enabled() - report whether maskable interrupts are enabled
+ *                             without changing the current interrupt state
  *
  * optional (arch-specific):
  *

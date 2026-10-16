@@ -15,8 +15,8 @@ int copy_user_bytes(const void *user_ptr, void *kernel_buf, size len) {
     if (!user_ptr || !kernel_buf) return -1;
 
     uintptr start = (uintptr)user_ptr;
-    if (start < USER_SPACE_START || start >= USER_SPACE_END) return -1;
-    if (len > (size)(USER_SPACE_END - start)) return -1;
+    if (start < USER_SPACE_START || start > USER_SPACE_END) return -1;
+    if (len > (size)(USER_SPACE_END - start + 1)) return -1;
 
     percpu_t *cpu = percpu_get();
     if (mmu_copy_from_user(kernel_buf, user_ptr, len, &cpu->recovery_rip, (uintptr)mmu_user_access_fault) != 0) {
@@ -28,13 +28,13 @@ int copy_user_bytes(const void *user_ptr, void *kernel_buf, size len) {
 
 int copy_user_cstr(const char *user_str, char *kernel_buf, size kernel_len) {
     if (!user_str || !kernel_buf || kernel_len == 0) return -1;
-    if ((uintptr)user_str < USER_SPACE_START || (uintptr)user_str >= USER_SPACE_END) return -1;
+    if ((uintptr)user_str < USER_SPACE_START || (uintptr)user_str > USER_SPACE_END) return -1;
 
     percpu_t *cpu = percpu_get();
     size i = 0;
     while (i + 1 < kernel_len) {
         uintptr addr = (uintptr)&user_str[i];
-        if (addr >= USER_SPACE_END) break;
+        if (addr > USER_SPACE_END) break;
 
         char c;
         if (mmu_copy_from_user(&c, &user_str[i], 1, &cpu->recovery_rip, (uintptr)mmu_user_access_fault) != 0) {

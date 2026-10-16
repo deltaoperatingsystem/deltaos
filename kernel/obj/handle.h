@@ -58,6 +58,9 @@ int handle_fstat(handle_t h, stat_t *st);
 //remove a path
 int handle_remove(const char *path);
 
+//rename from oldpath to newpath
+int handle_rename(const char *oldpath, const char *newpath);
+
 //seek whence values
 #define SEEK_SET 0
 #define SEEK_CUR 1

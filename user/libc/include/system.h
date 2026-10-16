@@ -105,6 +105,8 @@ int handle_seek(handle_t h, size offset, int mode);
 //channel IPC
 int channel_create(handle_t *ep0, handle_t *ep1);
 int channel_send(handle_t ep, const void *data, int len);
+int channel_send_msg(handle_t ep, const void *data, int len,
+                     const handle_t *handles, uint32 handle_count);
 int channel_recv(handle_t ep, void *buf, int buflen);
 int channel_try_recv(handle_t ep, void *buf, int buflen);
 

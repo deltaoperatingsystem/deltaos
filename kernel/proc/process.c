@@ -12,6 +12,7 @@
 #include <lib/spinlock.h>
 #include <arch/percpu.h>
 #include <syscall/syscall.h>
+#include <obj/namespace.h>
 
 
 static uint64 next_pid = 1;
@@ -203,6 +204,25 @@ static void process_free(process_t *proc) {
     kfree(proc);
 }
 
+int process_track_ns_registration(process_t *proc, const char *path) {
+    if (!proc || !path) return -1;
+
+    proc_ns_registration_t *registration = kzalloc(sizeof(*registration));
+    if (!registration) return -1;
+
+    registration->path = strdup(path);
+    if (!registration->path) {
+        kfree(registration);
+        return -1;
+    }
+
+    spinlock_acquire(&proc->lock);
+    registration->next = proc->ns_registrations;
+    proc->ns_registrations = registration;
+    spinlock_release(&proc->lock);
+    return 0;
+}
+
 void process_destroy(process_t *proc) {
     if (!proc) return;
 
@@ -224,6 +244,18 @@ void process_destroy(process_t *proc) {
     spinlock_release(&proc_lock);
 
     proc_clear_console_foreground_if_owner(proc->pid);
+
+    spinlock_acquire(&proc->lock);
+    proc_ns_registration_t *registrations = proc->ns_registrations;
+    proc->ns_registrations = NULL;
+    spinlock_release(&proc->lock);
+    while (registrations) {
+        proc_ns_registration_t *next = registrations->next;
+        ns_unregister(registrations->path);
+        kfree(registrations->path);
+        kfree(registrations);
+        registrations = next;
+    }
     
     //wake any threads waiting for this process to exit
     thread_wake_all(&proc->exit_wait);

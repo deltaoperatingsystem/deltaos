@@ -231,75 +231,69 @@ skip_initrd_reserve:
     serial_write("\n");
 }
 
+//first bit in [from, to) equal to want_set, or `to` if none
+//whole words are only read when they lie fully inside the bitmap, so a trailing
+//partial word is handled bit by bit and never read past bitmap_size
+static size next_bit(size from, size to, bool want_set) {
+    uword *words = (uword *)bitmap;
+    size bitmap_bits = bitmap_size * 8;
+
+    while (from < to) {
+        size w = from / ARCH_BITS;
+        size off = from % ARCH_BITS;
+
+        if ((w + 1) * ARCH_BITS <= bitmap_bits) {
+            uword v = words[w];
+            if (!want_set) v = ~v;
+            v >>= off;
+            if (v) {
+                size r = from + (size)__builtin_ctzll((unsigned long long)v);
+                return r < to ? r : to;
+            }
+            from += ARCH_BITS - off;
+        } else {
+            if ((BITMAP_TEST(from) != 0) == want_set) return from;
+            from++;
+        }
+    }
+    return to;
+}
+
+//first run of `pages` free bits in [from, to), or (size)-1
+static size find_run(size pages, size from, size to) {
+    while (from < to) {
+        size s = next_bit(from, to, false);
+        if (s >= to || to - s < pages) return (size)-1;
+
+        size e = next_bit(s, s + pages, true);
+        if (e == s + pages) return s;
+        from = e + 1;
+    }
+    return (size)-1;
+}
+
 static void *pmm_alloc_window_internal(size pages, size start_page, size limit_page, size *cursor) {
     if (pages == 0) return NULL;
     if (start_page >= limit_page) return NULL;
 
-    size consecutive = 0;
-    size start_bit = 0;
     size scan_start = (cursor && *cursor >= start_page && *cursor < limit_page) ? *cursor : start_page;
 
-    //word skipping optimization
-    uword *bitmap_words = (uword *)bitmap;
-    size max_words = limit_page / ARCH_BITS;
+    size found = find_run(pages, scan_start, limit_page);
 
-    for (size i = scan_start; i < limit_page; ) {
-        //if we are at the start of a word and need more than current bit try skipping
-        if ((i % ARCH_BITS == 0) && (consecutive == 0)) {
-            while (i / ARCH_BITS < max_words && bitmap_words[i / ARCH_BITS] == (uword)-1) {
-                i += ARCH_BITS;
-            }
-            if (i >= limit_page) break;
-        }
-
-        if (!BITMAP_TEST(i)) {
-            if (consecutive == 0) start_bit = i;
-            consecutive++;
-            if (consecutive == pages) {
-                for (size j = 0; j < pages; j++) {
-                    BITMAP_SET(start_bit + j);
-                }
-                free_pages -= pages;
-                if (cursor) *cursor = start_bit + pages;
-                return (void *)(uintptr)(start_bit * PAGE_SIZE);
-            }
-        } else {
-            consecutive = 0;
-        }
-        i++;
+    //nothing past the cursor, retry from the start (runs may straddle the cursor)
+    if (found == (size)-1 && scan_start > start_page) {
+        size end = (pages - 1 > limit_page - scan_start) ? limit_page : scan_start + pages - 1;
+        found = find_run(pages, start_page, end);
     }
 
-    //if we reached the end try searching from the beginning once
-    if (scan_start > start_page) {
-        size search_limit = scan_start < limit_page ? scan_start : limit_page;
-        consecutive = 0;
-        for (size i = start_page; i < search_limit; ) {
-            if ((i % ARCH_BITS == 0) && (consecutive == 0)) {
-                while (i / ARCH_BITS < max_words && i + ARCH_BITS <= search_limit && bitmap_words[i / ARCH_BITS] == (uword)-1) {
-                    i += ARCH_BITS;
-                }
-                if (i >= search_limit) break;
-            }
+    if (found == (size)-1) return NULL;
 
-            if (!BITMAP_TEST(i)) {
-                if (consecutive == 0) start_bit = i;
-                consecutive++;
-                if (consecutive == pages) {
-                    for (size j = 0; j < pages; j++) {
-                        BITMAP_SET(start_bit + j);
-                    }
-                    free_pages -= pages;
-                    if (cursor) *cursor = start_bit + pages;
-                    return (void *)(uintptr)(start_bit * PAGE_SIZE);
-                }
-            } else {
-                consecutive = 0;
-            }
-            i++;
-        }
+    for (size j = 0; j < pages; j++) {
+        BITMAP_SET(found + j);
     }
-
-    return NULL;
+    free_pages -= pages;
+    if (cursor) *cursor = found + pages;
+    return (void *)(uintptr)(found * PAGE_SIZE);
 }
 
 static void *pmm_alloc_internal(size pages, size limit_page) {

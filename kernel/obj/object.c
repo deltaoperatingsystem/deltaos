@@ -29,13 +29,14 @@ void object_deref(object_t *obj) {
     }
     
     if (__atomic_sub_fetch(&obj->refcount, 1, __ATOMIC_SEQ_CST) == 0) {
-        //call close handler if present
+        //cache flags before calling close (close handler may free the enclosing struct)
+        bool is_embedded = (obj->flags & OBJECT_FLAG_EMBEDDED);
         if (obj->ops && obj->ops->close) {
             obj->ops->close(obj);
         }
         //embedded objects (OBJECT_FLAG_EMBEDDED) are part of a larger allocation
         //the enclosing struct is responsible for freeing its own memory
-        if (!(obj->flags & OBJECT_FLAG_EMBEDDED)) {
+        if (!is_embedded) {
             kfree(obj);
         }
     }

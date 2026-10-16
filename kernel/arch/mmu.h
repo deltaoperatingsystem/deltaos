@@ -19,6 +19,13 @@
 #endif
 
 /*
+ * required constants - each arch must define:
+ *
+ * PAGE_SIZE - system page size in bytes (like 4096)
+ * USER_SPACE_START - lowest valid user virtual address
+ * USER_SPACE_END - highest valid user virtual address (inclusive)
+ * HHDM_OFFSET - offset for direct physical-to-virtual mapping
+ *
  * required MI functions - each arch must implement:
  *
  * mmu_init() - initialize MMU for current kernel

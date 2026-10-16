@@ -1,9 +1,7 @@
 #ifndef MM_PMM_H
 #define MM_PMM_H
 
-#include <arch/types.h>
-
-#define PAGE_SIZE 4096
+#include <arch/mmu.h>
 
 void pmm_init(void);
 

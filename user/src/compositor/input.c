@@ -4,7 +4,8 @@
 #include "render.h"
 
 int hit_test(int mx, int my, surface_id_t *out_sid) {
-    for (int si = comp.stack_count - 1; si >= 0; si--) {
+    for (size_t k = 0; k < comp.stack_count; k++) {
+        size_t si = comp.stack_count - 1 - k;
         int idx = find_surface(comp.stack[si]);
         if (idx < 0) continue;
         surface_t *s = &comp.surfaces[idx];
@@ -72,7 +73,7 @@ void handle_input(void) {
         if (!(m.buttons & MOUSE_BTN_LEFT)) {
             comp.is_dragging = false;
             if (comp.mprev.buttons & MOUSE_BTN_LEFT) {
-                for (int i = 0; i < comp.num_surfaces; i++) {
+                for (size_t i = 0; i < comp.num_surfaces; i++) {
                     if (comp.surfaces[i].focused && comp.surfaces[i].ch != INVALID_HANDLE) {
                         comp_msg_t mev = {
                             .type = MSG_MOUSE_EVENT,
@@ -100,7 +101,7 @@ void handle_input(void) {
             } else if (hit == 1 || hit == 3) {
                 int idx = find_surface(hit_id);
                 if (idx >= 0) {
-                    for (int i = 0; i < comp.num_surfaces; i++) {
+                    for (size_t i = 0; i < comp.num_surfaces; i++) {
                         if (comp.surfaces[i].focused) {
                             damage_add_surface_rect(&comp.surfaces[i]);
                             comp.surfaces[i].focused = false;
@@ -152,7 +153,7 @@ void handle_input(void) {
                     }
                 }
             } else {
-                for (int i = 0; i < comp.num_surfaces; i++) {
+                for (size_t i = 0; i < comp.num_surfaces; i++) {
                     if (comp.surfaces[i].focused && comp.surfaces[i].ch != INVALID_HANDLE) {
                         comp_msg_t mev = {
                             .type = MSG_MOUSE_EVENT,

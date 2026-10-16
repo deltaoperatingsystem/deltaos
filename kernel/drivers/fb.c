@@ -153,6 +153,11 @@ bool fb_set_backend(fb_backend_t *backend) {
         backend->size == 0 || !backend->flush || !backend->flush_rect) {
         return false;
     }
+    //pitch must cover at least width*4 (32bpp), computed in 64-bit to avoid
+    //wrapping on huge widths; total size must cover pitch * height rows
+    if (backend->width > UINT32_MAX / 4) return false;
+    if (backend->pitch < backend->width * 4) return false;
+    if (backend->size < (size)backend->pitch * backend->height) return false;
     active_backend = backend;
     return true;
 }
