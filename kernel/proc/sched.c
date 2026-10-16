@@ -52,7 +52,13 @@ void sched_reap(void) {
         //check if this thread is still "running" on any CPU (cpu_id != -1)
         //this handles the case where CPU A is STILL on the stack of the thread 
         //being switched out while CPU B tries to reap it
-        if (dead->cpu_id != -1) {
+        //also checks if our current stack pointer is within the dead thread's
+        //kernel_stack (race where we freed our own stack, for defense-in-depth)
+        uintptr cur_sp = arch_current_sp();
+        bool on_dead_stack = dead->kernel_stack != NULL
+            && (uintptr)dead->kernel_stack <= cur_sp
+            && cur_sp < (uintptr)dead->kernel_stack + KERNEL_STACK_SIZE;
+        if (dead->cpu_id != -1 || on_dead_stack) {
             dead->sched_next = NULL;
             if (!keep_head) {
                 keep_head = dead;
@@ -75,17 +81,30 @@ void sched_reap(void) {
     spinlock_irq_release(&dead_lock, flags);
 }
 
-//idle thread entry - just halts forever
+//idle thread entry
 static void idle_thread_entry(void *arg) {
     (void)arg;
-    
+
     for (;;) {
-        //we run a small batch of deferred IRQ follow-up before halting so drivers
+        //run a small batch of deferred IRQ follow-up before halting so drivers
         //that schedule bottom halves can still make progress even when the
         //system is otherwise idle or only running kernel code
         bottom_half_run_budget(32);
-        arch_halt();
-        sched_yield();
+
+        //keep interrupts disabled from the queue check through sti;hlt so an
+        //incoming IPI cannot be lost in the gap before hlt
+        arch_interrupts_disable();
+        percpu_t *pc = percpu_get();
+        irq_state_t flags = spinlock_irq_acquire(&pc->sched_lock);
+        bool empty = (pc->run_queue_head == NULL);
+        spinlock_irq_release(&pc->sched_lock, flags);
+
+        if (empty) {
+            arch_idle();
+        } else {
+            sched_yield();
+            arch_interrupts_enable();
+        }
     }
 }
 
@@ -312,7 +331,9 @@ static void schedule(void) {
     
     thread_t *next = pc->run_queue_head ? pc->run_queue_head : pc->idle_thread;
     
-    if (!next || (next == current && current->state == THREAD_STATE_RUNNING)) {
+    //only return early when both next and current are the idle thread
+    //(no runnable work AND already idle)
+    if (!next || (next == current && current == pc->idle_thread)) {
         spinlock_irq_release(&pc->sched_lock, flags);
         return;
     }
@@ -321,15 +342,26 @@ static void schedule(void) {
     sched_requeue_or_dead(pc, current);
     next = pc->run_queue_head ? pc->run_queue_head : pc->idle_thread;
 
+    //if current is still the only runnable thread, undo the requeue and keep running
+    if (next == current && current != pc->idle_thread) {
+        sched_dequeue_thread(pc, current);
+        current->state = THREAD_STATE_RUNNING;
+        spinlock_irq_release(&pc->sched_lock, flags);
+        return;
+    }
+
     //drop any queued threads whose process is already dead
-    //the scheduler may see them before wait/reap has cleaned them up
     next = sched_drain_dead_head(pc, next);
 
     //remove next from run queue and mark as running
     sched_dequeue_thread(pc, next);
     
     next->state = THREAD_STATE_RUNNING;
-    next->cpu_id = pc->cpu_index; //mark as running on this CPU
+    {
+        irq_state_t nflags = spinlock_irq_acquire(&next->lock);
+        next->cpu_id = pc->cpu_index; //mark as running on this CPU
+        spinlock_irq_release(&next->lock, nflags);
+    }
     
     //activate next thread
     sched_activate(next);
@@ -345,6 +377,18 @@ static void schedule(void) {
         arch_context_switch(&current->context, &next->context);
     } else {
         arch_context_load(&next->context);
+    }
+
+    //now we are running 'next' the thread we switched away from is in pc->prev_thread
+    //clear its cpu_id immediately to prevent it from being orphaned if woken up
+    if (pc->prev_thread) {
+        thread_t *prev = (thread_t *)pc->prev_thread;
+        irq_state_t prev_flags = spinlock_irq_acquire(&prev->lock);
+        if (prev->cpu_id == (int)pc->cpu_index) {
+            prev->cpu_id = -1;
+        }
+        spinlock_irq_release(&prev->lock, prev_flags);
+        pc->prev_thread = NULL;
     }
 }
 
@@ -402,11 +446,25 @@ void sched_preempt(void) {
 
     sched_dequeue_thread(pc, next);
     next->state = THREAD_STATE_RUNNING;
-    next->cpu_id = pc->cpu_index;
+    //protect cpu_id with the thread lock (wait.c readers hold thread->lock)
+    {
+        irq_state_t nflags = spinlock_irq_acquire(&next->lock);
+        next->cpu_id = pc->cpu_index;
+        spinlock_irq_release(&next->lock, nflags);
+    }
     
     sched_activate(next);
     
-    //mark prev_thread for clearing after context switch
+    //defer clearing current's cpu_id until after the context switch; if a
+    //previous switch was not yet acknowledged, clear it now
+    if (pc->prev_thread && pc->prev_thread != current) {
+        thread_t *old_prev = (thread_t *)pc->prev_thread;
+        irq_state_t oflags = spinlock_irq_acquire(&old_prev->lock);
+        if (old_prev->cpu_id == (int)pc->cpu_index) {
+            old_prev->cpu_id = -1;
+        }
+        spinlock_irq_release(&old_prev->lock, oflags);
+    }
     pc->prev_thread = current;
     
     spinlock_irq_release(&pc->sched_lock, flags);
@@ -414,10 +472,10 @@ void sched_preempt(void) {
 
 void sched_tick(int from_usermode) {
     percpu_t *pc = percpu_get();
-    
+
     //don't preempt before the scheduler is fully started
     if (!pc->sched_running) return;
-    
+
     //only BSP reaps for now to avoid redundant lock contention
     if (pc->cpu_index == 0) {
         sched_reap();
@@ -455,7 +513,11 @@ void sched_start(void) {
 
     sched_remove(first);
     first->state = THREAD_STATE_RUNNING;
-    first->cpu_id = pc->cpu_index;
+    {
+        irq_state_t fflags = spinlock_irq_acquire(&first->lock);
+        first->cpu_id = pc->cpu_index;
+        spinlock_irq_release(&first->lock, fflags);
+    }
     thread_set_current(first);
     process_set_current(first->process);
     

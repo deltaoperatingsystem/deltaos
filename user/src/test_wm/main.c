@@ -46,31 +46,35 @@ static void sync_window_size(test_win_t *tw) {
 }
 
 static void ensure_gui(void) {
-    //check if compositor is already running
+    //always ensure the WM after the compositor; a second CLAIM_WM is
+    //rejected if the WM is already running
     for (int i = 0; i < 20; i++) {
-        if (px_init()) goto wm_start;
+        if (px_init()) goto ensure_wm;
         yield();
     }
 
-    //spawn compositor
     puts("[test_wm] spawning compositor...\n");
     if (spawn("/system/binaries/compositor", 0, NULL) < 0) {
         puts("[test_wm] failed to spawn compositor\n");
         exit(1);
     }
+    bool connected = false;
     for (int i = 0; i < 100; i++) {
-        if (px_init()) goto wm_start;
+        if (px_init()) {
+            connected = true;
+            break;
+        }
         yield();
     }
-    puts("[test_wm] compositor did not start\n");
-    exit(1);
-
-wm_start:
-    //spawn WM and give it time to claim
-    puts("[test_wm] spawning WM...\n");
-    if (spawn("/system/binaries/wm", 0, NULL) < 0) {
-        puts("[test_wm] failed to spawn WM\n");
+    if (!connected) {
+        puts("[test_wm] compositor did not start\n");
         exit(1);
+    }
+
+ensure_wm:
+    puts("[test_wm] ensuring WM...\n");
+    if (spawn("/system/binaries/wm", 0, NULL) < 0) {
+        //may already be running; CLAIM_WM exclusivity makes this benign
     }
     for (int i = 0; i < 100; i++) yield();
 }

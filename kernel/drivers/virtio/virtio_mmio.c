@@ -107,7 +107,10 @@ static int mmio_setup_queue(struct virtio_device *dev, uint16 queue_idx,
     vq->used = (virtq_used_t *)((uintptr)virt + desc_bytes + avail_bytes);
     vq->queue_idx = queue_idx;
 
-    virtq_init(vq, queue_size);
+    if (virtq_init(vq, queue_size) != 0) {
+        pmm_free(phys, pages);
+        return -1;
+    }
 
     //program the device with the physical addresses of each virtq region
     uintptr desc_phys = (uintptr)phys;

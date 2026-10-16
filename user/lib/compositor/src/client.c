@@ -4,13 +4,47 @@
 #include <string.h>
 
 handle_t comp_connect(void) {
-    handle_t h = INVALID_HANDLE;
+    //create dedicated channel pair
+    handle_t client_end = INVALID_HANDLE;
+    handle_t server_end = INVALID_HANDLE;
+    if (channel_create(&client_end, &server_end) != 0) {
+        return INVALID_HANDLE;
+    }
+
+    //open bootstrap channel
+    handle_t bootstrap_ch = INVALID_HANDLE;
     for (int i = 0; i < 50; i++) {
-        h = get_obj(INVALID_HANDLE, "$gui/display/server", RIGHT_READ | RIGHT_WRITE);
-        if (h != INVALID_HANDLE) break;
+        bootstrap_ch = get_obj(INVALID_HANDLE, "$gui/display/server", RIGHT_READ | RIGHT_WRITE);
+        if (bootstrap_ch != INVALID_HANDLE) break;
         yield();
     }
-    return h;
+    if (bootstrap_ch == INVALID_HANDLE) {
+        handle_close(client_end);
+        handle_close(server_end);
+        return INVALID_HANDLE;
+    }
+
+    //move the compositor endpoint to the server over the bootstrap channel
+    comp_msg_t msg = { .type = MSG_CLIENT_CONNECT };
+    msg.u.client_connect.pid = (uint32)getpid();
+    msg.u.client_connect.conn_id = 0;
+    if (channel_send_msg(bootstrap_ch, &msg, sizeof(msg), &server_end, 1) != 0) {
+        handle_close(bootstrap_ch);
+        handle_close(client_end);
+        handle_close(server_end);
+        return INVALID_HANDLE;
+    }
+    handle_close(bootstrap_ch);
+
+    //wait for ACK on our private client_end channel
+    comp_msg_t resp;
+    int rc = channel_recv(client_end, &resp, sizeof(resp));
+    if (rc != (ssize)sizeof(resp) || resp.type != MSG_ACK || !resp.u.ack.ok) {
+        handle_close(client_end);
+        return INVALID_HANDLE;
+    }
+
+    return client_end;
 }
 
 bool comp_claim_wm(handle_t server_ch, handle_t *out_wm_ch) {
@@ -20,28 +54,14 @@ bool comp_claim_wm(handle_t server_ch, handle_t *out_wm_ch) {
     if (channel_send(server_ch, &msg, sizeof(msg)) != 0) return false;
 
     comp_msg_t resp;
-    bool got_ack = false;
-    for (int i = 0; i < 100; i++) {
-        int rc = channel_try_recv(server_ch, &resp, sizeof(resp));
-        if (rc == (ssize)sizeof(resp) && resp.type == MSG_ACK && resp.u.ack.ok) {
-            got_ack = true;
-            break;
-        }
-        yield();
-    }
-    if (!got_ack) return false;
-
-    char path[64];
-    snprintf(path, sizeof(path), "$gui/display/%u_wm/ch", getpid());
-
     handle_t wm_ch = INVALID_HANDLE;
-    for (int i = 0; i < 100; i++) {
-        wm_ch = get_obj(INVALID_HANDLE, path, RIGHT_READ | RIGHT_WRITE);
-        if (wm_ch != INVALID_HANDLE) break;
-        yield();
+    channel_recv_result_t result;
+    int rc = channel_recv_msg(server_ch, &resp, sizeof(resp), &wm_ch, 1, &result);
+    if (rc != 0 || result.data_len != sizeof(resp) || result.handle_count != 1 ||
+        resp.type != MSG_ACK || !resp.u.ack.ok || wm_ch == INVALID_HANDLE) {
+        if (wm_ch != INVALID_HANDLE) handle_close(wm_ch);
+        return false;
     }
-
-    if (wm_ch == INVALID_HANDLE) return false;
     *out_wm_ch = wm_ch;
     return true;
 }
@@ -79,14 +99,24 @@ bool comp_set_decoration(handle_t wm_ch, surface_id_t id, comp_decoration_t d) {
     return channel_send(wm_ch, &msg, sizeof(msg)) == 0;
 }
 
-bool comp_set_stacking(handle_t wm_ch, const surface_id_t *ids, uint8 count) {
-    if (wm_ch == INVALID_HANDLE || !ids || count > 32) return false;
-    comp_msg_t msg = {
-        .type = MSG_SET_STACKING,
-        .u.set_stacking = { .count = count }
-    };
-    memcpy(msg.u.set_stacking.ids, ids, count * sizeof(surface_id_t));
-    return channel_send(wm_ch, &msg, sizeof(msg)) == 0;
+bool comp_set_stacking(handle_t wm_ch, const surface_id_t *ids, size count) {
+    if (wm_ch == INVALID_HANDLE || (!ids && count > 0) || count > UINT32_MAX) return false;
+
+    for (size offset = 0; offset < count || (count == 0 && offset == 0); offset += 256) {
+        uint16 chunk = (uint16)((count - offset) > 256 ? 256 : (count - offset));
+        comp_msg_t msg = {
+            .type = MSG_SET_STACKING,
+            .u.set_stacking = {
+                .count = chunk,
+                .offset = (uint32)offset,
+                .total = (uint32)count,
+            }
+        };
+        if (chunk > 0) memcpy(msg.u.set_stacking.ids, ids + offset, chunk * sizeof(surface_id_t));
+        if (channel_send(wm_ch, &msg, sizeof(msg)) != 0) return false;
+        if (count == 0) break;
+    }
+    return true;
 }
 
 bool comp_set_client_area(handle_t wm_ch, surface_id_t id, uint16 x, uint16 y, uint16 w, uint16 h) {
@@ -119,8 +149,9 @@ bool comp_wm_destroy_surface(handle_t wm_ch, surface_id_t id) {
     return channel_send(wm_ch, &msg, sizeof(msg)) == 0;
 }
 
-bool comp_create_surface(handle_t server_ch, uint16 w, uint16 h, surface_id_t *out_id, handle_t *out_ch) {
-    if (server_ch == INVALID_HANDLE || !out_id || !out_ch) return false;
+bool comp_create_surface(handle_t server_ch, uint16 w, uint16 h, surface_id_t *out_id,
+                         handle_t *out_ch, handle_t *out_vmo) {
+    if (server_ch == INVALID_HANDLE || !out_id || !out_ch || !out_vmo) return false;
 
     comp_msg_t req = {
         .type = MSG_CREATE_SURFACE,
@@ -129,37 +160,20 @@ bool comp_create_surface(handle_t server_ch, uint16 w, uint16 h, surface_id_t *o
     if (channel_send(server_ch, &req, sizeof(req)) != 0) return false;
 
     comp_msg_t ack = {0};
-    bool got_ack = false;
-    for (int i = 0; i < 50; i++) {
-        int rc = channel_try_recv(server_ch, &ack, sizeof(ack));
-        if (rc == (ssize)sizeof(ack) && ack.type == MSG_ACK) {
-            got_ack = ack.u.ack.ok;
-            break;
-        }
-        yield();
-    }
-    if (!got_ack) return false;
-
-    char path[64];
-    snprintf(path, sizeof(path), "$gui/display/%u_%u/ch", getpid(), ack.u.ack.id);
-
-    handle_t ch = INVALID_HANDLE;
-    for (int i = 0; i < 50; i++) {
-        ch = get_obj(INVALID_HANDLE, path, RIGHT_READ | RIGHT_WRITE);
-        if (ch != INVALID_HANDLE) break;
-        yield();
-    }
-    if (ch == INVALID_HANDLE) {
-        comp_msg_t cleanup_msg = {
-            .type = MSG_DESTROY_SURFACE,
-            .u.destroy_surface.id = ack.u.ack.id
-        };
-        channel_send(server_ch, &cleanup_msg, sizeof(cleanup_msg));
+    handle_t handles[2] = { INVALID_HANDLE, INVALID_HANDLE };
+    channel_recv_result_t result;
+    int rc = channel_recv_msg(server_ch, &ack, sizeof(ack), handles, 2, &result);
+    if (rc != 0 || result.data_len != sizeof(ack) || result.handle_count != 2 ||
+        ack.type != MSG_ACK || !ack.u.ack.ok ||
+        handles[0] == INVALID_HANDLE || handles[1] == INVALID_HANDLE) {
+        if (handles[0] != INVALID_HANDLE) handle_close(handles[0]);
+        if (handles[1] != INVALID_HANDLE) handle_close(handles[1]);
         return false;
     }
 
     *out_id = ack.u.ack.id;
-    *out_ch = ch;
+    *out_ch = handles[0];
+    *out_vmo = handles[1];
     return true;
 }
 

@@ -44,6 +44,21 @@ static void gpu_mutex_release(gpu_mutex_t *m) {
     spinlock_release(&m->lock);
 }
 
+//IRQ context must never sleep on the mutex
+static bool gpu_mutex_try_acquire(gpu_mutex_t *m) {
+    spinlock_acquire(&m->lock);
+    bool got = !m->held;
+    if (got) m->held = true;
+    spinlock_release(&m->lock);
+    return got;
+}
+
+static bool gpu_irq_context(void) {
+    uint64 flags;
+    __asm__ volatile ("pushfq; popq %0" : "=r"(flags));
+    return (flags & 0x200) == 0;  //IF clear
+}
+
 //virtual address region reserved for GPU framebuffer mappings
 //sits above the kernel heap, well away from the HHDM and kheap ranges
 #define GPU_VMAP_BASE  0xFFFFA00000000000ULL
@@ -119,8 +134,20 @@ static int gpu_submit_cmd(gpu_dev_t *g,
     (void)req_virt;
 
     //serialize: one command in flight at a time
-    //this covers both the shared cmd buffer and last_used_idx in virtq_poll_used
-    gpu_mutex_acquire(&gpu_mutex);
+    //in IRQ context (vt_tick), try-acquire and skip the flush if busy
+    if (gpu_irq_context()) {
+        if (!gpu_mutex_try_acquire(&gpu_mutex)) {
+            return -1;
+        }
+    } else {
+        gpu_mutex_acquire(&gpu_mutex);
+    }
+
+    //if the device has already been marked failed, don't submit more commands
+    if (g->vdev->transport->read_status(g->vdev) & VIRTIO_STATUS_FAILED) {
+        gpu_mutex_release(&gpu_mutex);
+        return -1;
+    }
 
     spinlock_acquire(&g->ctrlq.lock);
 
@@ -210,7 +237,7 @@ static int gpu_get_display_info(gpu_dev_t *g) {
         printf("[virtio-gpu] invalid display dimensions %ux%u\n", g->width, g->height);
         return -1;
     }
-    if (g->width > SIZE_MAX / 4) {
+    if (g->width > UINT32_MAX / 4) {
         printf("[virtio-gpu] width calculation overflow\n");
         return -1;
     }
@@ -397,7 +424,7 @@ static void gpu_flush_rect(uint32 x, uint32 y, uint32 w, uint32 h) {
     gpu_flush_rect_internal(gpu, x, y, w, h);
 }
 
-//BUS-level init so we beat fb_init_backbuffer's DEVICE-level fallback
+//INIT_LEVEL_ARCH so we beat the BUS-level fb_init and DEVICE-level fb_init_backbuffer
 void virtio_gpu_init(void) {
     //find the first virtio GPU device in the global list
     virtio_device_t *vdev = NULL;

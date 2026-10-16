@@ -7,6 +7,7 @@
 #include <arch/amd64/acpi/acpi.h>
 #include <arch/amd64/mmu.h>
 #include <arch/amd64/cpu.h>
+#include <arch/interrupts.h>
 #include <arch/fpu.h>
 #include <mm/mm.h>
 #include <mm/pmm.h>
@@ -214,11 +215,18 @@ void ap_entry(uint32 cpu_index) {
     __sync_fetch_and_add(&ap_started_count, 1);
     
     percpu_t *cpu = percpu_get();
+
+    //enable IRQs and mark started before syncing tlb_gen so we don't miss
+    //shootdown IPIs published during bring-up
+    arch_interrupts_enable();
     cpu->started = 1;
-    arch_wmb();
-    
+    //order store(started) before load(gen) in mmu_tlb_sync_cpu
+    arch_mb();
+
+    mmu_tlb_sync_cpu();
+
     printf("[smp] AP %u: initialized (APIC ID %u)\n", cpu_index, apic_id);
-    
+
     //start the scheduler on this AP
     sched_start();
 }

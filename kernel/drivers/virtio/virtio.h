@@ -115,7 +115,8 @@ extern virtio_device_t *virtio_devices;
 //virtqueue helpers
 
 //init the free-descriptor chain for a freshly allocated queue
-void virtq_init(virtq_t *vq, uint16 size);
+//returns 0 on success, -1 if size is 0 or not a power of 2
+int virtq_init(virtq_t *vq, uint16 size);
 
 //allocate one descriptor from the free list, returns index or -1 if full
 int  virtq_alloc_desc(virtq_t *vq);

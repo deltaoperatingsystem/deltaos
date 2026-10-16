@@ -3,7 +3,7 @@
 
 intptr syscall_dispatch(uintptr num, uintptr arg1, uintptr arg2, uintptr arg3,
                        uintptr arg4, uintptr arg5, uintptr arg6) {
-    (void)arg4; (void)arg5; (void)arg6; //suppress unused parameter warnings
+    (void)arg6; //suppress unused parameter warning
     switch (num) {
         case SYS_EXIT: return sys_exit((intptr)arg1);
         case SYS_GETPID: return sys_getpid();
@@ -20,6 +20,8 @@ intptr syscall_dispatch(uintptr num, uintptr arg1, uintptr arg2, uintptr arg3,
         case SYS_HANDLE_DUP: return sys_handle_dup((handle_t)arg1, (handle_rights_t)arg2);
         case SYS_CHANNEL_CREATE: return sys_channel_create((int32 *)arg1, (int32 *)arg2);
         case SYS_CHANNEL_SEND: return sys_channel_send((handle_t)arg1, (const void *)arg2, (size)arg3);
+        case SYS_CHANNEL_SEND_MSG: return sys_channel_send_msg((handle_t)arg1, (const void *)arg2, (size)arg3,
+                                                                (const int32 *)arg4, (uint32)arg5);
         case SYS_CHANNEL_RECV: return sys_channel_recv((handle_t)arg1, (void *)arg2, (size)arg3);
         case SYS_CHANNEL_TRY_RECV: return sys_channel_try_recv((handle_t)arg1, (void *)arg2, (size)arg3);
         case SYS_VMO_CREATE: return sys_vmo_create((size)arg1, (uint32)arg2, (handle_rights_t)arg3);
@@ -74,6 +76,7 @@ intptr syscall_dispatch(uintptr num, uintptr arg1, uintptr arg2, uintptr arg3,
         case SYS_PROC_GET_PENDING_EVENTS: return sys_proc_get_pending_events((uint64 *)arg1);
         case SYS_PROC_EVENT_RETURN: return sys_proc_event_return();
         case SYS_PROC_SET_CONSOLE_FOREGROUND: return sys_proc_set_console_foreground((uintptr)arg1);
+        case SYS_RENAME: return sys_rename((const char *)arg1, (const char *)arg2);
         
         default: return -1;
     }

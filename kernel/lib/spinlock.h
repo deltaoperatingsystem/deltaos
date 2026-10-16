@@ -25,6 +25,10 @@ static inline void spinlock_release(spinlock_t *sl) {
     __atomic_clear(&sl->lock, __ATOMIC_RELEASE);
 }
 
+static inline int spinlock_try_acquire(spinlock_t *sl) {
+    return !__atomic_test_and_set(&sl->lock, __ATOMIC_ACQUIRE);
+}
+
 typedef struct {
     spinlock_t lock;
 } spinlock_irq_t;
@@ -42,6 +46,16 @@ static inline irq_state_t spinlock_irq_acquire(spinlock_irq_t *sl) {
 static inline void spinlock_irq_release(spinlock_irq_t *sl, irq_state_t flags) {
     spinlock_release(&sl->lock);
     arch_irq_restore(flags);
+}
+
+static inline int spinlock_irq_try_acquire(spinlock_irq_t *sl, irq_state_t *flags_out) {
+    irq_state_t flags = arch_irq_save();
+    if (spinlock_try_acquire(&sl->lock)) {
+        *flags_out = flags;
+        return 1;
+    }
+    arch_irq_restore(flags);
+    return 0;
 }
 
 #endif

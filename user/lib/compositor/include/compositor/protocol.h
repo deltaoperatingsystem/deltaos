@@ -63,11 +63,12 @@ typedef struct {
         struct { surface_id_t id; int16 x, y; uint16 w, h; }  set_position;
         struct { surface_id_t id; }                    set_focus;
         struct { surface_id_t id; comp_decoration_t d; } set_decoration;
-        struct { surface_id_t ids[32]; uint8 count; }  set_stacking;
+        struct { surface_id_t ids[256]; uint16 count; uint32 offset; uint32 total; } set_stacking;
         struct { bool grab; }                          set_keyboard_grab;
         struct { surface_id_t id; kbd_event_t data; }  pass_through;
         struct { surface_id_t id; uint16 x, y, w, h; } set_client_area;
 
+        struct { uint32 pid; uint32 conn_id; }          client_connect;
         struct { bool ok; surface_id_t id; }           ack;
         struct { surface_id_t id; uint16 x, y, w, h, bpp; } configure;
         struct { surface_id_t id; int16 x, y; uint8 buttons; } mouse_event;
@@ -77,7 +78,7 @@ typedef struct {
         struct { surface_id_t id; uint32 pid; uint16 w, h; char title[32]; } surface_created;
         struct { surface_id_t id; }                    surface_destroyed;
         struct { surface_id_t id; }                    surface_activated;
-        struct { surface_id_t ids[64]; uint8 count; }  surface_list;
+        struct { surface_id_t ids[256]; uint16 count; } surface_list;
     } u;
 } comp_msg_t;
 

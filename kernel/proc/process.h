@@ -1,7 +1,7 @@
 #ifndef PROC_PROCESS_H
 #define PROC_PROCESS_H
 
-#include <arch/types.h>
+#include <arch/mmu.h>
 #include <obj/object.h>
 #include <obj/rights.h>
 #include <proc/context.h>
@@ -20,6 +20,11 @@
 #define PROC_INITIAL_HANDLES 16
 
 struct thread;
+
+typedef struct proc_ns_registration {
+    char *path;
+    struct proc_ns_registration *next;
+} proc_ns_registration_t;
 
 //per-process handle entry (capability)
 typedef struct {
@@ -63,6 +68,7 @@ typedef struct process {
     //virtual memory areas (for address space tracking)
     proc_vma_t *vma_list;       //head of VMA list
     uintptr vma_next_addr;      //next allocation address hint
+    proc_ns_registration_t *ns_registrations;
     
     //threads in this process
     struct thread *threads;
@@ -90,10 +96,6 @@ typedef struct process {
     spinlock_irq_t event_lock;
 } process_t;
 
-//user address space bounds
-#define USER_SPACE_START    0x0000000000400000ULL  //4MB
-#define USER_SPACE_END      0x00007FFFFFFFFFFFULL  //canonical low half
-
 //find a process by PID
 process_t *process_find(uint64 pid);
 //returns a stable reference that must be released with process_unref()
@@ -113,6 +115,8 @@ process_t *process_create_user_suspended(const char *name);
 
 //destroy a process
 void process_destroy(process_t *proc);
+
+int process_track_ns_registration(process_t *proc, const char *path);
 
 //get the process as a kernel object (for granting handles to processes)
 object_t *process_get_object(process_t *proc);

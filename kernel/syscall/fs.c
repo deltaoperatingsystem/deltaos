@@ -255,3 +255,12 @@ intptr sys_remove(const char *path) {
     if (copy_user_cstr(path, k_path, sizeof(k_path)) != 0) return -1;
     return handle_remove(k_path);
 }
+
+intptr sys_rename(const char *oldpath, const char *newpath) {
+    if (!oldpath || !newpath) return -1;
+    char k_old[512];
+    char k_new[512];
+    if (copy_user_cstr(oldpath, k_old, sizeof(k_old)) != 0) return -1;
+    if (copy_user_cstr(newpath, k_new, sizeof(k_new)) != 0) return -1;
+    return handle_rename(k_old, k_new);
+}

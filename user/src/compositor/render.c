@@ -190,7 +190,7 @@ static void draw_decoration(uint32 *fb, surface_t *s) {
 void render_surfaces(uint32 *fb) {
     render_wallpaper(fb);
 
-    for (int si = 0; si < comp.stack_count; si++) {
+    for (size_t si = 0; si < comp.stack_count; si++) {
         int idx = find_surface(comp.stack[si]);
         if (idx < 0) continue;
         surface_t *s = &comp.surfaces[idx];

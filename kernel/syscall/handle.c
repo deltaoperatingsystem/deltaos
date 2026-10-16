@@ -65,5 +65,13 @@ intptr sys_ns_register(const char *path, handle_t h, handle_rights_t max_rights)
     object_t *obj = process_get_handle(proc, h);
     if (!obj) return -2;
     
-    return (intptr)ns_register(k_path, obj, max_rights);
+    int rc = ns_register(k_path, obj, max_rights);
+    if (rc != 0) return rc;
+
+    if (process_track_ns_registration(proc, k_path) != 0) {
+        ns_unregister(k_path);
+        return -1;
+    }
+
+    return 0;
 }

@@ -72,7 +72,12 @@ typedef struct percpu {
     
     //136+: synchronisation
     spinlock_irq_t sched_lock;
+
+    //TLB shootdown generation acked by this CPU (8-aligned for CAS)
+    volatile uint64 tlb_gen;
 } percpu_t;
+_Static_assert(__alignof__(percpu_t) >= 8, "percpu must stay 8-aligned");
+_Static_assert(__builtin_offsetof(percpu_t, tlb_gen) % 8 == 0, "tlb_gen must stay 8-aligned for CAS");
 
 //get pointer to current CPU's per-CPU data
 percpu_t *percpu_get(void);

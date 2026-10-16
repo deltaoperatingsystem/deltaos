@@ -27,8 +27,6 @@ typedef struct px_image {
     uint8 *pixels;
 } px_image_t;
 
-#define MAX_TRIES 50
-
 static handle_t server_handle = INVALID_HANDLE;
 
 static void px_send_resize(px_window_t *win) {
@@ -72,25 +70,6 @@ bool px_init() {
     server_handle = comp_connect();
     if (server_handle == INVALID_HANDLE) return false;
 
-    comp_msg_t msg = { .type = MSG_CLIENT_CONNECT };
-    channel_send(server_handle, &msg, sizeof(msg));
-
-    bool got_ack = false;
-    for (int i = 0; i < MAX_TRIES; i++) {
-        comp_msg_t resp;
-        int rc = channel_try_recv(server_handle, &resp, sizeof(resp));
-        if (rc == (ssize)sizeof(resp) && resp.type == MSG_ACK) {
-            got_ack = resp.u.ack.ok;
-            break;
-        }
-        yield();
-    }
-
-    if (!got_ack) {
-        handle_close(server_handle);
-        server_handle = INVALID_HANDLE;
-        return false;
-    }
     return true;
 }
 
@@ -99,7 +78,8 @@ px_window_t *px_create_window(char *name, uint16 width, uint16 height) {
 
     surface_id_t id;
     handle_t ch;
-    if (!comp_create_surface(server_handle, width, height, &id, &ch)) {
+    handle_t vmo;
+    if (!comp_create_surface(server_handle, width, height, &id, &ch, &vmo)) {
         return NULL;
     }
 
@@ -107,34 +87,27 @@ px_window_t *px_create_window(char *name, uint16 width, uint16 height) {
     if (!win) {
         comp_destroy_surface(ch, id);
         handle_close(ch);
+        handle_close(vmo);
         return NULL;
     }
     win->ch = ch;
     win->id = id;
 
     comp_msg_t cfg = {0};
-    bool got_cfg = false;
-    for (int i = 0; i < MAX_TRIES; i++) {
-        int rc = channel_try_recv(win->ch, &cfg, sizeof(cfg));
-        if (rc == (ssize)sizeof(cfg) && cfg.type == MSG_CONFIGURE) {
-            got_cfg = true;
-            break;
-        }
-        yield();
-    }
-    if (!got_cfg) {
+    int rc = channel_recv(win->ch, &cfg, sizeof(cfg));
+    if (rc != (ssize)sizeof(cfg) || cfg.type != MSG_CONFIGURE) {
         comp_destroy_surface(win->ch, id);
         handle_close(win->ch);
+        handle_close(vmo);
         free(win);
         return NULL;
     }
 
-    char path[64];
-    snprintf(path, sizeof(path), "$gui/display/%d_%d/surface", getpid(), id);
     win->surface = malloc(sizeof(px_surface_t));
     if (!win->surface) {
         comp_destroy_surface(win->ch, id);
         handle_close(win->ch);
+        handle_close(vmo);
         free(win);
         return NULL;
     }
@@ -146,7 +119,7 @@ px_window_t *px_create_window(char *name, uint16 width, uint16 height) {
     win->surface->h = cfg.u.configure.h;
     win->surface->bpp = cfg.u.configure.bpp;
 
-    win->surface->handle = get_obj(INVALID_HANDLE, path, RIGHT_WRITE | RIGHT_MAP);
+    win->surface->handle = vmo;
     if (win->surface->handle == INVALID_HANDLE) {
         free(win->surface);
         comp_destroy_surface(win->ch, id);
@@ -272,12 +245,31 @@ bool px_set_title(px_window_t *win, const char *title) {
 
 bool px_poll_event(px_window_t *win, px_event_t *ev) {
     if (!win || !ev) return false;
+    if (win->ch == INVALID_HANDLE) return false;
     ev->type = PX_EVENT_NONE;
 
     //skip compositor internal messages until we either expose one or run dry
     while (1) {
         comp_msg_t msg;
         int rc = channel_try_recv(win->ch, &msg, sizeof(msg));
+        if (rc == -2) {
+            //peer closed: tear down local handles so we don't leak ch+vmo or
+            //spin on a dead channel
+            if (win->surface) {
+                if (win->surface->data && win->surface->mapped_sz > 0) {
+                    vmo_unmap(win->surface->data, win->surface->mapped_sz);
+                    win->surface->data = NULL;
+                    win->surface->mapped_sz = 0;
+                }
+                if (win->surface->handle != INVALID_HANDLE) {
+                    handle_close(win->surface->handle);
+                    win->surface->handle = INVALID_HANDLE;
+                }
+            }
+            handle_close(win->ch);
+            win->ch = INVALID_HANDLE;
+            return false;
+        }
         if (rc != (ssize)sizeof(msg)) return false;
 
         switch (msg.type) {

@@ -35,6 +35,13 @@
 #define KHEAP_VIRT_END   0xFFFFA00000000000ULL
 #define ARCH_PMM_ZONE_MIN_ADDR 0x100000ULL
 
+//page size (4KB on amd64)
+#define PAGE_SIZE 4096
+
+//user address space bounds (canonical low half)
+#define USER_SPACE_START    0x0000000000400000ULL  //4MB
+#define USER_SPACE_END      0x00007FFFFFFFFFFFULL
+
 typedef struct pagemap {
     uintptr top_level; //physical address of PML4
 } pagemap_t;
@@ -66,5 +73,10 @@ void mmu_user_access_fault(void);
 
 //debug
 void mmu_debug_walk(pagemap_t *map, uintptr virt, const char *label);
+
+//TLB shootdown
+void tlb_shootdown_receive(void);
+void mmu_tlb_shootdown_range(uintptr virt, size pages);
+void mmu_tlb_sync_cpu(void);
 
 #endif

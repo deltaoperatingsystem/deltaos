@@ -16,7 +16,7 @@ static inline void arch_halt(void) {
 }
 
 static inline void arch_idle(void) {
-    __asm__ volatile ("sti; hlt");
+    __asm__ volatile ("sti; hlt" ::: "memory");
 }
 
 static inline void arch_pause(void) {
@@ -62,6 +62,18 @@ static inline irq_state_t arch_irq_save(void) {
 
 static inline void arch_irq_restore(irq_state_t flags) {
     __asm__ volatile ("push %0; popfq" :: "r"(flags) : "memory");
+}
+
+static inline bool arch_interrupts_enabled(void) {
+    irq_state_t flags;
+    __asm__ volatile ("pushfq; pop %0" : "=r"(flags) :: "memory");
+    return (flags & (1ULL << 9)) != 0;
+}
+
+static inline uintptr arch_current_sp(void) {
+    uintptr sp;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(sp));
+    return sp;
 }
 
 void arch_string_init(void);

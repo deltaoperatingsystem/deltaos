@@ -41,7 +41,7 @@ void kpanic(void *p_frame, const char *fmt, ...) {
         vt_flush(vt);
     }
     
-    panic_printf("\n*** KERNEL PANIC ***\n\n");
+    panic_printf("\n*** KERNEL PANIC *** (CPU %u)\n\n", arch_cpu_index());
     
     if (fmt) {
         va_list args;

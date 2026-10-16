@@ -13,7 +13,6 @@
 #include "cursor.h"
 #include <compositor/protocol.h>
 
-#define MAX_SURFACES 16
 #define TITLEBAR_H  22
 #define BORDER_W     2
 
@@ -92,8 +91,9 @@ struct compositor_state {
     uint8 screen_bpp;
 
     //surface registry and z order are tracked separately
-    surface_t surfaces[MAX_SURFACES];
-    uint8 num_surfaces;
+    surface_t *surfaces;
+    size_t surfaces_cap;
+    size_t num_surfaces;
     surface_id_t next_id;
 
     //wm_ch is out of band and may not belong to a surface
@@ -121,8 +121,9 @@ struct compositor_state {
     uint32 *saved_fb;
 
     //stack holds surface ids in bottom to top order
-    surface_id_t stack[MAX_SURFACES];
-    uint8 stack_count;
+    surface_id_t *stack;
+    size_t stack_cap;
+    size_t stack_count;
 
     //damage tracking
     bool has_damage;
@@ -133,11 +134,22 @@ struct compositor_state {
 
     uint32 screen_pitch_bytes;
     uint32 row_stride;
+
+    //dedicated client connection channels
+    handle_t *clients;
+    size_t clients_cap;
+    uint32 *client_pids;
+    size_t client_pids_cap;
+    size_t num_clients;
 };
 
 extern struct compositor_state comp;
 
 void send_msg(handle_t ch, comp_msg_t *msg);
 int recv_msg(handle_t ch, comp_msg_t *msg, uint32 *sender_pid);
+//grow helpers (realloc, preserve contents, false on OOM)
+bool comp_ensure_surfaces(size_t need);
+bool comp_ensure_stack(size_t need);
+bool comp_ensure_clients(size_t need);
 
 #endif

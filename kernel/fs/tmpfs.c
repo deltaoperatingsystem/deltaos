@@ -38,6 +38,8 @@ typedef struct tmpfs_node {
     uint32 type;  //FS_TYPE_FILE or FS_TYPE_DIR
     uint32 ctime; //creation time (seconds since 2000)
     struct tmpfs_node *parent;
+    uint32 refcount; //number of live object_t referencing this node
+    bool unlinked;   //removed from tree but still open
     
     union {
         //file data
@@ -59,13 +61,49 @@ typedef struct tmpfs_node {
 static tmpfs_node_t *root = NULL;
 static spinlock_t tmpfs_lock = {0};
 
-//find child by name in directory
+//caller must hold tmpfs_lock
+static void tmpfs_node_hold_locked(tmpfs_node_t *node) {
+    if (node) node->refcount++;
+}
+
+//caller must hold tmpfs_lock; frees node once unlinked and unreferenced
+static void tmpfs_node_release_locked(tmpfs_node_t *node) {
+    if (!node || node->refcount == 0) return;
+    node->refcount--;
+    if (node->refcount == 0 && node->unlinked) {
+        if (node->type == FS_TYPE_FILE) {
+            kfree(node->file.data);
+        } else {
+            for (uint32 i = 0; i < node->dir.count; i++) {
+                tmpfs_node_t *child = node->dir.children[i];
+                if (child) {
+                    child->parent = NULL;
+                    child->unlinked = true;
+                    if (child->refcount == 0) {
+                        if (child->type == FS_TYPE_FILE) kfree(child->file.data);
+                        else kfree(child->dir.children);
+                        kfree(child);
+                    }
+                }
+            }
+            kfree(node->dir.children);
+        }
+        kfree(node);
+    }
+}
+
+static int tmpfs_file_close(object_t *obj);
+static int tmpfs_dir_close(object_t *obj);
+
+//find child by name in directory (caller must hold tmpfs_lock; skips unlinked)
 static tmpfs_node_t *find_child(tmpfs_node_t *dir, const char *name) {
     if (!dir || dir->type != FS_TYPE_DIR) return NULL;
     
     for (uint32 i = 0; i < dir->dir.count; i++) {
-        if (strcmp(dir->dir.children[i]->name, name) == 0) {
-            return dir->dir.children[i];
+        tmpfs_node_t *c = dir->dir.children[i];
+        if (!c || c->unlinked) continue;
+        if (strcmp(c->name, name) == 0) {
+            return c;
         }
     }
     return NULL;
@@ -136,7 +174,10 @@ static tmpfs_node_t *resolve_path(const char *path, bool create_dirs, tmpfs_node
             if (!next_node) return NULL;
             
             strncpy(next_node->name, component, TMPFS_MAX_NAME - 1);
+            next_node->name[TMPFS_MAX_NAME - 1] = '\0';
             next_node->type = FS_TYPE_DIR;
+            next_node->refcount = 0;
+            next_node->unlinked = false;
             next_node->dir.children = kzalloc(TMPFS_INITIAL_CHILDREN * sizeof(tmpfs_node_t *));
             if (!next_node->dir.children) { kfree(next_node); return NULL; }
             next_node->dir.capacity = TMPFS_INITIAL_CHILDREN;
@@ -215,16 +256,39 @@ static ssize tmpfs_file_write(object_t *obj, const void *buf, size len, size off
 static int tmpfs_file_stat(object_t *obj, stat_t *st) {
     tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
     if (!node || !st) return -1;
+    //read fields under lock to prevent torn reads on SMP
+    spinlock_acquire(&tmpfs_lock);
     st->type = FS_TYPE_FILE;
     st->size = node->file.size;
     st->ctime = st->mtime = st->atime = node->ctime;
+    spinlock_release(&tmpfs_lock);
+    return 0;
+}
+
+static int tmpfs_file_close(object_t *obj) {
+    tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
+    if (!node) return 0;
+    obj->data = NULL;
+    spinlock_acquire(&tmpfs_lock);
+    tmpfs_node_release_locked(node);
+    spinlock_release(&tmpfs_lock);
+    return 0;
+}
+
+static int tmpfs_dir_close(object_t *obj) {
+    tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
+    if (!node) return 0;
+    obj->data = NULL;
+    spinlock_acquire(&tmpfs_lock);
+    tmpfs_node_release_locked(node);
+    spinlock_release(&tmpfs_lock);
     return 0;
 }
 
 static object_ops_t tmpfs_file_ops = {
     .read = tmpfs_file_read,
     .write = tmpfs_file_write,
-    .close = NULL,
+    .close = tmpfs_file_close,
     .readdir = NULL,
     .lookup = NULL,
     .stat = tmpfs_file_stat
@@ -236,17 +300,22 @@ static int tmpfs_dir_readdir(object_t *obj, void *buf, uint32 count, uint32 *ind
     if (!node || node->type != FS_TYPE_DIR) return -1;
     
     dirent_t *entries = (dirent_t *)buf;
-    uint32 start = *index;
+    //hold lock to prevent concurrent create/remove from modifying the children array
+    spinlock_acquire(&tmpfs_lock);
+    uint32 i = *index;
     uint32 filled = 0;
     
-    for (uint32 i = start; i < node->dir.count && filled < count; i++) {
-        strncpy(entries[filled].name, node->dir.children[i]->name, sizeof(entries[filled].name) - 1);
+    for (; i < node->dir.count && filled < count; i++) {
+        tmpfs_node_t *c = node->dir.children[i];
+        if (!c || c->unlinked) continue;
+        strncpy(entries[filled].name, c->name, sizeof(entries[filled].name) - 1);
         entries[filled].name[sizeof(entries[filled].name) - 1] = '\0';
-        entries[filled].type = node->dir.children[i]->type;
+        entries[filled].type = c->type;
         filled++;
     }
     
-    *index = start + filled;
+    *index = i;
+    spinlock_release(&tmpfs_lock);
     return filled;
 }
 
@@ -256,33 +325,46 @@ static object_ops_t tmpfs_dir_ops;
 static int tmpfs_dir_stat(object_t *obj, stat_t *st) {
     tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
     if (!node || !st) return -1;
+    //read ctime under lock to prevent tearing
+    spinlock_acquire(&tmpfs_lock);
     st->type = FS_TYPE_DIR;
     st->size = 0;
     st->ctime = st->mtime = st->atime = node->ctime;
+    spinlock_release(&tmpfs_lock);
     return 0;
 }
 
 //directory lookup - find child by name
 static object_t *tmpfs_dir_lookup(object_t *obj, const char *name) {
     tmpfs_node_t *node = (tmpfs_node_t *)obj->data;
-    if (!node || node->type != FS_TYPE_DIR) return NULL;
+    if (!node || !name || node->type != FS_TYPE_DIR) return NULL;
     
+    spinlock_acquire(&tmpfs_lock);
     tmpfs_node_t *child = find_child(node, name);
+    if (child) tmpfs_node_hold_locked(child);
+    uint32 child_type = child ? child->type : 0;
+    spinlock_release(&tmpfs_lock);
     if (!child) return NULL;
-    
-    //create object for the child
-    if (child->type == FS_TYPE_FILE) {
-        return object_create(OBJECT_FILE, &tmpfs_file_ops, child);
-    } else if (child->type == FS_TYPE_DIR) {
-        return object_create(OBJECT_DIR, &tmpfs_dir_ops, child);
+
+    object_t *result = NULL;
+    if (child_type == FS_TYPE_FILE) {
+        result = object_create(OBJECT_FILE, &tmpfs_file_ops, child);
+    } else if (child_type == FS_TYPE_DIR) {
+        result = object_create(OBJECT_DIR, &tmpfs_dir_ops, child);
     }
-    return NULL;
+    if (!result) {
+        spinlock_acquire(&tmpfs_lock);
+        tmpfs_node_release_locked(child);
+        spinlock_release(&tmpfs_lock);
+        return NULL;
+    }
+    return result;
 }
 
 static object_ops_t tmpfs_dir_ops = {
     .read = NULL,
     .write = NULL,
-    .close = NULL,
+    .close = tmpfs_dir_close,
     .readdir = tmpfs_dir_readdir,
     .lookup = tmpfs_dir_lookup,
     .stat = tmpfs_dir_stat
@@ -293,18 +375,23 @@ static object_t *tmpfs_fs_lookup(fs_t *fs, const char *path) {
     (void)fs;
     spinlock_acquire(&tmpfs_lock);
     tmpfs_node_t *node = resolve_path(path, false, NULL, NULL);
-    if (!node) {
+    if (node) tmpfs_node_hold_locked(node);
+    uint32 node_type = node ? node->type : 0;
+    spinlock_release(&tmpfs_lock);
+    if (!node) return NULL;
+    
+    object_t *obj = NULL;
+    if (node_type == FS_TYPE_FILE) {
+        obj = object_create(OBJECT_FILE, &tmpfs_file_ops, node);
+    } else if (node_type == FS_TYPE_DIR) {
+        obj = object_create(OBJECT_DIR, &tmpfs_dir_ops, node);
+    }
+    if (!obj) {
+        spinlock_acquire(&tmpfs_lock);
+        tmpfs_node_release_locked(node);
         spinlock_release(&tmpfs_lock);
         return NULL;
     }
-    
-    object_t *obj = NULL;
-    if (node->type == FS_TYPE_FILE) {
-        obj = object_create(OBJECT_FILE, &tmpfs_file_ops, node);
-    } else if (node->type == FS_TYPE_DIR) {
-        obj = object_create(OBJECT_DIR, &tmpfs_dir_ops, node);
-    }
-    spinlock_release(&tmpfs_lock);
     return obj;
 }
 
@@ -337,8 +424,11 @@ static int tmpfs_fs_create(fs_t *fs, const char *path, uint32 type) {
     }
     
     strncpy(node->name, basename, TMPFS_MAX_NAME - 1);
+    node->name[TMPFS_MAX_NAME - 1] = '\0';
     node->type = type;
     node->ctime = get_current_time();
+    node->refcount = 0;
+    node->unlinked = false;
     
     if (type == FS_TYPE_DIR) {
         node->dir.children = kzalloc(TMPFS_INITIAL_CHILDREN * sizeof(tmpfs_node_t *));
@@ -365,6 +455,106 @@ static int tmpfs_fs_create(fs_t *fs, const char *path, uint32 type) {
     return 0;
 }
 
+static int tmpfs_fs_rename(fs_t *fs, const char *old_path, const char *new_path) {
+    (void)fs;
+
+    spinlock_acquire(&tmpfs_lock);
+
+    //resolve old path
+    tmpfs_node_t *old_parent = NULL;
+    char old_basename[TMPFS_MAX_NAME];
+    tmpfs_node_t *node = resolve_path(old_path, false, &old_parent, old_basename);
+    if (!node || !old_parent) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
+    if (node == root) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
+
+    //resolve new path - get parent and basename, ensure no existing node
+    tmpfs_node_t *new_parent = NULL;
+    char new_basename[TMPFS_MAX_NAME];
+    if (resolve_path(new_path, false, &new_parent, new_basename)) {
+        //new path already exists (same-path rename is a no-op success)
+        if (strcmp(old_path, new_path) == 0) {
+            spinlock_release(&tmpfs_lock);
+            return 0;
+        }
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
+    if (!new_parent || new_parent->type != FS_TYPE_DIR || new_parent->unlinked) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
+    if (strcmp(new_basename, ".") == 0 || strcmp(new_basename, "..") == 0 ||
+        strcmp(old_basename, ".") == 0 || strcmp(old_basename, "..") == 0) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
+
+    //moving a directory into itself or a descendant creates a parent/children cycle
+    if (node->type == FS_TYPE_DIR) {
+        tmpfs_node_t *anc = new_parent;
+        while (anc) {
+            if (anc == node) {
+                spinlock_release(&tmpfs_lock);
+                return -1;
+            }
+            anc = anc->parent;
+        }
+    }
+
+    //save old name for rollback
+    char saved_name[TMPFS_MAX_NAME];
+    memcpy(saved_name, node->name, sizeof(saved_name));
+
+    //remove from old parent
+    for (uint32 i = 0; i < old_parent->dir.count; i++) {
+        if (old_parent->dir.children[i] == node) {
+            for (uint32 j = i; j < old_parent->dir.count - 1; j++) {
+                old_parent->dir.children[j] = old_parent->dir.children[j + 1];
+            }
+            old_parent->dir.count--;
+            break;
+        }
+    }
+
+    //update name and parent (always NUL-terminated)
+    strncpy(node->name, new_basename, TMPFS_MAX_NAME - 1);
+    node->name[TMPFS_MAX_NAME - 1] = '\0';
+    node->parent = new_parent;
+
+    //add to new parent
+    if (add_child(new_parent, node) != 0) {
+        //rollback: restore old name and re-add to old parent
+        memcpy(node->name, saved_name, sizeof(saved_name));
+        node->parent = old_parent;
+        add_child(old_parent, node);
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
+
+    spinlock_release(&tmpfs_lock);
+    return 0;
+}
+
+//recursively free a directory node and all its descendants
+static void tmpfs_free_node_recursive(tmpfs_node_t *node) {
+    if (!node) return;
+    if (node->type == FS_TYPE_FILE) {
+        kfree(node->file.data);
+    } else if (node->type == FS_TYPE_DIR) {
+        for (uint32 i = 0; i < node->dir.count; i++) {
+            tmpfs_free_node_recursive(node->dir.children[i]);
+        }
+        kfree(node->dir.children);
+    }
+    kfree(node);
+}
+
 static int tmpfs_fs_remove(fs_t *fs, const char *path) {
     (void)fs;
     
@@ -375,6 +565,15 @@ static int tmpfs_fs_remove(fs_t *fs, const char *path) {
     
     tmpfs_node_t *node = resolve_path(path, false, &parent, basename);
     if (!node || !parent) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
+    if (node == root) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
+    //POSIX: refuse to remove a non-empty directory instead of deleting a tree
+    if (node->type == FS_TYPE_DIR && node->dir.count != 0) {
         spinlock_release(&tmpfs_lock);
         return -1;
     }
@@ -390,14 +589,12 @@ static int tmpfs_fs_remove(fs_t *fs, const char *path) {
             break;
         }
     }
-    
-    //free node data
-    if (node->type == FS_TYPE_FILE) {
-        kfree(node->file.data);
-    } else {
-        kfree(node->dir.children);
+
+    //unlink and defer free while open objects reference the node
+    node->unlinked = true;
+    if (node->refcount == 0) {
+        tmpfs_free_node_recursive(node);
     }
-    kfree(node);
     
     spinlock_release(&tmpfs_lock);
     return 0;
@@ -407,8 +604,13 @@ static int tmpfs_fs_stat(fs_t *fs, const char *path, stat_t *st) {
     (void)fs;
     if (!st) return -1;
     
+    //hold lock while walking the tree - concurrent remove can UAF nodes
+    spinlock_acquire(&tmpfs_lock);
     tmpfs_node_t *node = resolve_path(path, false, NULL, NULL);
-    if (!node) return -1;
+    if (!node) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
     
     st->type = node->type;
     st->ctime = st->mtime = st->atime = node->ctime;
@@ -418,7 +620,7 @@ static int tmpfs_fs_stat(fs_t *fs, const char *path, stat_t *st) {
     } else {
         st->size = 0;
     }
-    
+    spinlock_release(&tmpfs_lock);
     return 0;
 }
 
@@ -426,6 +628,7 @@ static fs_ops_t tmpfs_ops = {
     .lookup = tmpfs_fs_lookup,
     .create = tmpfs_fs_create,
     .remove = tmpfs_fs_remove,
+    .rename = tmpfs_fs_rename,
     .readdir = NULL,
     .stat = tmpfs_fs_stat
 };
@@ -447,13 +650,15 @@ static int tmpfs_root_readdir(object_t *obj, void *buf, uint32 count, uint32 *in
     (void)obj;
     if (!root || !buf || !index) return -1;
     
+    //hold lock - concurrent create/remove can modify root->dir.children
+    spinlock_acquire(&tmpfs_lock);
     dirent_t *entries = (dirent_t *)buf;
     uint32 start = *index;
     uint32 found = 0;
     
     for (uint32 i = start; i < root->dir.count && found < count; i++) {
         tmpfs_node_t *child = root->dir.children[i];
-        if (child) {
+        if (child && !child->unlinked) {
             entries[found].type = child->type;
             strncpy(entries[found].name, child->name, DIRENT_NAME_MAX - 1);
             entries[found].name[DIRENT_NAME_MAX - 1] = '\0';
@@ -461,7 +666,7 @@ static int tmpfs_root_readdir(object_t *obj, void *buf, uint32 count, uint32 *in
         }
         *index = i + 1;
     }
-    
+    spinlock_release(&tmpfs_lock);
     return found;
 }
 
@@ -501,6 +706,8 @@ void tmpfs_init(void) {
     root->name[0] = '\0';
     root->type = FS_TYPE_DIR;
     root->parent = NULL;
+    root->refcount = 0;
+    root->unlinked = false;
     root->dir.children = kzalloc(TMPFS_INITIAL_CHILDREN * sizeof(tmpfs_node_t *));
     if (!root->dir.children) {
         kfree(root);

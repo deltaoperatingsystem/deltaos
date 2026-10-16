@@ -12,6 +12,7 @@
 #include <lib/io.h>
 #include <arch/amd64/context.h>
 #include <arch/amd64/int/apic.h>
+#include <arch/amd64/mmu.h>
 #include <arch/amd64/int/ioapic.h>
 #include <arch/percpu.h>
 #include <arch/smp.h>
@@ -228,16 +229,18 @@ void interrupt_handler(uint64 vector, uint64 error_code, uint64 rip, interrupt_f
         int from_usermode = ((frame->cs & 3) == 3) ? 1 : 0;
 
         if (vector == IPI_RESCHEDULE) {
-            if (apic_is_enabled() && ioapic_is_enabled()) {
-                apic_send_eoi();
-            } else {
-                pic_send_eoi(irq);
-            }
+            apic_send_eoi();
 
             if (from_usermode) {
                 sched_preempt();
             }
             goto interrupt_epilogue_no_eoi;
+        }
+
+        if (vector == IPI_TLB_SHOOTDOWN) {
+            tlb_shootdown_receive();
+            apic_send_eoi();
+            return;
         }
 
         bool handled = false;

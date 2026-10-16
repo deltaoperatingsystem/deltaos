@@ -3,6 +3,11 @@
 #include <mm/mm.h>
 #include <lib/string.h>
 #include <lib/io.h>
+#include <arch/amd64/percpu.h>
+#include <arch/amd64/int/apic.h>
+#include <arch/smp.h>
+#include <arch/amd64/cpu.h>
+#include <lib/spinlock.h>
 
 static pagemap_t kernel_pagemap;
 
@@ -47,6 +52,137 @@ static uint64 mmu_read_msr(uint32 msr) {
 }
 
 static uint64 *get_next_level(uint64 *current_table, uint32 index, bool allocate, bool user);
+
+//global TLB shootdown state (one in-flight request at a time)
+static spinlock_irq_t tlb_sd_lock = SPINLOCK_IRQ_INIT;
+static volatile uintptr tlb_shootdown_virt = 0;
+static volatile size tlb_shootdown_pages = 0;
+static volatile uint64 tlb_shootdown_gen = 0;
+
+static void tlb_flush_range_local(uintptr virt, size pages) {
+    for (size i = 0; i < pages; i++) {
+        __asm__ volatile ("invlpg (%0)" :: "r"(virt + i * PAGE_SIZE) : "memory");
+    }
+}
+
+static void tlb_ack_gen(uint64 gen) {
+    percpu_t *cpu = percpu_get();
+    //monotonic: never move tlb_gen backwards
+    uint64 cur = cpu->tlb_gen;
+    while (cur < gen) {
+        if (__sync_bool_compare_and_swap(&cpu->tlb_gen, cur, gen)) {
+            break;
+        }
+        cur = cpu->tlb_gen;
+    }
+}
+
+static bool tlb_gen_quiescent(uint64 gen) {
+    uint32 count = percpu_cpu_count();
+    for (uint32 i = 0; i < count; i++) {
+        percpu_t *cpu = percpu_get_by_index(i);
+        if (!cpu || !cpu->started) continue;
+        if (cpu->tlb_gen < gen) return false;
+    }
+    return true;
+}
+
+void tlb_shootdown_receive(void) {
+    //request slot is stable until every target of this gen has acked, so we can
+    //snapshot without holding tlb_sd_lock
+    uint64 gen = __atomic_load_n(&tlb_shootdown_gen, __ATOMIC_ACQUIRE);
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    uintptr virt = tlb_shootdown_virt;
+    size pages = tlb_shootdown_pages;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+
+    //if a newer publish raced past us, re-read once
+    uint64 regen = __atomic_load_n(&tlb_shootdown_gen, __ATOMIC_ACQUIRE);
+    if (regen != gen) {
+        gen = regen;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        virt = tlb_shootdown_virt;
+        pages = tlb_shootdown_pages;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    }
+
+    tlb_flush_range_local(virt, pages);
+    arch_wmb();
+    tlb_ack_gen(gen);
+}
+
+//sync AP tlb_gen with the global shootdown gen on bring-up
+void mmu_tlb_sync_cpu(void) {
+    for (;;) {
+        uint64 g = tlb_shootdown_gen;
+        tlb_ack_gen(g);
+        arch_rmb();
+        if (tlb_shootdown_gen == g) break;
+    }
+}
+
+void mmu_tlb_shootdown_range(uintptr virt, size pages) {
+    tlb_flush_range_local(virt, pages);
+    if (pages == 0) return;
+
+    uint32 count = percpu_cpu_count();
+    if (count <= 1) return;
+    if (!apic_is_enabled()) return;
+
+    percpu_t *self = percpu_get();
+
+    for (;;) {
+        irq_state_t flags = spinlock_irq_acquire(&tlb_sd_lock);
+
+        uint64 cur = tlb_shootdown_gen;
+        //don't overwrite an in-flight request; drop the lock so we can take IPIs
+        if (cur != 0 && !tlb_gen_quiescent(cur)) {
+            spinlock_irq_release(&tlb_sd_lock, flags);
+            while (!tlb_gen_quiescent(cur)) {
+                arch_pause();
+            }
+            continue;
+        }
+
+        uint64 gen = cur + 1;
+        //publish virt/pages before gen so receivers see the updated range
+        tlb_shootdown_virt = virt;
+        tlb_shootdown_pages = pages;
+        __atomic_thread_fence(__ATOMIC_RELEASE);
+        tlb_shootdown_gen = gen;
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+
+        //snapshot online target CPUs and send shootdown IPIs
+        bool targeted[MAX_CPUS];
+        for (uint32 i = 0; i < MAX_CPUS; i++) {
+            targeted[i] = false;
+        }
+        for (uint32 i = 0; i < count && i < MAX_CPUS; i++) {
+            percpu_t *cpu = percpu_get_by_index(i);
+            if (!cpu || cpu == self || !cpu->started) continue;
+            targeted[i] = true;
+            apic_send_ipi(cpu->apic_id, IPI_TLB_SHOOTDOWN);
+        }
+
+        tlb_ack_gen(gen);
+
+        //release lock before spinning so other CPUs can wait with IRQs enabled
+        spinlock_irq_release(&tlb_sd_lock, flags);
+
+        //wait for all targeted CPUs and any newly started CPUs to ack
+        for (uint32 i = 0; i < count && i < MAX_CPUS; i++) {
+            if (!targeted[i]) continue;
+            percpu_t *cpu = percpu_get_by_index(i);
+            while (__atomic_load_n(&cpu->tlb_gen, __ATOMIC_ACQUIRE) < gen) {
+                arch_pause();
+            }
+        }
+        while (!tlb_gen_quiescent(gen)) {
+            arch_pause();
+        }
+        return;
+    }
+}
 
 static void mmu_init_pat(void) {
     //configure PAT (page attribute table)
@@ -316,6 +452,7 @@ void mmu_unmap_range(pagemap_t *map, uintptr virt, size pages) {
 
     if (flush_tlb) {
         mmu_flush_current_tlb();
+        //cross-CPU shootdown is done by the caller outside kheap_lock
     }
 }
 

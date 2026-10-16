@@ -32,7 +32,8 @@ static int resolve_full_path(const char *path, char *out, size out_max) {
         if (cwd_len + 1 + path_len >= out_max) return -1;
         
         memcpy(out, proc->cwd, cwd_len);
-        if (proc->cwd[cwd_len - 1] != '/') {
+        //an empty cwd has no last character to inspect; treat it as needing a separator
+        if (cwd_len == 0 || proc->cwd[cwd_len - 1] != '/') {
             out[cwd_len] = '/';
             cwd_len++;
         }
@@ -449,6 +450,86 @@ int handle_remove(const char *path) {
         }
     }
     
+    object_deref(root);
+    return result;
+}
+
+int handle_rename(const char *oldpath, const char *newpath) {
+    if (!oldpath || !newpath) return -1;
+
+    char old_full[512];
+    char new_full[512];
+    if (resolve_full_path(oldpath, old_full, sizeof(old_full)) < 0) return -1;
+    if (resolve_full_path(newpath, new_full, sizeof(new_full)) < 0) return -1;
+
+    //mounted filesystem paths must resolve to the same mount
+    if (old_full[0] == '/' && new_full[0] == '/') {
+        fs_t *old_fs = NULL;
+        const char *old_fs_path = NULL;
+        bool old_mounted = resolve_mounted_path(old_full, &old_fs, &old_fs_path) && old_fs;
+        fs_t *new_fs = NULL;
+        const char *new_fs_path = NULL;
+        bool new_mounted = resolve_mounted_path(new_full, &new_fs, &new_fs_path) && new_fs;
+        if (old_mounted || new_mounted) {
+            if (!old_mounted || !new_mounted || new_fs != old_fs) return -1; //EXDEV
+            if (!old_fs->ops || !old_fs->ops->rename) return -1;
+            if (!old_fs_path || !*old_fs_path || !new_fs_path || !*new_fs_path) return -1;
+            return old_fs->ops->rename(old_fs, old_fs_path, new_fs_path);
+        }
+    }
+
+    //fall back to namespace-based path resolution
+    const char *resolved_old = old_full;
+    const char *slash_old = resolved_old;
+    const char *resolved_new = new_full;
+    const char *slash_new = resolved_new;
+    char prefix_old[64], prefix_new[64];
+
+    if (resolved_old[0] == '/') {
+        strcpy(prefix_old, "$files");
+        slash_old = resolved_old;
+    } else if (resolved_old[0] == '$') {
+        const char *s = resolved_old + 1;
+        while (*s && *s != '/') s++;
+        size prefix_len = s - resolved_old;
+        if (prefix_len >= sizeof(prefix_old)) return -1;
+        memcpy(prefix_old, resolved_old, prefix_len);
+        prefix_old[prefix_len] = '\0';
+        slash_old = s;
+    } else {
+        return -1;
+    }
+
+    if (resolved_new[0] == '/') {
+        strcpy(prefix_new, "$files");
+        slash_new = resolved_new;
+    } else if (resolved_new[0] == '$') {
+        const char *s = resolved_new + 1;
+        while (*s && *s != '/') s++;
+        size prefix_len = s - resolved_new;
+        if (prefix_len >= sizeof(prefix_new)) return -1;
+        memcpy(prefix_new, resolved_new, prefix_len);
+        prefix_new[prefix_len] = '\0';
+        slash_new = s;
+    } else {
+        return -1;
+    }
+
+    if (strcmp(prefix_old, prefix_new) != 0) return -1;
+
+    object_t *root = ns_lookup(prefix_old);
+    if (!root) return -1;
+
+    int result = -1;
+    if (root->type == OBJECT_DIR && root->data) {
+        fs_t *fs = (fs_t *)root->data;
+        if (fs->ops && fs->ops->rename) {
+            const char *fs_path_old = (*slash_old == '/') ? (slash_old + 1) : slash_old;
+            const char *fs_path_new = (*slash_new == '/') ? (slash_new + 1) : slash_new;
+            result = fs->ops->rename(fs, fs_path_old, fs_path_new);
+        }
+    }
+
     object_deref(root);
     return result;
 }
