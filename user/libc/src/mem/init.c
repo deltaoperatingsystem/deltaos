@@ -29,4 +29,5 @@ void _mem_init(void) {
     first->prev = NULL;
     
     _malloc_free_list = first;
+    _malloc_tail = first;
 }

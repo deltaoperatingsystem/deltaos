@@ -66,29 +66,30 @@ static void tmpfs_node_hold_locked(tmpfs_node_t *node) {
     if (node) node->refcount++;
 }
 
+//caller must hold tmpfs_lock; node must be unlinked with no references.
+//descendants are orphaned, and freed recursively unless something still holds them open
+static void tmpfs_destroy_unlinked_locked(tmpfs_node_t *node) {
+    if (node->type == FS_TYPE_FILE) {
+        kfree(node->file.data);
+    } else {
+        for (uint32 i = 0; i < node->dir.count; i++) {
+            tmpfs_node_t *child = node->dir.children[i];
+            if (!child) continue;
+            child->parent = NULL;
+            child->unlinked = true;
+            if (child->refcount == 0) tmpfs_destroy_unlinked_locked(child);
+        }
+        kfree(node->dir.children);
+    }
+    kfree(node);
+}
+
 //caller must hold tmpfs_lock; frees node once unlinked and unreferenced
 static void tmpfs_node_release_locked(tmpfs_node_t *node) {
     if (!node || node->refcount == 0) return;
     node->refcount--;
     if (node->refcount == 0 && node->unlinked) {
-        if (node->type == FS_TYPE_FILE) {
-            kfree(node->file.data);
-        } else {
-            for (uint32 i = 0; i < node->dir.count; i++) {
-                tmpfs_node_t *child = node->dir.children[i];
-                if (child) {
-                    child->parent = NULL;
-                    child->unlinked = true;
-                    if (child->refcount == 0) {
-                        if (child->type == FS_TYPE_FILE) kfree(child->file.data);
-                        else kfree(child->dir.children);
-                        kfree(child);
-                    }
-                }
-            }
-            kfree(node->dir.children);
-        }
-        kfree(node);
+        tmpfs_destroy_unlinked_locked(node);
     }
 }
 
@@ -109,10 +110,10 @@ static tmpfs_node_t *find_child(tmpfs_node_t *dir, const char *name) {
     return NULL;
 }
 
-//add child to directory
-static int add_child(tmpfs_node_t *dir, tmpfs_node_t *child) {
+//make sure dir has room for one more child (grows the array if needed)
+static int reserve_child_slot(tmpfs_node_t *dir) {
     if (!dir || dir->type != FS_TYPE_DIR) return -1;
-    
+
     if (dir->dir.count >= dir->dir.capacity) {
         uint32 new_cap = dir->dir.capacity * 2;
         tmpfs_node_t **new_children = krealloc(dir->dir.children, 
@@ -121,6 +122,12 @@ static int add_child(tmpfs_node_t *dir, tmpfs_node_t *child) {
         dir->dir.children = new_children;
         dir->dir.capacity = new_cap;
     }
+    return 0;
+}
+
+//add child to directory
+static int add_child(tmpfs_node_t *dir, tmpfs_node_t *child) {
+    if (reserve_child_slot(dir) != 0) return -1;
     
     dir->dir.children[dir->dir.count++] = child;
     child->parent = dir;
@@ -455,6 +462,8 @@ static int tmpfs_fs_create(fs_t *fs, const char *path, uint32 type) {
     return 0;
 }
 
+static void tmpfs_free_node_recursive(tmpfs_node_t *node);
+
 static int tmpfs_fs_rename(fs_t *fs, const char *old_path, const char *new_path) {
     (void)fs;
 
@@ -473,17 +482,20 @@ static int tmpfs_fs_rename(fs_t *fs, const char *old_path, const char *new_path)
         return -1;
     }
 
-    //resolve new path - get parent and basename, ensure no existing node
+    //resolve new path - get parent and basename; an existing regular file may be replaced
     tmpfs_node_t *new_parent = NULL;
     char new_basename[TMPFS_MAX_NAME];
-    if (resolve_path(new_path, false, &new_parent, new_basename)) {
-        //new path already exists (same-path rename is a no-op success)
-        if (strcmp(old_path, new_path) == 0) {
+    tmpfs_node_t *existing = resolve_path(new_path, false, &new_parent, new_basename);
+    if (existing) {
+        //same-path rename is a no-op success
+        if (existing == node || strcmp(old_path, new_path) == 0) {
             spinlock_release(&tmpfs_lock);
             return 0;
         }
-        spinlock_release(&tmpfs_lock);
-        return -1;
+        if (existing->type != FS_TYPE_FILE || node->type != FS_TYPE_FILE || !new_parent) {
+            spinlock_release(&tmpfs_lock);
+            return -1;
+        }
     }
     if (!new_parent || new_parent->type != FS_TYPE_DIR || new_parent->unlinked) {
         spinlock_release(&tmpfs_lock);
@@ -507,9 +519,29 @@ static int tmpfs_fs_rename(fs_t *fs, const char *old_path, const char *new_path)
         }
     }
 
-    //save old name for rollback
-    char saved_name[TMPFS_MAX_NAME];
-    memcpy(saved_name, node->name, sizeof(saved_name));
+    //reserve room in the destination first so a failed allocation leaves the tree untouched
+    if (reserve_child_slot(new_parent) != 0) {
+        spinlock_release(&tmpfs_lock);
+        return -1;
+    }
+
+    //past this point nothing can fail, so detach the replaced destination now
+    if (existing) {
+        for (uint32 i = 0; i < new_parent->dir.count; i++) {
+            if (new_parent->dir.children[i] == existing) {
+                for (uint32 j = i; j < new_parent->dir.count - 1; j++) {
+                    new_parent->dir.children[j] = new_parent->dir.children[j + 1];
+                }
+                new_parent->dir.count--;
+                break;
+            }
+        }
+        //defer the free while open objects still reference it
+        existing->unlinked = true;
+        if (existing->refcount == 0) {
+            tmpfs_free_node_recursive(existing);
+        }
+    }
 
     //remove from old parent
     for (uint32 i = 0; i < old_parent->dir.count; i++) {
@@ -522,20 +554,12 @@ static int tmpfs_fs_rename(fs_t *fs, const char *old_path, const char *new_path)
         }
     }
 
-    //update name and parent (always NUL-terminated)
+    //update name (always NUL-terminated); add_child sets the new parent
     strncpy(node->name, new_basename, TMPFS_MAX_NAME - 1);
     node->name[TMPFS_MAX_NAME - 1] = '\0';
-    node->parent = new_parent;
 
-    //add to new parent
-    if (add_child(new_parent, node) != 0) {
-        //rollback: restore old name and re-add to old parent
-        memcpy(node->name, saved_name, sizeof(saved_name));
-        node->parent = old_parent;
-        add_child(old_parent, node);
-        spinlock_release(&tmpfs_lock);
-        return -1;
-    }
+    //cannot fail: capacity was reserved above and removal only frees slots
+    add_child(new_parent, node);
 
     spinlock_release(&tmpfs_lock);
     return 0;

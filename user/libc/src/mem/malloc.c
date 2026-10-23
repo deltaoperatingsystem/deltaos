@@ -20,16 +20,18 @@ void *malloc(size len) {
 
         //printf("malloc: growing heap from %d to %d (grow_by=%d)\n", (int)old_cap, (int)new_cap, (int)grow_by);
 
+        if (!_malloc_free_list || !_malloc_tail) return NULL;
+
         if (vmo_resize(_mem_vmo, new_cap) == 0) {
             malloc_header_t *new_block = (malloc_header_t *)((char *)_mem_addr + old_cap);
             new_block->s = grow_by - HEADER_SIZE;
             new_block->is_free = true;
             new_block->next = NULL;
             
-            malloc_header_t *last = _malloc_free_list;
-            while (last->next) last = last->next;
+            malloc_header_t *last = _malloc_tail;
             last->next = new_block;
             new_block->prev = last;
+            _malloc_tail = new_block;
 
             heap_capacity = new_cap;
             _malloc_coalesce(new_block);

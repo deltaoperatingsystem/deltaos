@@ -24,12 +24,12 @@ extern void kernel_main(const char *cmdline);
 extern void enable_sse(void);
 
 void arch_init(struct db_boot_info *boot_info) {
+    arch_string_init();
+
     //early console for debugging
     serial_init();
     io_enable_serial();
     set_outmode(SERIAL);
-
-    arch_string_init();
 
     puts("\x1b[2J\x1b[H");
     puts("[amd64] initializing...\n");
@@ -52,7 +52,8 @@ void arch_init(struct db_boot_info *boot_info) {
         memcpy(cmdline_buf, cmdline, len);
         cmdline_buf[len] = '\0';
         
-        char *arg = strtok(cmdline_buf, " ");
+        char *tok_save = NULL;
+        char *arg = strtok_r(cmdline_buf, " ", &tok_save);
         while (arg) {
             if (strcmp(arg, "noapic") == 0) {
                 apic_set_force_pic(true);
@@ -64,7 +65,7 @@ void arch_init(struct db_boot_info *boot_info) {
                 iommu_set_force_disable(true);
                 printf("[amd64] interrupt remapping disabled via command line\n");
             }
-            arg = strtok(NULL, " ");
+            arg = strtok_r(NULL, " ", &tok_save);
         }
     }
 

@@ -1677,7 +1677,17 @@ static int fat32_fs_rename(fs_t *fs_obj, const char *old_path, const char *new_p
     }
 
     //new path must not already exist
-    if (fat32_find_child(fs, new_parent_cluster, new_name, NULL, NULL) == 0) return -1;
+    //an existing destination may only be replaced when both sides are regular files;
+    //it is left untouched until the new entry has been written
+    fat32_dirent_t dst_ent;
+    uint64 dst_entry_offset = 0;
+    bool replace_dst = false;
+    if (fat32_find_child(fs, new_parent_cluster, new_name, &dst_ent, &dst_entry_offset) == 0) {
+        if ((dst_ent.attr & FAT32_ATTR_DIR) || (old_ent.attr & FAT32_ATTR_DIR)) return -1;
+        //same entry (e.g. case-only rename): keep the old refusal
+        if (new_parent_cluster == old_parent_cluster && dst_entry_offset == old_entry_offset) return -1;
+        replace_dst = true;
+    }
 
     //moving a directory into itself or a descendant would create a FAT cycle
     if (old_ent.attr & FAT32_ATTR_DIR) {
@@ -1773,8 +1783,9 @@ static int fat32_fs_rename(fs_t *fs_obj, const char *old_path, const char *new_p
             return -1;
         }
         fat32_dirent_t dotdot = original_dotdot;
-        dotdot.first_cluster_hi = (uint16)((new_parent_cluster >> 16) & 0xFFFF);
-        dotdot.first_cluster_lo = (uint16)(new_parent_cluster & 0xFFFF);
+        uint32 dotdot_cluster = (new_parent_cluster == fs->root_cluster) ? 0 : new_parent_cluster;
+        dotdot.first_cluster_hi = (uint16)((dotdot_cluster >> 16) & 0xFFFF);
+        dotdot.first_cluster_lo = (uint16)(dotdot_cluster & 0xFFFF);
         if (fat32_dev_write_bytes(fs, dotdot_offset, &dotdot, sizeof(dotdot)) < 0) {
             fat32_rename_cleanup_new(fs, new_parent_cluster, new_base_offset, slots_needed);
             return -1;
@@ -1792,6 +1803,13 @@ static int fat32_fs_rename(fs_t *fs_obj, const char *old_path, const char *new_p
                                   &original_dotdot, sizeof(original_dotdot));
         }
         return -1;
+    }
+
+    //the replaced destination goes last so every earlier failure leaves it untouched
+    if (replace_dst) {
+        if (fat32_dir_remove_entry_chain(fs, new_parent_cluster, dst_entry_offset) < 0) return -1;
+        uint32 dst_cluster = ((uint32)dst_ent.first_cluster_hi << 16) | dst_ent.first_cluster_lo;
+        if (dst_cluster >= 2) fat32_free_chain(fs, dst_cluster);
     }
 
     return 0;

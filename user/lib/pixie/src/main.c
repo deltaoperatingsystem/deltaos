@@ -1,5 +1,6 @@
 #include <system.h>
 #include <io.h>
+#include <string.h>
 #include <mem.h>
 #include <pixie.h>
 #include <dm.h>
@@ -7,9 +8,11 @@
 #include <compositor/client.h>
 
 typedef struct px_surface {
-    uint32 *data;
+    uint32 *data;    //private back buffer, all drawing goes here
+    uint32 *shared;  //mapping of the VMO the compositor reads; only written on commit
     uint16 w, h, bpp;
     bool dirty;
+    bool pending;    //a commit has been sent and the compositor hasn't latched it yet
     handle_t handle;
     size mapped_sz; //actual byte count passed to vmo_map (may be > w*h*bpp due to page rounding)
 } px_surface_t;
@@ -41,24 +44,36 @@ static bool px_remap_surface(px_window_t *win, uint16 new_w, uint16 new_h, uint1
     px_surface_t *surface = win->surface;
 
     //use the stored mapped_sz so vmo_unmap covers exactly what vmo_map allocated
-    if (surface->data && surface->mapped_sz > 0) {
-        vmo_unmap(surface->data, surface->mapped_sz);
-        surface->data = NULL;
+    if (surface->shared && surface->mapped_sz > 0) {
+        vmo_unmap(surface->shared, surface->mapped_sz);
+        surface->shared = NULL;
         surface->mapped_sz = 0;
     }
 
     size new_sz = (size)new_w * (size)new_h * (size)new_bpp;
     if (vmo_resize(surface->handle, new_sz) != 0) return false;
 
-    surface->data = vmo_map(surface->handle, NULL, 0, new_sz, RIGHT_WRITE | RIGHT_MAP);
-    if (!surface->data) return false;
+    uint32 *shared = vmo_map(surface->handle, NULL, 0, new_sz, RIGHT_WRITE | RIGHT_MAP);
+    if (!shared) return false;
 
+    //private back buffer that apps draw into, so the compositor never sees a half-drawn frame
+    uint32 *back = malloc(new_sz);
+    if (!back) {
+        vmo_unmap(shared, (new_sz + 0xFFF) & ~(size)0xFFF);
+        return false;
+    }
+    memset(back, 0, new_sz);
+    free(surface->data);
+
+    surface->shared = shared;
+    surface->data = back;
     //vmo_map rounds len up to a page boundary - record the actual allocation size
     surface->mapped_sz = (new_sz + 0xFFF) & ~(size)0xFFF;
     surface->w = new_w;
     surface->h = new_h;
     surface->bpp = new_bpp;
     surface->dirty = false;
+    surface->pending = false;
 
     if (notify_compositor) px_send_resize(win);
     return true;
@@ -113,8 +128,10 @@ px_window_t *px_create_window(char *name, uint16 width, uint16 height) {
     }
 
     win->surface->data = NULL;
+    win->surface->shared = NULL;
     win->surface->mapped_sz = 0;
     win->surface->dirty = false;
+    win->surface->pending = false;
     win->surface->w = cfg.u.configure.w;
     win->surface->h = cfg.u.configure.h;
     win->surface->bpp = cfg.u.configure.bpp;
@@ -172,9 +189,17 @@ void px_draw_rect(px_surface_t *surface, px_rect_t r) {
 
 void px_update_window(px_window_t *win) {
     if (!win || !win->surface) return;
-    if (!win->surface->dirty) return;
+    px_surface_t *s = win->surface;
+    if (!s->dirty) return;
+    if (!s->data || !s->shared) return;
+    //compositor hasn't copied the previous frame yet, so keep the frame dirty and retry later
+    //(the pending flag is cleared by px_poll_event when MSG_FRAME_DONE arrives)
+    if (s->pending) return;
+
+    memcpy(s->shared, s->data, (size)s->w * s->h * s->bpp);
     comp_commit(win->ch, win->id);
-    win->surface->dirty = false;
+    s->pending = true;
+    s->dirty = false;
 }
 
 px_image_t *px_load_image(char *path) {
@@ -256,11 +281,13 @@ bool px_poll_event(px_window_t *win, px_event_t *ev) {
             //peer closed: tear down local handles so we don't leak ch+vmo or
             //spin on a dead channel
             if (win->surface) {
-                if (win->surface->data && win->surface->mapped_sz > 0) {
-                    vmo_unmap(win->surface->data, win->surface->mapped_sz);
-                    win->surface->data = NULL;
+                if (win->surface->shared && win->surface->mapped_sz > 0) {
+                    vmo_unmap(win->surface->shared, win->surface->mapped_sz);
+                    win->surface->shared = NULL;
                     win->surface->mapped_sz = 0;
                 }
+                free(win->surface->data);
+                win->surface->data = NULL;
                 if (win->surface->handle != INVALID_HANDLE) {
                     handle_close(win->surface->handle);
                     win->surface->handle = INVALID_HANDLE;
@@ -301,6 +328,10 @@ bool px_poll_event(px_window_t *win, px_event_t *ev) {
 
             case MSG_FOCUS_EVENT:
                 //focus toggles are internal for now so keep draining
+                continue;
+
+            case MSG_FRAME_DONE:
+                if (win->surface) win->surface->pending = false;
                 continue;
 
             default:

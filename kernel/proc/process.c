@@ -204,8 +204,8 @@ static void process_free(process_t *proc) {
     kfree(proc);
 }
 
-int process_track_ns_registration(process_t *proc, const char *path) {
-    if (!proc || !path) return -1;
+int process_track_ns_registration(process_t *proc, const char *path, object_t *obj) {
+    if (!proc || !path || !obj) return -1;
 
     proc_ns_registration_t *registration = kzalloc(sizeof(*registration));
     if (!registration) return -1;
@@ -215,6 +215,9 @@ int process_track_ns_registration(process_t *proc, const char *path) {
         kfree(registration);
         return -1;
     }
+
+    object_ref(obj);
+    registration->obj = obj;
 
     spinlock_acquire(&proc->lock);
     registration->next = proc->ns_registrations;
@@ -251,7 +254,8 @@ void process_destroy(process_t *proc) {
     spinlock_release(&proc->lock);
     while (registrations) {
         proc_ns_registration_t *next = registrations->next;
-        ns_unregister(registrations->path);
+        ns_unregister_if(registrations->path, registrations->obj);
+        object_deref(registrations->obj);
         kfree(registrations->path);
         kfree(registrations);
         registrations = next;

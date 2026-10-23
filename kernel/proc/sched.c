@@ -102,8 +102,8 @@ static void idle_thread_entry(void *arg) {
         if (empty) {
             arch_idle();
         } else {
-            sched_yield();
             arch_interrupts_enable();
+            sched_yield();
         }
     }
 }

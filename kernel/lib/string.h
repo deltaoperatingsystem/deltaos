@@ -11,7 +11,7 @@ int strncmp(const char *s1, const char *s2, size n);
 char *strcpy(char *dest, const char *src);
 char *strncpy(char *dest, const char *src, size n);
 char *strchr(const char *s, int c);
-char *strtok(char *str, const char *delim);
+char *strtok_r(char *str, const char *delim, char **saveptr);
 char *strdup(const char *s);
 
 void *memset(void *s, int c, size n);

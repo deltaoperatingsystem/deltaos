@@ -160,8 +160,9 @@ Node *parse(CharStack *src) {
 }
 
 int main(int argc, char **argv) {
-    CharStack *src = charstack(122);
-    strcpy(src->stack, "# example configuration\nUsers {\n    user \"alice\" {\n        home = \"/\";\n        shell = \"/system/binaries/shell\";\n    }\n}");
+    static const char example[] = "# example configuration\nUsers {\n    user \"alice\" {\n        home = \"/\";\n        shell = \"/system/binaries/shell\";\n    }\n}";
+    CharStack *src = charstack(sizeof(example));
+    memcpy(src->stack, example, sizeof(example));
     Token t;
     do {
         t = get_token(src);

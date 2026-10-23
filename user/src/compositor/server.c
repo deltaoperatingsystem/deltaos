@@ -168,7 +168,11 @@ static void handle_create_surface(handle_t reply_ch, uint32 pid, uint16 w, uint1
 
 static void handle_commit(surface_t *s) {
     s->committed = true;
+    surface_latch(s);
     damage_add_rect(s->x, s->y, s->content_w, s->content_h);
+    //the shared buffer has been copied, so the client may draw into it again
+    comp_msg_t done = { .type = MSG_FRAME_DONE };
+    send_msg(s->ch, &done);
 }
 
 static void handle_destroy(surface_id_t id) {
@@ -188,6 +192,7 @@ static void handle_resize(surface_t *s, uint16 w, uint16 h) {
         return;
     }
     s->committed = true;
+    surface_latch(s);
     damage_add_surface_rect(s);
     INFO("Resized surface id=%u to %ux%u\n", s->id, w, h);
 }

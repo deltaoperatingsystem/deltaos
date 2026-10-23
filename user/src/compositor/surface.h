@@ -10,6 +10,8 @@ int find_surface_by_ch(handle_t ch);
 void surface_remove_at(int idx);
 //remap compositor side pixels after the client resized the VMO
 bool surface_map_vmo(surface_t *s);
+//copy the client's shared pixels into the private front buffer (called on commit)
+bool surface_latch(surface_t *s);
 //shared creation path for app surfaces and future internal surfaces
 void surface_create_common(surface_t *s, uint32 pid, uint16 w, uint16 h, handle_t ch);
 

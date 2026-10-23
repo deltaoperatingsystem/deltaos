@@ -37,6 +37,8 @@ typedef enum {
     MSG_SURFACE_DESTROYED,
     MSG_SURFACE_ACTIVATED,
     MSG_SURFACE_LIST,
+    //compositor->client: commit has been latched, shared buffer is free again
+    MSG_FRAME_DONE,
 } comp_msg_type_t;
 
 typedef struct {

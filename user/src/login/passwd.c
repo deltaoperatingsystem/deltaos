@@ -13,7 +13,8 @@ char* serialize_passwd(struct passwd* pwd) {
         return NULL;
     }
     
-    if (snprintf(str, sz, "%s,%s", pwd->username, pwd->pwd_hash) != (sz - 1)) {
+    int written = snprintf(str, sz, "%s,%s", pwd->username, pwd->pwd_hash);
+    if (written < 0 || (size_t)written != sz - 1) {
         free(str);
         return NULL;
     }

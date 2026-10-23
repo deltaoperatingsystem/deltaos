@@ -20,9 +20,7 @@ static void push_history(const char *line) {
         return;
     }
 
-    for (uint32 i = 1; i < HISTORY_LINES; i++) {
-        strcpy(history[i - 1], history[i]);
-    }
+    memmove(history[0], history[1], (HISTORY_LINES - 1) * INPUT_MAX);
     strncpy(history[HISTORY_LINES - 1], line, INPUT_MAX - 1);
     history[HISTORY_LINES - 1][INPUT_MAX - 1] = '\0';
 }

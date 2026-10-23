@@ -10,6 +10,9 @@ int ns_register(const char *name, object_t *obj, handle_rights_t max_rights);
 //unregister an object by name
 int ns_unregister(const char *name);
 
+//unregister only if the entry at name is still obj
+int ns_unregister_if(const char *name, object_t *obj);
+
 //lookup an object by name (returns with +1 ref, caller must deref)
 //if max_rights_out is non-NULL the registered rights ceiling is written there
 object_t *ns_lookup_ex(const char *name, handle_rights_t *max_rights_out);

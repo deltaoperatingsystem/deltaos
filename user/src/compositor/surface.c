@@ -27,6 +27,9 @@ void surface_remove_at(int idx) {
     //tear down the VMO mapping VMO handle and channel
     if (s->pixels && s->vmo_size > 0)
         vmo_unmap(s->pixels, s->vmo_size);
+    free(s->front);
+    s->front = NULL;
+    s->front_size = 0;
     if (s->vmo != INVALID_HANDLE)
         handle_close(s->vmo);
     if (s->ch != INVALID_HANDLE)
@@ -64,6 +67,21 @@ bool surface_map_vmo(surface_t *s) {
         ERROR("vmo_map failed for surface id=%u\n", s->id);
         return false;
     }
+    return true;
+}
+
+//snapshot the shared buffer so the compositor never samples a half-drawn frame;
+//on allocation failure the previous front buffer is kept
+bool surface_latch(surface_t *s) {
+    if (!s || !s->pixels || s->vmo_size == 0) return false;
+    if (s->front_size != s->vmo_size || !s->front) {
+        uint32 *nf = malloc(s->vmo_size);
+        if (!nf) return false;
+        free(s->front);
+        s->front = nf;
+        s->front_size = s->vmo_size;
+    }
+    memcpy(s->front, s->pixels, s->vmo_size);
     return true;
 }
 

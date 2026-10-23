@@ -14,6 +14,8 @@ typedef struct malloc_header {
 #define HEADER_SIZE sizeof(malloc_header_t)
 
 extern malloc_header_t *_malloc_free_list;
+//last block in address order, so heap growth doesn't have to walk the list
+extern malloc_header_t *_malloc_tail;
 
 static inline size _malloc_align_up(size s) {
     return (s + 15) & ~15;
@@ -25,6 +27,6 @@ static inline malloc_header_t *_malloc_get_header(void *ptr) {
 
 malloc_header_t *_malloc_find_free_block(size desired_len);
 void _malloc_split_block(malloc_header_t *header, size aligned_len);
-void _malloc_coalesce(malloc_header_t *header);
+malloc_header_t *_malloc_coalesce(malloc_header_t *header);
 
 #endif

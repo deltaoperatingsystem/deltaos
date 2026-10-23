@@ -23,6 +23,7 @@ struct thread;
 
 typedef struct proc_ns_registration {
     char *path;
+    object_t *obj; //owning reference; identity checked on unregister
     struct proc_ns_registration *next;
 } proc_ns_registration_t;
 
@@ -116,7 +117,7 @@ process_t *process_create_user_suspended(const char *name);
 //destroy a process
 void process_destroy(process_t *proc);
 
-int process_track_ns_registration(process_t *proc, const char *path);
+int process_track_ns_registration(process_t *proc, const char *path, object_t *obj);
 
 //get the process as a kernel object (for granting handles to processes)
 object_t *process_get_object(process_t *proc);

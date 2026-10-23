@@ -68,7 +68,9 @@ typedef struct {
     surface_id_t id;
     uint32       owner_pid;
     handle_t     ch;
-    uint32      *pixels;
+    uint32      *pixels;     //client-writable shared mapping, may be mid-draw
+    uint32      *front;      //compositor-private copy latched on commit, this is what gets drawn
+    size         front_size;
     handle_t     vmo;
     size         vmo_size;
     uint16       w, h;
