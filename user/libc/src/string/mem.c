@@ -4,20 +4,23 @@
 //weak symbols allow architecture-specific override
 //while keeping the base libc portable
 
-__attribute__((weak)) void *memcpy(void *dest, const void *src, size n) {
+//stop gcc from turning the byte loops below into calls to themselves
+#define NO_LOOP_IDIOMS __attribute__((optimize("no-tree-loop-distribute-patterns")))
+
+NO_LOOP_IDIOMS __attribute__((weak)) void *memcpy(void *dest, const void *src, size n) {
     unsigned char *d = dest;
     const unsigned char *s = src;
     for (size i = 0; i < n; i++) d[i] = s[i];
     return dest;
 }
 
-__attribute__((weak)) void *memset(void *s, int c, size n) {
+NO_LOOP_IDIOMS __attribute__((weak)) void *memset(void *s, int c, size n) {
     unsigned char *p = s;
     for (size i = 0; i < n; i++) p[i] = (unsigned char)c;
     return s;
 }
 
-__attribute__((weak)) void *memmove(void *dest, const void *src, size n) {
+NO_LOOP_IDIOMS __attribute__((weak)) void *memmove(void *dest, const void *src, size n) {
     unsigned char *d = dest;
     const unsigned char *s = src;
     if (d < s) {

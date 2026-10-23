@@ -21,6 +21,12 @@ void handle_init(void) {
     ns_init();
 }
 
+//copy "$files" into a fixed prefix buffer; the static assert catches buffers that become too small
+#define SET_FILES_PREFIX(buf) do { \
+    _Static_assert(sizeof(buf) >= sizeof("$files"), "prefix buffer too small for $files"); \
+    memcpy((buf), "$files", sizeof("$files")); \
+} while (0)
+
 static int resolve_full_path(const char *path, char *out, size out_max) {
     if (!path) return -1;
     process_t *proc = process_current();
@@ -112,7 +118,7 @@ int handle_create(const char *path, uint32 type) {
 
         //absolute path - default to $files namespace
         //we skip the leading slash for the filesystem-internal path
-        strcpy(prefix, "$files");
+        SET_FILES_PREFIX(prefix);
         slash = resolved_path;
     } else {
         //legacy namespace fallback
@@ -345,7 +351,7 @@ int handle_stat(const char *path, stat_t *st) {
     char prefix[64];
     
     if (final_path[0] == '/') {
-        strcpy(prefix, "$files");
+        SET_FILES_PREFIX(prefix);
         slash = final_path;
     } else {
         return -1;  //should not happen after normalization
@@ -424,7 +430,7 @@ int handle_remove(const char *path) {
     char prefix[64];
     
     if (resolved_path[0] == '/') {
-        strcpy(prefix, "$files");
+        SET_FILES_PREFIX(prefix);
         slash = resolved_path;
     } else if (resolved_path[0] == '$') {
         const char *s = resolved_path + 1;
@@ -486,7 +492,7 @@ int handle_rename(const char *oldpath, const char *newpath) {
     char prefix_old[64], prefix_new[64];
 
     if (resolved_old[0] == '/') {
-        strcpy(prefix_old, "$files");
+        SET_FILES_PREFIX(prefix_old);
         slash_old = resolved_old;
     } else if (resolved_old[0] == '$') {
         const char *s = resolved_old + 1;
@@ -501,7 +507,7 @@ int handle_rename(const char *oldpath, const char *newpath) {
     }
 
     if (resolved_new[0] == '/') {
-        strcpy(prefix_new, "$files");
+        SET_FILES_PREFIX(prefix_new);
         slash_new = resolved_new;
     } else if (resolved_new[0] == '$') {
         const char *s = resolved_new + 1;

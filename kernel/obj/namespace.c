@@ -169,6 +169,25 @@ int ns_unregister(const char *name) {
     return 0;
 }
 
+int ns_unregister_if(const char *name, object_t *obj) {
+    if (!name || !obj) return -1;
+
+    spinlock_acquire(&ns_lock);
+
+    ns_node_t *node = ns_walk(name, /*create=*/false);
+    if (!node || node->obj != obj) {
+        spinlock_release(&ns_lock);
+        return -1;
+    }
+
+    object_deref(node->obj);
+    node->obj        = NULL;
+    node->max_rights = HANDLE_RIGHTS_ALL;
+
+    spinlock_release(&ns_lock);
+    return 0;
+}
+
 object_t *ns_lookup_ex(const char *name, handle_rights_t *max_rights_out) {
     if (!name) return NULL;
 

@@ -196,7 +196,7 @@ void render_surfaces(uint32 *fb) {
         surface_t *s = &comp.surfaces[idx];
         if (!s->alive) continue;
 
-        if (s->pixels) {
+        if (s->front && s->front_size == s->vmo_size) {
             int dst_x0 = max(max((int)s->x, 0), (int)comp.damage_x0);
             int dst_y0 = max(max((int)s->y, 0), (int)comp.damage_y0);
             int dst_x1 = min(min((int)(s->x + s->content_w), comp.screen_w), (int)comp.damage_x1);
@@ -214,7 +214,7 @@ void render_surfaces(uint32 *fb) {
 
                 if (copy_w > 0 && copy_h > 0) {
                     for (int row = 0; row < copy_h; row++) {
-                        uint32 *src_row = s->pixels + (size)(src_y0 + row) * s->w + src_x0;
+                        uint32 *src_row = s->front + (size)(src_y0 + row) * s->w + src_x0;
                         uint32 *dst_row = fb + (size)(dst_y0 + row) * comp.row_stride + dst_x0;
                         for (int col = 0; col < copy_w; col++) {
                             dst_row[col] = src_row[col];

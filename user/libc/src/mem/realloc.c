@@ -21,6 +21,7 @@ void *realloc(void *ptr, size len) {
         malloc_header_t *old_next = header->next;
         header->next = old_next->next;
         if (header->next) header->next->prev = header;
+        else _malloc_tail = header;
         
         _malloc_split_block(header, aligned_len);
         return ptr;

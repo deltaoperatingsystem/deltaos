@@ -7,14 +7,25 @@ int abs(int j) {
 }
 
 int atoi(const char *s) {
-    int res = 0;
-    int sign = 1;
-    if (*s == '-') { sign = -1; s++; }
+    while (*s == ' ' || (*s >= '\t' && *s <= '\r')) s++;
+
+    int neg = 0;
+    if (*s == '-') { neg = 1; s++; }
+    else if (*s == '+') { s++; }
+
+    //accumulate as unsigned and saturate on overflow
+    unsigned int limit = neg ? 2147483648u : 2147483647u;
+    unsigned int res = 0;
     while (*s >= '0' && *s <= '9') {
-        res = res * 10 + (*s - '0');
+        unsigned int d = (unsigned int)(*s - '0');
+        if (res > (limit - d) / 10) {
+            res = limit;
+            break;
+        }
+        res = res * 10 + d;
         s++;
     }
-    return res * sign;
+    return neg ? (int)(0u - res) : (int)res;
 }
 
 double atof(const char *s) {

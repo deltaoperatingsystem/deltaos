@@ -115,6 +115,7 @@ void tlb_shootdown_receive(void) {
 void mmu_tlb_sync_cpu(void) {
     for (;;) {
         uint64 g = tlb_shootdown_gen;
+        mmu_flush_current_tlb();
         tlb_ack_gen(g);
         arch_rmb();
         if (tlb_shootdown_gen == g) break;

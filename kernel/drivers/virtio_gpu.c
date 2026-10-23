@@ -46,7 +46,7 @@ static void gpu_mutex_release(gpu_mutex_t *m) {
 
 //IRQ context must never sleep on the mutex
 static bool gpu_mutex_try_acquire(gpu_mutex_t *m) {
-    spinlock_acquire(&m->lock);
+    if (!spinlock_try_acquire(&m->lock)) return false;
     bool got = !m->held;
     if (got) m->held = true;
     spinlock_release(&m->lock);

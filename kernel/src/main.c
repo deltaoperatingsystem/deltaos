@@ -253,7 +253,8 @@ void parse_cmdline(const char *cmdline) {
     if (len >= sizeof(buf)) len = sizeof(buf) - 1;
     memcpy(buf, cmdline, len);
     buf[len] = '\0';
-    char *arg = strtok(buf, " ");
+    char *tok_save = NULL;
+    char *arg = strtok_r(buf, " ", &tok_save);
     while (arg) {
         if (strcmp(arg, "debug") == 0) {
             io_enable_serial();
@@ -273,7 +274,7 @@ void parse_cmdline(const char *cmdline) {
         } else {
             printf("[cmdline] unknown option %s\n", arg);
         }
-        arg = strtok(NULL, " ");
+        arg = strtok_r(NULL, " ", &tok_save);
     }
 }
 
