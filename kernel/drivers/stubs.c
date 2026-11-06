@@ -9,6 +9,7 @@
 #include <drivers/mouse.h>
 #include <drivers/vt/vt.h>
 #include <drivers/rtl8139.h>
+#include <drivers/hid.h>
 #include <drivers/usb/xhci.h>
 #include <drivers/sb16.h>
 
@@ -115,6 +116,14 @@ WEAK void rtl8139_poll(void) {}
 //xHCI stubs
 WEAK void xhci_start(void) {}
 WEAK void xhci_irq(void) {}
+
+//HID stubs
+WEAK void hid_report_received(uint8 proto, const void *report, uint32 len) { (void)proto; (void)report; (void)len; }
+WEAK bool hid_parse_report_descriptor(const void *desc, uint32 len, uint8 *proto_out, uint8 *report_id_out, uint16 *report_len_out) { (void)desc; (void)len; (void)proto_out; (void)report_id_out; (void)report_len_out; return false; }
+WEAK bool hid_usb_keyboard_active(void) { return false; }
+WEAK bool hid_usb_mouse_active(void) { return false; }
+WEAK void hid_usb_keyboard_detached(void) {}
+WEAK void hid_usb_mouse_detached(void) {}
 
 //SB16 stubs
 WEAK void sb16_init(void) {}

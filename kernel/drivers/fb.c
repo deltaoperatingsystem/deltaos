@@ -386,9 +386,10 @@ void fb_scroll(uint32 lines, uint32 bg_color) {
     uint32 *disp = active_backend ? active_backend->display_buffer : boot_vram;
 
     if (draw != disp && disp) {
-        //double-buffered: scroll both so they stay in sync
+        //double-buffered: scroll the cached RAM backbuffer and flush it to VRAM
+        //rather than scrolling disp directly (which would read from uncached VRAM)
         fb_scroll_target(draw, lines, bg_color);
-        fb_scroll_target(disp, lines, bg_color);
+        fb_flip();
         return;
     }
 

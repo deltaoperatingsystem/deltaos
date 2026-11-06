@@ -84,22 +84,8 @@ void *memcpy(void *dest, const void *src, size n) {
         return dest;
     }
 
-    //medium copies (65..255 bytes)
+    //medium copies (65..255 bytes): unrolled 32-byte GPR loop + overlapping 32-byte tail
     if (n < 256) {
-        if (has_fsrm && n <= 128) {
-            void *di = dest;
-            const void *si = src;
-            size cnt = n;
-            __asm__ volatile (
-                "rep movsb"
-                : "+D"(di), "+S"(si), "+c"(cnt)
-                :
-                : "memory"
-            );
-            return dest;
-        }
-
-        //unrolled 32-byte GPR loop + overlapping 32-byte tail
         const uint8 *s_tail = s + n - 32;
         uint8 *d_tail = d + n - 32;
         do {
@@ -125,21 +111,10 @@ void *memcpy(void *dest, const void *src, size n) {
         return dest;
     }
 
-    //large copies (n >= 256)
-    if (has_erms || has_fsrm) {
-        void *di = dest;
-        const void *si = src;
-        size cnt = n;
-        __asm__ volatile (
-            "rep movsb"
-            : "+D"(di), "+S"(si), "+c"(cnt)
-            :
-            : "memory"
-        );
-        return dest;
-    }
-
-    //fallback without ERMS: rep movsq for 8-byte chunks, single overlapping qword for tail
+    //large copies (n >= 256): always use rep movsq + single overlapping qword tail
+    //do not use rep movsb (ERMS/FSRM) in the kernel because memcpy is used on
+    //WC and UC MMIO/VRAM mappings where hardware
+    //disables fast-string microcode and degrades rep movsb to 1-byte bus transfers please
     void *di = dest;
     const void *si = src;
     size qwords = n >> 3;
@@ -217,20 +192,8 @@ void *memset(void *s, int c, size n) {
         return s;
     }
 
-    //large fills (n >= 256)
-    if (has_erms) {
-        void *di = s;
-        size cnt = n;
-        __asm__ volatile (
-            "rep stosb"
-            : "+D"(di), "+c"(cnt)
-            : "a"(val)
-            : "memory"
-        );
-        return s;
-    }
-
-    //fallback without ERMS: rep stosq + single overlapping 8-byte tail store
+    // on l arge fills (n >= 256) always use rep stosq + single overlapping 8-byte tail store
+    //so WC/UC MMIO regions (like VRAM) get 64-bit stores instead of 1-byte ERMS fallback
     void *di = s;
     size qwords = n >> 3;
     __asm__ volatile (
