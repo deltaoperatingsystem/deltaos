@@ -29,8 +29,8 @@ void _malloc_split_block(malloc_header_t *header, size aligned_len) {
     }
 }
 
-//merges a free block with free neighbours and returns the block that survives;
-//the passed header must not be used afterwards, as it may have merged into its predecessor
+//merges a free block with free neighbours and returns the block that survives
+//the passed header must not be used afterwards, as it may have merged into its predecessor btw
 malloc_header_t *_malloc_coalesce(malloc_header_t *header) {
     if (!header || !header->is_free) return header;
 

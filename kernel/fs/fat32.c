@@ -1677,7 +1677,7 @@ static int fat32_fs_rename(fs_t *fs_obj, const char *old_path, const char *new_p
     }
 
     //new path must not already exist
-    //an existing destination may only be replaced when both sides are regular files;
+    //an existing destination may only be replaced when both sides are regular files
     //it is left untouched until the new entry has been written
     fat32_dirent_t dst_ent;
     uint64 dst_entry_offset = 0;

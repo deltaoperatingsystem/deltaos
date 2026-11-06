@@ -70,7 +70,7 @@ bool surface_map_vmo(surface_t *s) {
     return true;
 }
 
-//snapshot the shared buffer so the compositor never samples a half-drawn frame;
+//snapshot the shared buffer so the compositor never samples a half-drawn frame
 //on allocation failure the previous front buffer is kept
 bool surface_latch(surface_t *s) {
     if (!s || !s->pixels || s->vmo_size == 0) return false;

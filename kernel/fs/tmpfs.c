@@ -66,7 +66,7 @@ static void tmpfs_node_hold_locked(tmpfs_node_t *node) {
     if (node) node->refcount++;
 }
 
-//caller must hold tmpfs_lock; node must be unlinked with no references.
+//caller must hold tmpfs_lock; node must be unlinked with no references
 //descendants are orphaned, and freed recursively unless something still holds them open
 static void tmpfs_destroy_unlinked_locked(tmpfs_node_t *node) {
     if (node->type == FS_TYPE_FILE) {

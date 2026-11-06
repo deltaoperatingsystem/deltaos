@@ -128,6 +128,9 @@ static void vt_hide_cursor_locked(vt_t *vt) {
     if (!vt || vt->vt_num != active_vt || !vt->cursor_drawn) return;
 
     vt_draw_cell(vt, vt->cursor_drawn_col, vt->cursor_drawn_row, false);
+    fb_flip_rect(vt->cursor_drawn_col * FONT_WIDTH,
+                 vt->cursor_drawn_row * FONT_HEIGHT,
+                 FONT_WIDTH, FONT_HEIGHT);
     vt->cursor_drawn = false;
 }
 
@@ -172,9 +175,12 @@ static void vt_render_to_console_locked(vt_t *vt) {
     uint32 start_row = vt->dirty_start;
     uint32 end_row = vt->dirty_end;
 
-    if (start_row > end_row) return;  //nothing dirty
+    if (start_row > end_row || start_row >= vt->rows) return;  //nothing dirty
+    if (end_row >= vt->rows) end_row = vt->rows - 1;
 
-    for (uint32 row = start_row; row <= end_row && row < vt->rows; row++) {
+    vt_hide_cursor_locked(vt);
+
+    for (uint32 row = start_row; row <= end_row; row++) {
         for (uint32 col = 0; col < vt->cols; col++) {
             vt_cell_t *cell = &vt->cells[row * vt->cols + col];
             //cast codepoint to char for now (BMP only until font supports UTF)
@@ -186,9 +192,10 @@ static void vt_render_to_console_locked(vt_t *vt) {
     vt->dirty_start = vt->rows;
     vt->dirty_end = 0;
 
-    vt->cursor_drawn = false;
-    vt_sync_cursor_locked(vt, false);
-    con_flush();
+    fb_flip_rect(0, start_row * FONT_HEIGHT,
+                 vt->cols * FONT_WIDTH,
+                 (end_row - start_row + 1) * FONT_HEIGHT);
+    vt_sync_cursor_locked(vt, true);
 }
 
 static ssize vt_obj_read(object_t *obj, void *buf, size len, size offset) {
@@ -636,15 +643,11 @@ static void vt_set_cursor_visible_locked(vt_t *vt, bool visible) {
     vt->cursor_enabled = visible;
     if (!visible) {
         vt_hide_cursor_locked(vt);
-        if (vt->vt_num == active_vt) {
-            con_flush();
-        }
         return;
     }
 
     if (vt->vt_num == active_vt) {
-        vt_sync_cursor_locked(vt, false);
-        con_flush();
+        vt_sync_cursor_locked(vt, true);
     }
 }
 

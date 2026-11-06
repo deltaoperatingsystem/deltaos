@@ -23,7 +23,7 @@ char *strtok_r(char *str, const char *delim, char **saveptr) {
     return start;
 }
 
-//legacy non-reentrant wrapper; prefer strtok_r
+//legacy non-reentrant wrapper, prefer strtok_r
 char *strtok(char *str, const char *delim) {
     static char *saved;
     return strtok_r(str, delim, &saved);
